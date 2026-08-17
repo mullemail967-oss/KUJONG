@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Kujong - Das traditionelle Eifeler Kartenspiel</title>
+  <meta name="description" content="Kujong (Couillon) Multiplayer Kartenspiel (Eifel/Ostbelgien) für 4 Spieler in zwei Teams mit traditionellem belgischen Kartendeck.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- HAUPT-CONTAINER -->
+  <div id="app" class="app-container">
+
+    <!-- 1. LOBBY VIEW -->
+    <div id="lobbyScreen" class="screen active">
+      <div class="lobby-card">
+        <div class="lobby-header">
+          <div class="game-badge">Ostbelgien & Eifel Edition</div>
+          <h1 class="game-title">KUJONG</h1>
+          <p class="game-subtitle">Traditionelles 4-Spieler Team-Kartenspiel (13 Punkte Countdown)</p>
+        </div>
+
+        <div id="lobbyInitialOptions" class="lobby-section">
+          <div class="input-group">
+            <label for="playerNameInput">Dein Spielername</label>
+            <input type="text" id="playerNameInput" placeholder="Name eingeben..." maxlength="15" autofocus>
+          </div>
+
+          <div class="lobby-action-buttons">
+            <button id="createRoomBtn" class="btn btn-primary btn-large">
+              <span>🏰 Raum erstellen</span>
+            </button>
+            <div class="divider"><span>ODER</span></div>
+            <div class="join-box">
+              <input type="text" id="roomCodeInput" placeholder="4-stelliger Code (z.B. ABCD)" maxlength="4">
+              <button id="joinRoomBtn" class="btn btn-secondary">Beitreten</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Warteraum / Raum-Lobby -->
+        <div id="lobbyWaitingRoom" class="lobby-section hidden">
+          <div class="room-info-bar">
+            <div class="room-code-display">
+              <span class="label">Raumcode:</span>
+              <span id="displayRoomCode" class="code-val">----</span>
+              <button id="copyInviteBtn" class="btn btn-sm btn-outline" title="Einladungslink kopieren">📋 Link kopieren</button>
+            </div>
+            <div id="copySuccessMsg" class="copy-success hidden">Link kopiert!</div>
+          </div>
+
+          <div class="team-seats-container">
+            <!-- TEAM A (Sitze 1 & 3 / Index 0 & 2) -->
+            <div class="team-box team-a">
+              <div class="team-title">Team A <span>(Sitze 1 & 3)</span></div>
+              <div class="seat-slot" data-seat="0" id="seatSlot0">
+                <div class="seat-info">
+                  <span class="seat-num">Platz 1</span>
+                  <span class="player-name">Frei</span>
+                </div>
+                <div class="seat-controls">
+                  <button class="btn btn-xs btn-seat-join" onclick="switchSeat(0)">Einnehmen</button>
+                  <button class="btn btn-xs btn-seat-bot" onclick="toggleBot(0)">+ Bot</button>
+                </div>
+              </div>
+              <div class="seat-slot" data-seat="2" id="seatSlot2">
+                <div class="seat-info">
+                  <span class="seat-num">Platz 3 (Partner)</span>
+                  <span class="player-name">Frei</span>
+                </div>
+                <div class="seat-controls">
+                  <button class="btn btn-xs btn-seat-join" onclick="switchSeat(2)">Einnehmen</button>
+                  <button class="btn btn-xs btn-seat-bot" onclick="toggleBot(2)">+ Bot</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="vs-badge">VS</div>
+
+            <!-- TEAM B (Sitze 2 & 4 / Index 1 & 3) -->
+            <div class="team-box team-b">
+              <div class="team-title">Team B <span>(Sitze 2 & 4)</span></div>
+              <div class="seat-slot" data-seat="1" id="seatSlot1">
+                <div class="seat-info">
+                  <span class="seat-num">Platz 2</span>
+                  <span class="player-name">Frei</span>
+                </div>
+                <div class="seat-controls">
+                  <button class="btn btn-xs btn-seat-join" onclick="switchSeat(1)">Einnehmen</button>
+                  <button class="btn btn-xs btn-seat-bot" onclick="toggleBot(1)">+ Bot</button>
+                </div>
+              </div>
+              <div class="seat-slot" data-seat="3" id="seatSlot3">
+                <div class="seat-info">
+                  <span class="seat-num">Platz 4 (Partner)</span>
+                  <span class="player-name">Frei</span>
+                </div>
+                <div class="seat-controls">
+                  <button class="btn btn-xs btn-seat-join" onclick="switchSeat(3)">Einnehmen</button>
+                  <button class="btn btn-xs btn-seat-bot" onclick="toggleBot(3)">+ Bot</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="lobby-controls">
+            <button id="startGameBtn" class="btn btn-primary btn-large btn-glow" disabled>
+              ⏳ Warte auf 4 Spieler...
+            </button>
+            <button id="fillBotsBtn" class="btn btn-outline btn-sm">🤖 Mit Bots auffüllen</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2. SPIELTISCH (GAME VIEW) -->
+    <div id="gameScreen" class="screen">
+      
+      <!-- HEADER / 13er SCOREBOARD (WIR vs SIE) MIT KONTRA TOOLBAR -->
+      <header class="game-header">
+        <!-- WIR Punktestand -->
+        <div class="team-score-card score-we" id="scoreCardWe">
+          <div class="team-header-row">
+            <span class="team-label" id="labelWe">WIR</span>
+          </div>
+          <div class="score-main">
+            <span id="scoreWe" class="points-val">13</span>
+            <span class="points-label">Pkt</span>
+          </div>
+          <div class="round-stats">
+            <span>Stiche: <strong id="tricksWe">0</strong></span>
+            <span>Augen: <strong id="eyesWe">0</strong></span>
+          </div>
+        </div>
+
+        <!-- Runde & Trumpf & Info-Zentrum -->
+        <div class="center-info-board">
+          <div class="round-badge">Runde <span id="roundNumberDisplay">1</span></div>
+          <div class="trump-badge-container">
+            <div id="trumpBadge" class="trump-badge suit-none">
+              <span class="trump-icon">?</span>
+              <span class="trump-text">Wahl...</span>
+            </div>
+            <div id="mitBadge" class="mit-badge hidden">
+              <span>⭐ Mit' (2 Pkt)</span>
+            </div>
+            <div id="contraBadge" class="contra-badge hidden">
+              <span>⚡ KONTRA (4 Pkt)</span>
+            </div>
+          </div>
+          <div id="statusMessage" class="status-ticker">Spiel startet...</div>
+        </div>
+
+        <!-- HEADER TOOLS (Kontra-Knopf, Letzter Stich, Ton, Chat) -->
+        <div class="header-tools">
+          <button id="announceContraBtn" class="btn-tool btn-contra hidden" onclick="announceContra()" title="Kontra ansagen (Rundenwert: 4 Punkte / 5 bei Durchmarsch)">
+            ⚡ KONTRA (4 Pkt)
+          </button>
+          <button id="viewLastTrickBtn" class="btn-tool hidden" onclick="openLastTrickModal()" title="Letzten Stich ansehen">
+            👁️ Stich
+          </button>
+          <button id="soundToggleBtn" class="btn-tool btn-tool-icon" title="Ton ein/ausschalten">🔊</button>
+          <button id="logToggleBtn" class="btn-tool btn-tool-icon" title="Spielprotokoll & Chat">💬 <span id="chatBadge" class="badge hidden">0</span></button>
+        </div>
+
+        <!-- SIE Punktestand -->
+        <div class="team-score-card score-they" id="scoreCardThey">
+          <div class="team-header-row">
+            <span class="team-label" id="labelThey">SIE</span>
+          </div>
+          <div class="score-main">
+            <span id="scoreThey" class="points-val">13</span>
+            <span class="points-label">Pkt</span>
+          </div>
+          <div class="round-stats">
+            <span>Stiche: <strong id="tricksThey">0</strong></span>
+            <span>Augen: <strong id="eyesThey">0</strong></span>
+          </div>
+        </div>
+      </header>
+
+      <!-- VIRTUELLER FILZTISCH -->
+      <main class="felt-table-wrapper">
+        <div class="felt-table" id="feltTable">
+
+          <!-- GEWONNENE STICHE STAPEL (WIR - LINKS OBEN) -->
+          <div class="won-tricks-pile pile-we" id="tricksPileWe" onclick="openLastTrickModal()" title="Eigene gewonnene Stiche ansehen">
+            <div class="pile-card-stack" id="pileStackWe"></div>
+            <div class="pile-label">
+              <span class="pile-team">WIR</span>
+              <span class="pile-count" id="pileCountWe">0 Stiche</span>
+            </div>
+          </div>
+
+          <!-- GEWONNENE STICHE STAPEL (SIE - RECHTS OBEN) -->
+          <div class="won-tricks-pile pile-they" id="tricksPileThey" onclick="openLastTrickModal()" title="Gegnerische gewonnene Stiche ansehen">
+            <div class="pile-card-stack" id="pileStackThey"></div>
+            <div class="pile-label">
+              <span class="pile-team">SIE</span>
+              <span class="pile-count" id="pileCountThey">0 Stiche</span>
+            </div>
+          </div>
+
+          <!-- SPIELER OBEN (Partner) -->
+          <div class="table-player player-top" id="playerTop">
+            <div class="player-avatar-box">
+              <div class="avatar-icon">👤</div>
+              <div class="player-badges">
+                <span class="badge badge-dealer hidden" id="dealerTop">G</span>
+              </div>
+            </div>
+            <div class="player-meta">
+              <span class="name" id="nameTop">Partner</span>
+              <span class="declarer-pill hidden" id="declarerPillTop">👑 Ansager</span>
+              <span class="team-tag tag-we" id="tagTop">WIR</span>
+            </div>
+            <div class="hand-card-backs" id="cardsTop">
+              <!-- Mini-Kartenrücken -->
+            </div>
+          </div>
+
+          <!-- SPIELER LINKS (Gegner 1) -->
+          <div class="table-player player-left" id="playerLeft">
+            <div class="player-avatar-box">
+              <div class="avatar-icon">👤</div>
+              <div class="player-badges">
+                <span class="badge badge-dealer hidden" id="dealerLeft">G</span>
+              </div>
+            </div>
+            <div class="player-meta">
+              <span class="name" id="nameLeft">Gegner 1</span>
+              <span class="declarer-pill hidden" id="declarerPillLeft">👑 Ansager</span>
+              <span class="team-tag tag-they" id="tagLeft">SIE</span>
+            </div>
+            <div class="hand-card-backs vertical" id="cardsLeft">
+              <!-- Mini-Kartenrücken -->
+            </div>
+          </div>
+
+          <!-- SPIELER RECHTS (Gegner 2) -->
+          <div class="table-player player-right" id="playerRight">
+            <div class="player-avatar-box">
+              <div class="avatar-icon">👤</div>
+              <div class="player-badges">
+                <span class="badge badge-dealer hidden" id="dealerRight">G</span>
+              </div>
+            </div>
+            <div class="player-meta">
+              <span class="name" id="nameRight">Gegner 2</span>
+              <span class="declarer-pill hidden" id="declarerPillRight">👑 Ansager</span>
+              <span class="team-tag tag-they" id="tagRight">SIE</span>
+            </div>
+            <div class="hand-card-backs vertical" id="cardsRight">
+              <!-- Mini-Kartenrücken -->
+            </div>
+          </div>
+
+          <!-- ZENTRUM: STICH-BEREICH (4 gelegte Karten) -->
+          <div class="trick-center" id="trickCenter">
+            <div class="trick-slot slot-top" id="trickSlotTop">
+              <div class="card-placeholder"></div>
+            </div>
+            <div class="trick-slot slot-left" id="trickSlotLeft">
+              <div class="card-placeholder"></div>
+            </div>
+            <div class="trick-slot slot-right" id="trickSlotRight">
+              <div class="card-placeholder"></div>
+            </div>
+            <div class="trick-slot slot-bottom" id="trickSlotBottom">
+              <div class="card-placeholder"></div>
+            </div>
+            
+            <div id="trickBanner" class="trick-banner hidden">
+              <span id="trickWinnerText">Stich an Spieler X</span>
+            </div>
+          </div>
+
+          <!-- SPIELER UNTEN (Du / Eigene Hand) -->
+          <div class="table-player player-bottom" id="playerBottom">
+            <div class="player-meta-row">
+              <div class="my-info">
+                <span class="name" id="nameBottom">Du</span>
+                <span class="declarer-pill hidden" id="declarerPillBottom">👑 Ansager</span>
+                <span class="team-tag tag-we" id="tagBottom">WIR</span>
+                <span class="badge badge-dealer hidden" id="dealerBottom">Geber</span>
+              </div>
+              <div id="turnIndicator" class="turn-indicator hidden">⚡ Du bist am Zug!</div>
+            </div>
+
+            <!-- MIT'-ANSAGE BANNER IN DER EIGENEN ECKE VOR DEM LEGEN -->
+            <div id="mitActionBanner" class="mit-action-banner hidden">
+              <div class="mit-banner-text">
+                ⭐ Du hast die <strong>Pik-Dame (Mit')</strong>! Möchtest du vor dem Legen ansagen?
+              </div>
+              <div class="mit-banner-buttons">
+                <button class="btn btn-xs btn-primary btn-glow" onclick="announceMit(true)">
+                  ⭐ Mit' ansagen (2 Pkt)
+                </button>
+                <button class="btn btn-xs btn-outline" onclick="dismissMitBanner()">
+                  ✕ Nicht ansagen
+                </button>
+              </div>
+            </div>
+
+            <!-- EIGENER KARTENFÄCHER -->
+            <div class="my-hand-container">
+              <div class="my-hand-fan" id="myHandFan">
+                <!-- Dynamisch gerenderte Handkarten -->
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </main>
+    </div>
+
+  </div>
+
+  <!-- MODAL: TRUMPFAUSWAHL (Für den Ansager) -->
+  <div id="trumpModal" class="modal-overlay hidden">
+    <div class="modal-card trump-dialog">
+      <div class="modal-header">
+        <span class="modal-tag">Trumpfwahl (Du bist Ansager)</span>
+        <h2>Wähle die Trumpffarbe</h2>
+        <p>Hier sind deine ersten 3 Handkarten:</p>
+      </div>
+
+      <!-- DEINE 3 KARTEN PROMINENT SICHTBAR -->
+      <div class="trump-dealt-cards" id="trumpDealtCards">
+        <!-- Werden via client.js gerendert -->
+      </div>
+
+      <div class="trump-prompt-title">Wähle anhand deiner 3 Karten den Trumpf:</div>
+      <div class="trump-buttons-grid">
+        <button class="trump-choice-btn suit-hearts" onclick="chooseTrump('hearts')">
+          <span class="suit-sym">♥</span>
+          <span class="suit-name">HERZ</span>
+        </button>
+        <button class="trump-choice-btn suit-diamonds" onclick="chooseTrump('diamonds')">
+          <span class="suit-sym">♦</span>
+          <span class="suit-name">KARO</span>
+        </button>
+        <button class="trump-choice-btn suit-spades" onclick="chooseTrump('spades')">
+          <span class="suit-sym">♠</span>
+          <span class="suit-name">PIK</span>
+        </button>
+        <button class="trump-choice-btn suit-clubs" onclick="chooseTrump('clubs')">
+          <span class="suit-sym">♣</span>
+          <span class="suit-name">KREUZ</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: LETZTER STICH (INSPEKTOR ZUM MITZÄHLEN) -->
+  <div id="lastTrickModal" class="modal-overlay hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <span class="modal-tag" id="lastTrickHeaderTag">Letzter Stich</span>
+        <h2 id="lastTrickHeaderTitle">Stichübersicht</h2>
+        <p id="lastTrickWinnerNote">Gewonnen von Spieler X (+X Augen)</p>
+      </div>
+      <div class="last-trick-cards-grid" id="lastTrickCardsGrid">
+        <!-- 4 gespielte Karten mit Spielernamen -->
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-primary btn-large" onclick="closeLastTrickModal()">
+          ✓ Zurück zum Spiel
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: RUNDENABRECHNUNG (KLARER SIEGER "WIR" vs "SIE") -->
+  <div id="roundSummaryModal" class="modal-overlay hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <span class="modal-tag" id="summaryRoundTag">Runde 1 beendet</span>
+        <h2 id="summaryResultTitle">Rundenergebnis</h2>
+        <div id="summaryWinnerBanner" class="summary-winner-banner">WIR gewinnen die Runde!</div>
+      </div>
+      <div class="summary-body">
+        <div class="summary-comparison">
+          <div class="summary-team-box team-we" id="summaryBoxWe">
+            <span class="team-name" id="summaryTitleWe">WIR</span>
+            <div class="stat-row">Augen: <strong id="summaryEyesWe">0</strong></div>
+            <div class="stat-row">Stiche: <strong id="summaryTricksWe">0</strong></div>
+            <div class="score-change" id="summaryChangeWe">0</div>
+          </div>
+          <div class="summary-vs">:</div>
+          <div class="summary-team-box team-they" id="summaryBoxThey">
+            <span class="team-name" id="summaryTitleThey">SIE</span>
+            <div class="stat-row">Augen: <strong id="summaryEyesThey">0</strong></div>
+            <div class="stat-row">Stiche: <strong id="summaryTricksThey">0</strong></div>
+            <div class="score-change" id="summaryChangeThey">0</div>
+          </div>
+        </div>
+
+        <div class="summary-reason-box" id="summaryReason">
+          Abrechnungsgrund...
+        </div>
+
+        <div class="stock-reveal-box">
+          <span class="stock-title">Im verdeckten Stock lagen (4 Karten):</span>
+          <div class="stock-cards-row" id="summaryStockCards"></div>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button id="nextRoundBtn" class="btn btn-primary btn-large btn-glow" onclick="nextRound()">
+          Nächste Runde starten ➜
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: SPIELENDE / MATCH GEWONNEN -->
+  <div id="gameOverModal" class="modal-overlay hidden">
+    <div class="modal-card celebration">
+      <div class="trophy-icon" id="gameOverTrophy">🏆</div>
+      <h1 id="gameOverTitle">WIR haben die Partie gewonnen!</h1>
+      <p id="gameOverSubtitle">Der Punktestand wurde auf 0 (oder weniger) heruntergespielt.</p>
+      <div class="final-score-box">
+        <div class="score-col" id="finalColWe">WIR: <strong id="finalScoreWe">0</strong></div>
+        <div class="score-divider">vs</div>
+        <div class="score-col" id="finalColThey">SIE: <strong id="finalScoreThey">13</strong></div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-primary btn-large btn-glow" onclick="restartGame()">
+          🔄 Neues Spiel starten (13 Punkte)
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- SIDEBAR: CHAT & SPIELPROTOKOLL -->
+  <div id="sideDrawer" class="side-drawer">
+    <div class="drawer-header">
+      <h3>Spielprotokoll & Chat</h3>
+      <button id="closeDrawerBtn" class="btn btn-xs btn-outline">✕</button>
+    </div>
+    <div class="drawer-tabs">
+      <button id="tabLog" class="tab-btn active" onclick="switchDrawerTab('log')">Protokoll</button>
+      <button id="tabChat" class="tab-btn" onclick="switchDrawerTab('chat')">Chat</button>
+    </div>
+    <div class="drawer-content">
+      <div id="logPanel" class="tab-panel active">
+        <ul id="actionLogList" class="log-list"></ul>
+      </div>
+      <div id="chatPanel" class="tab-panel">
+        <div id="chatMessagesList" class="chat-list"></div>
+        <form id="chatForm" class="chat-input-row" onsubmit="sendChat(event)">
+          <input type="text" id="chatInput" placeholder="Nachricht tippen..." maxlength="120">
+          <button type="submit" class="btn btn-sm btn-primary">Senden</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOAST NOTIFICATIONS -->
+  <div id="toastContainer" class="toast-container"></div>
+
+  <!-- Socket.io Script -->
+  <script src="/socket.io/socket.io.js"></script>
+  <!-- Client JavaScript -->
+  <script src="client.js"></script>
+</body>
+</html>
