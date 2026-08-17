@@ -387,30 +387,40 @@ input[type="text"]:focus {
 }
 
 .game-header {
-  height: 74px;
+  height: auto;
+  min-height: 74px;
   background: rgba(8, 18, 12, 0.95);
   border-bottom: 2px solid rgba(255, 255, 255, 0.08);
   display: flex;
-  justify-content: space-between;
+  flex-direction: column;
+  justify-content: center;
   align-items: center;
-  padding: 4px 14px;
-  gap: 8px;
+  padding: 4px 10px;
+  gap: 3px;
   z-index: 10;
   flex-shrink: 0;
+}
+
+.header-main-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  gap: 6px;
 }
 
 .team-score-card {
   display: flex;
   flex-direction: column;
-  padding: 4px 10px;
-  background: rgba(0, 0, 0, 0.45);
-  border-radius: 12px;
-  min-width: 95px;
+  padding: 3px 8px;
+  background: rgba(0, 0, 0, 0.55);
+  border-radius: 10px;
+  min-width: 80px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.4);
 }
 
-.team-score-card.score-we { border-left: 4px solid var(--team-we-gold); }
-.team-score-card.score-they { border-right: 4px solid var(--team-they-cyan); text-align: right; }
+.team-score-card.score-we { border-left: 3.5px solid var(--team-we-gold); }
+.team-score-card.score-they { border-right: 3.5px solid var(--team-they-cyan); text-align: right; }
 
 .team-header-row {
   display: flex;
@@ -856,28 +866,32 @@ input[type="text"]:focus {
   transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-.trick-slot.slot-top { top: 26px; }
-.trick-slot.slot-bottom { bottom: 18px; }
-.trick-slot.slot-left { left: 24px; }
-.trick-slot.slot-right { right: 24px; }
+.trick-slot.slot-top { top: 40px; }
+.trick-slot.slot-bottom { bottom: 12px; }
+.trick-slot.slot-left { left: 16px; }
+.trick-slot.slot-right { right: 16px; }
 
 .trick-banner {
   position: absolute;
-  background: rgba(0, 0, 0, 0.88);
-  border: 1px solid var(--team-we-gold);
+  top: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(8, 18, 12, 0.95);
+  border: 1.5px solid var(--team-we-gold);
   color: var(--team-we-gold);
   font-weight: 700;
-  padding: 6px 16px;
-  border-radius: 20px;
-  font-size: 0.85rem;
-  z-index: 20;
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.6);
+  padding: 4px 14px;
+  border-radius: 16px;
+  font-size: 0.76rem;
+  white-space: nowrap;
+  z-index: 30;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.8);
   animation: bannerPop 0.3s ease;
 }
 
 @keyframes bannerPop {
-  0% { transform: scale(0.8); opacity: 0; }
-  100% { transform: scale(1); opacity: 1; }
+  0% { transform: translateX(-50%) scale(0.8); opacity: 0; }
+  100% { transform: translateX(-50%) scale(1); opacity: 1; }
 }
 
 /* --------------------------------------------------------------------------
@@ -901,18 +915,19 @@ input[type="text"]:focus {
 
 .card-trump-tag {
   position: absolute;
-  top: -6px;
-  right: -6px;
+  bottom: 2px;
+  right: 2px;
   background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
   color: #000;
-  font-size: 0.6rem;
+  font-size: 0.48rem;
   font-weight: 900;
-  letter-spacing: 0.5px;
-  padding: 2px 6px;
-  border-radius: 6px;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.8), 0 0 10px rgba(245, 158, 11, 0.6);
+  letter-spacing: 0.2px;
+  padding: 1px 3px;
+  border-radius: 3px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
   z-index: 10;
   pointer-events: none;
+  line-height: 1;
 }
 
 /* Disabled / Non-playable cards */
@@ -1542,56 +1557,73 @@ input[type="text"]:focus {
    -------------------------------------------------------------------------- */
 @media (max-width: 640px) {
   .game-header {
-    height: 64px;
+    height: auto;
+    min-height: 72px;
     padding: 3px 6px;
+    gap: 2px;
+  }
+
+  .header-main-row {
     gap: 4px;
   }
 
   .team-score-card {
-    min-width: 70px;
-    padding: 2px 6px;
+    min-width: 68px;
+    padding: 2px 5px;
     border-radius: 8px;
   }
 
   .points-val {
-    font-size: 1.25rem;
+    font-size: 1.2rem;
   }
 
   .round-stats {
-    font-size: 0.62rem;
-    gap: 4px;
-  }
-
-  .header-tools {
+    font-size: 0.6rem;
     gap: 3px;
   }
 
+  .trump-badge {
+    padding: 2px 6px;
+    font-size: 0.78rem;
+    border-radius: 10px;
+  }
+
+  .mit-badge, .contra-badge {
+    font-size: 0.68rem;
+    padding: 1px 5px;
+  }
+
+  .header-tools {
+    gap: 4px;
+    padding-top: 1px;
+  }
+
   .btn-tool {
-    padding: 4px 6px;
-    font-size: 0.72rem;
-    border-radius: 12px;
+    padding: 3px 6px;
+    font-size: 0.68rem;
+    border-radius: 10px;
   }
 
   .btn-tool-icon {
-    padding: 4px 6px;
-    font-size: 0.78rem;
+    padding: 3px 6px;
+    font-size: 0.75rem;
   }
 
   .felt-table {
     border-radius: 20px;
     border-width: 4px;
-    grid-template-rows: 75px 1fr 130px;
-    grid-template-columns: 80px 1fr 80px;
+    grid-template-rows: 68px 1fr 115px;
+    grid-template-columns: 75px 1fr 75px;
   }
 
   .playing-card {
-    width: 54px;
-    height: 78px;
+    width: 52px;
+    height: 75px;
     border-radius: 6px;
   }
 
   .my-hand-container {
-    height: 100px;
+    height: 95px;
   }
 
   .my-hand-fan .playing-card {
@@ -1599,23 +1631,23 @@ input[type="text"]:focus {
   }
 
   .trick-slot {
-    width: 56px;
-    height: 80px;
+    width: 54px;
+    height: 78px;
   }
 
-  .trick-slot.slot-top { top: 16px; }
-  .trick-slot.slot-bottom { bottom: 12px; }
-  .trick-slot.slot-left { left: 10px; }
-  .trick-slot.slot-right { right: 10px; }
+  .trick-slot.slot-top { top: 34px; }
+  .trick-slot.slot-bottom { bottom: 8px; }
+  .trick-slot.slot-left { left: 8px; }
+  .trick-slot.slot-right { right: 8px; }
 
   .won-tricks-pile {
-    padding: 2px 6px;
+    padding: 2px 5px;
     gap: 3px;
     border-radius: 8px;
   }
 
-  .won-tricks-pile .pile-team { font-size: 0.65rem; }
-  .won-tricks-pile .pile-count { font-size: 0.65rem; }
+  .won-tricks-pile .pile-team { font-size: 0.62rem; }
+  .won-tricks-pile .pile-count { font-size: 0.62rem; }
 
   .won-tricks-pile.pile-we { top: 4px; left: 4px; }
   .won-tricks-pile.pile-they { top: 4px; right: 4px; }
@@ -1640,17 +1672,17 @@ input[type="text"]:focus {
 
 @media (max-width: 400px) {
   .felt-table {
-    grid-template-rows: 68px 1fr 115px;
-    grid-template-columns: 70px 1fr 70px;
+    grid-template-rows: 62px 1fr 105px;
+    grid-template-columns: 68px 1fr 68px;
   }
 
   .playing-card {
-    width: 46px;
-    height: 68px;
+    width: 45px;
+    height: 66px;
   }
 
   .my-hand-container {
-    height: 90px;
+    height: 85px;
   }
 
   .my-hand-fan .playing-card {
@@ -1658,12 +1690,12 @@ input[type="text"]:focus {
   }
 
   .trick-slot {
-    width: 48px;
-    height: 70px;
+    width: 46px;
+    height: 68px;
   }
 
-  .trick-slot.slot-top { top: 12px; }
-  .trick-slot.slot-bottom { bottom: 8px; }
-  .trick-slot.slot-left { left: 6px; }
-  .trick-slot.slot-right { right: 6px; }
+  .trick-slot.slot-top { top: 28px; }
+  .trick-slot.slot-bottom { bottom: 6px; }
+  .trick-slot.slot-left { left: 5px; }
+  .trick-slot.slot-right { right: 5px; }
 }

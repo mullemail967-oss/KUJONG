@@ -27,17 +27,17 @@
         <div id="lobbyInitialOptions" class="lobby-section">
           <div class="input-group">
             <label for="playerNameInput">Dein Spielername</label>
-            <input type="text" id="playerNameInput" placeholder="Name eingeben..." maxlength="15" autofocus>
+            <input type="text" id="playerNameInput" placeholder="Name eingeben..." maxlength="15" autocomplete="nickname">
           </div>
 
           <div class="lobby-action-buttons">
-            <button id="createRoomBtn" class="btn btn-primary btn-large">
+            <button id="createRoomBtn" class="btn btn-primary btn-large" onclick="handleCreateRoom()">
               <span>🏰 Raum erstellen</span>
             </button>
             <div class="divider"><span>ODER</span></div>
             <div class="join-box">
-              <input type="text" id="roomCodeInput" placeholder="4-stelliger Code (z.B. ABCD)" maxlength="4">
-              <button id="joinRoomBtn" class="btn btn-secondary">Beitreten</button>
+              <input type="text" id="roomCodeInput" placeholder="4-stelliger Code (z.B. ABCD)" maxlength="4" autocomplete="off" autocapitalize="characters">
+              <button id="joinRoomBtn" class="btn btn-secondary" onclick="handleJoinRoom()">Beitreten</button>
             </div>
           </div>
         </div>
@@ -122,64 +122,66 @@
       
       <!-- HEADER / 13er SCOREBOARD (WIR vs SIE) MIT KONTRA TOOLBAR -->
       <header class="game-header">
-        <!-- WIR Punktestand -->
-        <div class="team-score-card score-we" id="scoreCardWe">
-          <div class="team-header-row">
-            <span class="team-label" id="labelWe">WIR</span>
+        <div class="header-main-row">
+          <!-- WIR Punktestand -->
+          <div class="team-score-card score-we" id="scoreCardWe">
+            <div class="team-header-row">
+              <span class="team-label" id="labelWe">WIR</span>
+            </div>
+            <div class="score-main">
+              <span id="scoreWe" class="points-val">13</span>
+              <span class="points-label">Pkt</span>
+            </div>
+            <div class="round-stats">
+              <span>St:<strong id="tricksWe">0</strong></span>
+              <span>Aug:<strong id="eyesWe">0</strong></span>
+            </div>
           </div>
-          <div class="score-main">
-            <span id="scoreWe" class="points-val">13</span>
-            <span class="points-label">Pkt</span>
+
+          <!-- Runde & Trumpf & Info-Zentrum -->
+          <div class="center-info-board">
+            <div class="round-badge">Runde <span id="roundNumberDisplay">1</span></div>
+            <div class="trump-badge-container">
+              <div id="trumpBadge" class="trump-badge suit-none">
+                <span class="trump-icon">?</span>
+                <span class="trump-text">Wahl...</span>
+              </div>
+              <div id="mitBadge" class="mit-badge hidden">
+                <span>⭐ Mit' (2 Pkt)</span>
+              </div>
+              <div id="contraBadge" class="contra-badge hidden">
+                <span>⚡ KONTRA (4 Pkt)</span>
+              </div>
+            </div>
+            <div id="statusMessage" class="status-ticker">Spiel startet...</div>
           </div>
-          <div class="round-stats">
-            <span>Stiche: <strong id="tricksWe">0</strong></span>
-            <span>Augen: <strong id="eyesWe">0</strong></span>
+
+          <!-- SIE Punktestand -->
+          <div class="team-score-card score-they" id="scoreCardThey">
+            <div class="team-header-row">
+              <span class="team-label" id="labelThey">SIE</span>
+            </div>
+            <div class="score-main">
+              <span id="scoreThey" class="points-val">13</span>
+              <span class="points-label">Pkt</span>
+            </div>
+            <div class="round-stats">
+              <span>St:<strong id="tricksThey">0</strong></span>
+              <span>Aug:<strong id="eyesThey">0</strong></span>
+            </div>
           </div>
         </div>
 
-        <!-- Runde & Trumpf & Info-Zentrum -->
-        <div class="center-info-board">
-          <div class="round-badge">Runde <span id="roundNumberDisplay">1</span></div>
-          <div class="trump-badge-container">
-            <div id="trumpBadge" class="trump-badge suit-none">
-              <span class="trump-icon">?</span>
-              <span class="trump-text">Wahl...</span>
-            </div>
-            <div id="mitBadge" class="mit-badge hidden">
-              <span>⭐ Mit' (2 Pkt)</span>
-            </div>
-            <div id="contraBadge" class="contra-badge hidden">
-              <span>⚡ KONTRA (4 Pkt)</span>
-            </div>
-          </div>
-          <div id="statusMessage" class="status-ticker">Spiel startet...</div>
-        </div>
-
-        <!-- HEADER TOOLS (Kontra-Knopf, Letzter Stich, Ton, Chat) -->
+        <!-- HEADER SUB-TOOLS (Kontra-Knopf, Letzter Stich, Ton, Chat) -->
         <div class="header-tools">
           <button id="announceContraBtn" class="btn-tool btn-contra hidden" onclick="announceContra()" title="Kontra ansagen (Rundenwert: 4 Punkte / 5 bei Durchmarsch)">
-            ⚡ KONTRA (4 Pkt)
+            ⚡ KONTRA GEBEN! (4 Pkt)
           </button>
           <button id="viewLastTrickBtn" class="btn-tool hidden" onclick="openLastTrickModal()" title="Letzten Stich ansehen">
             👁️ Stich
           </button>
           <button id="soundToggleBtn" class="btn-tool btn-tool-icon" title="Ton ein/ausschalten">🔊</button>
           <button id="logToggleBtn" class="btn-tool btn-tool-icon" title="Spielprotokoll & Chat">💬 <span id="chatBadge" class="badge hidden">0</span></button>
-        </div>
-
-        <!-- SIE Punktestand -->
-        <div class="team-score-card score-they" id="scoreCardThey">
-          <div class="team-header-row">
-            <span class="team-label" id="labelThey">SIE</span>
-          </div>
-          <div class="score-main">
-            <span id="scoreThey" class="points-val">13</span>
-            <span class="points-label">Pkt</span>
-          </div>
-          <div class="round-stats">
-            <span>Stiche: <strong id="tricksThey">0</strong></span>
-            <span>Augen: <strong id="eyesThey">0</strong></span>
-          </div>
         </div>
       </header>
 

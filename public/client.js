@@ -2,7 +2,12 @@
    COUILLON - CLIENT APPLICATION (WIR vs SIE, BELGIAN SVG & TRICK INSPECTOR)
    ========================================================================== */
 
-const socket = io();
+const socket = io({
+  transports: ['websocket', 'polling'],
+  reconnection: true,
+  reconnectionAttempts: Infinity,
+  reconnectionDelay: 1000
+});
 
 // Lokaler Client-Status
 let currentRoomCode = null;
@@ -11,32 +16,47 @@ let gameState = null;
 let soundEnabled = true;
 let svgSpriteLoaded = false;
 
-// Audio-Synthesizer via Web Audio API
-const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+// Audio-Synthesizer via Web Audio API (Lazy Init on Mobile)
+let audioCtx = null;
+function getAudioContext() {
+  if (!audioCtx) {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (AudioContextClass) {
+      try {
+        audioCtx = new AudioContextClass();
+      } catch (e) {
+        console.warn('AudioContext init failed:', e);
+      }
+    }
+  }
+  return audioCtx;
+}
 
 function playSound(type) {
-  if (!soundEnabled || !audioCtx) return;
+  if (!soundEnabled) return;
+  const ctx = getAudioContext();
+  if (!ctx) return;
   try {
-    if (audioCtx.state === 'suspended') {
-      audioCtx.resume();
+    if (ctx.state === 'suspended') {
+      ctx.resume();
     }
-    const now = audioCtx.currentTime;
+    const now = ctx.currentTime;
 
     if (type === 'card_play') {
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
       osc.type = 'triangle';
       osc.frequency.setValueAtTime(440, now);
       osc.frequency.exponentialRampToValueAtTime(110, now + 0.08);
       gain.gain.setValueAtTime(0.3, now);
       gain.gain.linearRampToValueAtTime(0.01, now + 0.08);
       osc.connect(gain);
-      gain.connect(audioCtx.destination);
+      gain.connect(ctx.destination);
       osc.start(now);
       osc.stop(now + 0.08);
     } else if (type === 'trick_won') {
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
       osc.type = 'sine';
       osc.frequency.setValueAtTime(523.25, now);
       osc.frequency.setValueAtTime(659.25, now + 0.08);
@@ -44,44 +64,44 @@ function playSound(type) {
       gain.gain.setValueAtTime(0.2, now);
       gain.gain.linearRampToValueAtTime(0.01, now + 0.28);
       osc.connect(gain);
-      gain.connect(audioCtx.destination);
+      gain.connect(ctx.destination);
       osc.start(now);
       osc.stop(now + 0.28);
     } else if (type === 'trump_fanfare') {
       [587.33, 739.99, 880].forEach((freq, i) => {
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
         osc.type = 'triangle';
         osc.frequency.setValueAtTime(freq, now + i * 0.1);
         gain.gain.setValueAtTime(0.25, now + i * 0.1);
         gain.gain.linearRampToValueAtTime(0.01, now + i * 0.1 + 0.2);
         osc.connect(gain);
-        gain.connect(audioCtx.destination);
+        gain.connect(ctx.destination);
         osc.start(now + i * 0.1);
         osc.stop(now + i * 0.1 + 0.2);
       });
     } else if (type === 'turn') {
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
       osc.type = 'sine';
       osc.frequency.setValueAtTime(880, now);
       osc.frequency.exponentialRampToValueAtTime(440, now + 0.1);
       gain.gain.setValueAtTime(0.15, now);
       gain.gain.linearRampToValueAtTime(0.01, now + 0.1);
       osc.connect(gain);
-      gain.connect(audioCtx.destination);
+      gain.connect(ctx.destination);
       osc.start(now);
       osc.stop(now + 0.1);
     } else if (type === 'victory') {
       [523.25, 659.25, 783.99, 1046.50].forEach((freq, i) => {
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
         osc.type = 'triangle';
         osc.frequency.setValueAtTime(freq, now + i * 0.15);
         gain.gain.setValueAtTime(0.3, now + i * 0.15);
         gain.gain.linearRampToValueAtTime(0.01, now + i * 0.15 + 0.4);
         osc.connect(gain);
-        gain.connect(audioCtx.destination);
+        gain.connect(ctx.destination);
         osc.start(now + i * 0.15);
         osc.stop(now + i * 0.15 + 0.4);
       });
