@@ -750,7 +750,7 @@ function createCardHTML(card, isDisabled = false, showTrumpTag = false) {
   const isTrump = gameState ? isCardTrump(card, gameState.trumpSuit, gameState.isMitAnnounced) : false;
 
   return `
-    <div class="playing-card ${isDisabled ? 'disabled' : ''}" data-id="${card.id}">
+    <div class="playing-card ${isDisabled ? 'disabled' : ''} ${isTrump ? 'is-trump' : ''}" data-id="${card.id}">
       <svg class="card-svg-element" viewBox="0 0 169.075 244.640">
         <use href="#${svgId}"></use>
       </svg>

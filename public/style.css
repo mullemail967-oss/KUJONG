@@ -895,15 +895,20 @@ input[type="text"]:focus {
 }
 
 /* --------------------------------------------------------------------------
-   AUTHENTIC BELGIAN SVG PLAYING CARDS & TRUMPF TAG
+   AUTHENTIC BELGIAN SVG PLAYING CARDS & TRUMPF GLOW
    -------------------------------------------------------------------------- */
 .playing-card {
   width: 70px;
   height: 101px;
   position: relative;
   cursor: pointer;
-  transition: transform 0.2s ease, filter 0.2s ease;
+  transition: transform 0.2s ease, filter 0.2s ease, box-shadow 0.2s ease;
   filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.5));
+  border-radius: 6px;
+}
+
+.playing-card.is-trump {
+  box-shadow: 0 0 0 2px var(--team-we-gold), 0 0 14px rgba(245, 158, 11, 0.85);
 }
 
 .card-svg-element {
@@ -911,23 +916,27 @@ input[type="text"]:focus {
   height: 100%;
   display: block;
   pointer-events: none;
+  border-radius: 6px;
 }
 
+/* Trumpf-Krone/Badge schwebt OBERHALB der Karte - verdeckt niemals die Kartenoberfläche! */
 .card-trump-tag {
   position: absolute;
-  bottom: 2px;
-  right: 2px;
+  top: -8px;
+  left: 50%;
+  transform: translateX(-50%);
   background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
   color: #000;
-  font-size: 0.48rem;
+  font-size: 0.5rem;
   font-weight: 900;
-  letter-spacing: 0.2px;
-  padding: 1px 3px;
-  border-radius: 3px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
-  z-index: 10;
+  letter-spacing: 0.5px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.8), 0 0 8px rgba(245, 158, 11, 0.7);
+  z-index: 15;
   pointer-events: none;
-  line-height: 1;
+  line-height: 1.1;
+  white-space: nowrap;
 }
 
 /* Disabled / Non-playable cards */
@@ -935,6 +944,7 @@ input[type="text"]:focus {
   filter: grayscale(0.85) opacity(0.4) drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
   cursor: not-allowed;
   transform: translateY(0) !important;
+  box-shadow: none !important;
 }
 
 .playing-card.card-sm {
