@@ -17,6 +17,13 @@ const {
   evaluateRound
 } = require('./engine/couillon-rules');
 
+const {
+  chooseTrumpSuit,
+  shouldAnnounceMit,
+  shouldAnnounceContra,
+  chooseCardToPlay
+} = require('./engine/couillon-bot-ai');
+
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -71,6 +78,13 @@ function createRoom(roomCode, hostName, hostSocketId) {
       null,
       null
     ],
+    settings: {
+      countEyesLive: true,            // Live-Augenzähler im Header (Standard: true)
+      alwaysClubQueenTrump: true,     // Kreuz-Dame immer 2. bzw. 3. Trumpf (Standard: true)
+      allowMit: true,                 // Pik-Dame Mit'-Ansage erlaubt (Standard: true)
+      contraPoints: 4,                // Rundenwert bei Kontra: 4 Pkt (Standard: 4, alternativ: 3)
+      ansagerZeroTricksPenalty: 2     // Strafpunkte bei 0 Stichen für Ansager: 2 Pkt (Standard: 2, alternativ: 1)
+    },
     scores: { teamA: 13, teamB: 13 },
     dealerIndex: 0,
     declarerIndex: 1, // Spieler links vom Geber ist Ansager
@@ -156,13 +170,15 @@ function sanitizeStateForPlayer(room, seatIndex) {
         myHand,
         room.currentTrick,
         room.trumpSuit,
-        room.isMitAnnounced
+        room.isMitAnnounced,
+        room.settings
       );
     }
   }
 
-  // canAnnounceMit: Spieler ist am Zug im 1. Stich, besitzt ♠Q und Mit' wurde noch nicht angesagt
+  // canAnnounceMit: Mit' ist in Einstellungen erlaubt, Spieler ist am Zug im 1. Stich, besitzt ♠Q und Mit' wurde noch nicht angesagt
   const canAnnounceMit = (
+    room.settings.allowMit !== false &&
     room.phase === 'PLAY_TRICK' &&
     room.trickCount === 0 &&
     room.currentTurn === seatIndex &&
@@ -184,6 +200,7 @@ function sanitizeStateForPlayer(room, seatIndex) {
   return {
     roomCode: room.code,
     phase: room.phase,
+    settings: room.settings,
     roundNumber: room.roundNumber,
     scores: room.scores,
     dealerIndex: room.dealerIndex,
@@ -210,7 +227,7 @@ function sanitizeStateForPlayer(room, seatIndex) {
     you: {
       seatIndex: seatIndex,
       team: myTeam,
-      isHost: room.seats[seatIndex] && room.seats[seatIndex].socketId === room.hostSocketId,
+      isHost: (seatIndex === 0) || (room.seats[seatIndex] && room.seats[seatIndex].socketId === room.hostSocketId),
       hand: myHand,
       playableMap: playableMap
     }
@@ -390,7 +407,7 @@ function handleCardPlay(room, playerIndex, cardId) {
   const card = playerHand[cardIndex];
 
   // Stichregel-Validierung
-  const valid = isCardPlayable(card, playerHand, room.currentTrick, room.trumpSuit, room.isMitAnnounced);
+  const valid = isCardPlayable(card, playerHand, room.currentTrick, room.trumpSuit, room.isMitAnnounced, room.settings);
   if (!valid) return;
 
   // Karte aus Hand entfernen und in den Stich legen
@@ -411,7 +428,7 @@ function handleCardPlay(room, playerIndex, cardId) {
     room.phase = 'EVALUATING_TRICK';
 
     // Stich SOFORT auswerten, damit die Anzeige exakt den Sieger DIESES Stichs zeigt!
-    const result = evaluateTrick(room.currentTrick, room.trumpSuit, room.isMitAnnounced);
+    const result = evaluateTrick(room.currentTrick, room.trumpSuit, room.isMitAnnounced, room.settings);
     const winnerIndex = result.winnerIndex;
     const winnerName = room.seats[winnerIndex].name;
     const winnerTeam = winnerIndex % 2 === 0 ? 0 : 1;
@@ -497,7 +514,8 @@ function resolveRound(room) {
     tricksTeamA: room.tricksTeamA,
     tricksTeamB: room.tricksTeamB,
     isMitAnnounced: room.isMitAnnounced,
-    isContraAnnounced: room.isContraAnnounced
+    isContraAnnounced: room.isContraAnnounced,
+    options: room.settings
   });
 
   // Punktestand aktualisieren (13 -> 0 Countdown)
@@ -546,7 +564,7 @@ function resolveRound(room) {
 }
 
 /**
- * Führt automatische Züge für Bots aus.
+ * Führt automatische Züge für Bots aus (mit taktischer KI).
  */
 function checkBotAction(room) {
   if (room.botTimer) {
@@ -559,23 +577,12 @@ function checkBotAction(room) {
     if (declarer && declarer.isBot) {
       room.botTimer = setTimeout(() => {
         const hand = room.hands[room.declarerIndex];
-        const counts = { clubs: 0, spades: 0, hearts: 0, diamonds: 0 };
-        for (const card of hand) {
-          counts[card.suit] = (counts[card.suit] || 0) + (card.rank === 'A' ? 3 : 1);
-        }
-        let bestSuit = SUITS.HEARTS;
-        let maxCount = -1;
-        for (const suit of Object.values(SUITS)) {
-          if (counts[suit] > maxCount) {
-            maxCount = counts[suit];
-            bestSuit = suit;
-          }
-        }
+        const bestSuit = chooseTrumpSuit(hand, room.settings);
         handleTrumpSelection(room, bestSuit);
       }, 1000);
     }
   } else if (room.phase === 'PLAY_TRICK') {
-    // Prüfe, ob gegnerischer Bot Kontra geben möchte
+    // 1. Taktische Kontra-Prüfung für gegnerische Bots
     if (room.trickCount === 0 && room.isMitAnnounced && !room.isContraAnnounced) {
       const mitTeam = room.mitHolderIndex !== -1 ? (room.mitHolderIndex % 2 === 0 ? 0 : 1) : -1;
       for (let s = 0; s < 4; s++) {
@@ -583,9 +590,7 @@ function checkBotAction(room) {
         const sTeam = s % 2 === 0 ? 0 : 1;
         if (seat && seat.isBot && sTeam !== mitTeam) {
           const hand = room.hands[s];
-          const aces = hand.filter(c => c.rank === 'A').length;
-          const trumps = hand.filter(c => isTrumpCard(c, room.trumpSuit, true)).length;
-          if (aces >= 1 && trumps >= 2 && Math.random() < 0.5) {
+          if (shouldAnnounceContra(hand, room.mitHolderIndex, s, room.trumpSuit, room.settings)) {
             handleContraAnnouncement(room, s);
             break;
           }
@@ -596,59 +601,30 @@ function checkBotAction(room) {
     const currentSeat = room.seats[room.currentTurn];
     if (currentSeat && currentSeat.isBot) {
       room.botTimer = setTimeout(() => {
-        // Prüfe, ob der Bot die Mit' ansagen möchte (in Stich 1, wenn er ♠Q hat)
-        if (room.trickCount === 0 && room.mitHolderIndex === room.currentTurn && !room.isMitAnnounced) {
+        // 2. Taktische Mit'-Prüfung (in Stich 1, wenn Bot ♠Q hält)
+        if (room.settings.allowMit !== false && room.trickCount === 0 && room.mitHolderIndex === room.currentTurn && !room.isMitAnnounced) {
           const botHand = room.hands[room.currentTurn];
-          const trumpCount = botHand.filter(c => isTrumpCard(c, room.trumpSuit, false)).length;
-          if (trumpCount >= 2 || Math.random() < 0.65) {
+          if (shouldAnnounceMit(botHand, room.declarerIndex, room.currentTurn, room.trumpSuit, room.settings)) {
             handleMitAnnouncement(room, room.currentTurn, true);
           }
         }
 
+        // 3. Taktische Kartenauswahl (Schmieren, gezielt Stechen, 0-Punkte Abwurf)
         const hand = room.hands[room.currentTurn];
         if (!hand || hand.length === 0) return;
 
-        // Finde alle gültigen spielbaren Karten
-        const playable = hand.filter(card => 
-          isCardPlayable(card, hand, room.currentTrick, room.trumpSuit, room.isMitAnnounced)
+        const chosenCard = chooseCardToPlay(
+          hand,
+          room.currentTrick,
+          room.trumpSuit,
+          room.isMitAnnounced,
+          room.currentTurn,
+          room.settings
         );
 
-        if (playable.length === 0) return;
-
-        let chosenCard = playable[0];
-
-        if (room.currentTrick.length === 0) {
-          // Bevorzuge Asse
-          const aces = playable.filter(c => c.rank === 'A');
-          if (aces.length > 0) {
-            chosenCard = aces[0];
-          } else {
-            chosenCard = playable[Math.floor(Math.random() * playable.length)];
-          }
-        } else {
-          // Prüfe, ob eine Karte den Stich gewinnen kann
-          let winningCards = [];
-          for (const card of playable) {
-            const simTrick = [...room.currentTrick, { playerIndex: room.currentTurn, card }];
-            const evalRes = evaluateTrick(simTrick, room.trumpSuit, room.isMitAnnounced);
-            if (evalRes.winnerIndex === room.currentTurn) {
-              winningCards.push(card);
-            }
-          }
-
-          if (winningCards.length > 0) {
-            chosenCard = winningCards[0];
-          } else {
-            const zeroes = playable.filter(c => c.points === 0);
-            if (zeroes.length > 0) {
-              chosenCard = zeroes[0];
-            } else {
-              chosenCard = playable.sort((a, b) => a.points - b.points)[0];
-            }
-          }
+        if (chosenCard) {
+          handleCardPlay(room, room.currentTurn, chosenCard.id);
         }
-
-        handleCardPlay(room, room.currentTurn, chosenCard.id);
       }, 1000);
     }
   }
@@ -811,6 +787,31 @@ io.on('connection', (socket) => {
       room.seats[seatIndex] = null;
       broadcastGameState(room);
     }
+  });
+
+  // Spieleinstellungen aktualisieren (Host in der Lobby)
+  socket.on('update_settings', ({ settings }) => {
+    if (!currentRoomCode) return;
+    const room = rooms.get(currentRoomCode);
+    if (!room || room.phase !== 'LOBBY') {
+      return socket.emit('error_message', 'Regeln können nur in der Lobby vor Spielstart angepasst werden.');
+    }
+
+    const isHost = (currentSeatIndex === 0) || (room.seats[currentSeatIndex] && room.seats[currentSeatIndex].socketId === room.hostSocketId);
+    if (!isHost) {
+      return socket.emit('error_message', 'Nur der Raum-Ersteller kann die Spieleinstellungen ändern.');
+    }
+
+    if (settings) {
+      if (typeof settings.countEyesLive === 'boolean') room.settings.countEyesLive = settings.countEyesLive;
+      if (typeof settings.alwaysClubQueenTrump === 'boolean') room.settings.alwaysClubQueenTrump = settings.alwaysClubQueenTrump;
+      if (typeof settings.allowMit === 'boolean') room.settings.allowMit = settings.allowMit;
+      if (settings.contraPoints === 3 || settings.contraPoints === 4) room.settings.contraPoints = settings.contraPoints;
+      if (settings.ansagerZeroTricksPenalty === 1 || settings.ansagerZeroTricksPenalty === 2) room.settings.ansagerZeroTricksPenalty = settings.ansagerZeroTricksPenalty;
+    }
+
+    logAction(room, `⚙️ Spieleinstellungen aktualisiert durch ${room.seats[currentSeatIndex] ? room.seats[currentSeatIndex].name : 'Host'}.`);
+    broadcastGameState(room);
   });
 
   // Spiel starten
