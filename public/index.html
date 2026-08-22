@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=2.5">
+  <link rel="stylesheet" href="style.css?v=3.0">
 </head>
 <body>
 
@@ -49,6 +49,7 @@
               <span class="label">Raumcode:</span>
               <span id="displayRoomCode" class="code-val">----</span>
               <button id="copyInviteBtn" class="btn btn-sm btn-outline" title="Einladungslink kopieren">📋 Link kopieren</button>
+              <button id="openSettingsBtn" class="btn btn-sm btn-outline btn-settings-gear" onclick="openSettingsModal()" title="Spieleinstellungen & Regeln anpassen">⚙️ Regeln</button>
             </div>
             <div id="copySuccessMsg" class="copy-success hidden">Link kopiert!</div>
           </div>
@@ -438,6 +439,84 @@
     </div>
   </div>
 
+  <!-- 8. MODAL: SPIELEINSTELLUNGEN & REGELN (⚙️) -->
+  <div id="settingsModal" class="modal-overlay hidden">
+    <div class="modal-card modal-settings">
+      <div class="modal-header">
+        <h2>⚙️ Spieleinstellungen & Regeln</h2>
+        <button class="modal-close-btn" onclick="closeSettingsModal()">✕</button>
+      </div>
+
+      <div class="modal-body settings-body">
+        <p class="settings-subtitle">Passe die regionalen Kujong-Spielregeln für diese Partie an:</p>
+
+        <!-- 1. Live-Augenzähler -->
+        <div class="setting-item">
+          <div class="setting-info">
+            <span class="setting-title">Live-Augenzähler</span>
+            <span class="setting-desc">Augen während der Runde live oben anzeigen (wenn AUS: Augen müssen im Kopf mitgezählt werden)</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="settingCountEyesLive" checked onchange="saveRuleSettings()">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <!-- 2. Kreuz-Dame immer Trumpf -->
+        <div class="setting-item">
+          <div class="setting-info">
+            <span class="setting-title">Kreuz-Dame (♣Q) immer Trumpf</span>
+            <span class="setting-desc">♣Q zählt permanent als zweiter Trumpf nach dem Ass (bzw. dritter bei Mit')</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="settingAlwaysClubQueenTrump" checked onchange="saveRuleSettings()">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <!-- 3. Mit' (Pik-Dame Ansage) -->
+        <div class="setting-item">
+          <div class="setting-info">
+            <span class="setting-title">Mit' (♠Q) Ansage</span>
+            <span class="setting-desc">Inhaber der Pik-Dame darf in Stich 1 die Mit' ansagen (Rundenwert verdoppelt)</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="settingAllowMit" checked onchange="saveRuleSettings()">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <!-- 4. Kontra-Rundenwert -->
+        <div class="setting-item">
+          <div class="setting-info">
+            <span class="setting-title">Rundenwert bei Kontra</span>
+            <span class="setting-desc">Wie viele Punkte werden bei einer Kontra-Runde abgezogen?</span>
+          </div>
+          <div class="segmented-control" id="settingContraPointsGroup">
+            <button type="button" class="seg-btn active" id="segContra4" onclick="setContraPointsSetting(4)">4 Punkte <small>(5 Durchmarsch)</small></button>
+            <button type="button" class="seg-btn" id="segContra3" onclick="setContraPointsSetting(3)">3 Punkte <small>(4 Durchmarsch)</small></button>
+          </div>
+        </div>
+
+        <!-- 5. Ansager-Strafe bei 0 Stichen -->
+        <div class="setting-item">
+          <div class="setting-info">
+            <span class="setting-title">Ansager-Strafe bei 0 Stichen</span>
+            <span class="setting-desc">Strafpunkte für das Ansager-Team, wenn es gar keinen Stich macht (Gegner-Durchmarsch)</span>
+          </div>
+          <div class="segmented-control" id="settingZeroTricksPenaltyGroup">
+            <button type="button" class="seg-btn active" id="segPenalty2" onclick="setZeroTricksPenaltySetting(2)">+2 Strafpunkte</button>
+            <button type="button" class="seg-btn" id="segPenalty1" onclick="setZeroTricksPenaltySetting(1)">+1 Strafpunkt</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer settings-footer">
+        <button class="btn btn-primary" onclick="closeSettingsModal()">Fertig & Schließen</button>
+      </div>
+    </div>
+  </div>
+
   <!-- SIDEBAR: CHAT & SPIELPROTOKOLL -->
   <div id="sideDrawer" class="side-drawer">
     <div class="drawer-header">
@@ -468,6 +547,6 @@
   <!-- Socket.io Script -->
   <script src="/socket.io/socket.io.js"></script>
   <!-- Client JavaScript -->
-  <script src="client.js?v=2.5"></script>
+  <script src="client.js?v=3.0"></script>
 </body>
 </html>

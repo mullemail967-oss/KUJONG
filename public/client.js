@@ -483,6 +483,8 @@ function renderLobby() {
     startBtn.disabled = true;
     startBtn.textContent = 'Warte auf Spielleiter...';
   }
+
+  syncSettingsUI();
 }
 
 function renderGameScreen() {
@@ -504,8 +506,10 @@ function renderGameScreen() {
   document.getElementById('scoreThey').textContent = scoreThey;
   document.getElementById('tricksWe').textContent = tricksWe;
   document.getElementById('tricksThey').textContent = tricksThey;
-  document.getElementById('eyesWe').textContent = eyesWe;
-  document.getElementById('eyesThey').textContent = eyesThey;
+
+  const countEyesLive = gameState.settings ? (gameState.settings.countEyesLive !== false) : true;
+  document.getElementById('eyesWe').textContent = countEyesLive ? eyesWe : '-';
+  document.getElementById('eyesThey').textContent = countEyesLive ? eyesThey : '-';
 
   // Won Tricks Piles (Ecken)
   renderWonTricksPile('We', tricksWe);
@@ -759,9 +763,13 @@ function createCardHTML(card, isDisabled = false) {
 }
 
 function isCardTrump(card, trumpSuit, isMitAnnounced) {
-  if (!trumpSuit) return false;
-  if (card.suit === 'clubs' && card.rank === 'Q') return true;
-  if (isMitAnnounced && card.suit === 'spades' && card.rank === 'Q') return true;
+  if (!card || !trumpSuit) return false;
+  const settings = gameState ? (gameState.settings || {}) : {};
+  const alwaysClubQueenTrump = settings.alwaysClubQueenTrump !== false;
+  const allowMit = settings.allowMit !== false;
+
+  if (alwaysClubQueenTrump && card.suit === 'clubs' && card.rank === 'Q') return true;
+  if (allowMit && isMitAnnounced && card.suit === 'spades' && card.rank === 'Q') return true;
   return card.suit === trumpSuit;
 }
 
@@ -940,4 +948,109 @@ function renderDrawerContent() {
     `;
     chatList.appendChild(div);
   });
+}
+
+// --------------------------------------------------------------------------
+// SPIELEINSTELLUNGEN & REGEL-MODAL (⚙️)
+// --------------------------------------------------------------------------
+let currentSettings = {
+  countEyesLive: true,
+  alwaysClubQueenTrump: true,
+  allowMit: true,
+  contraPoints: 4,
+  ansagerZeroTricksPenalty: 2
+};
+
+function openSettingsModal() {
+  syncSettingsUI();
+  document.getElementById('settingsModal').classList.remove('hidden');
+}
+
+function closeSettingsModal() {
+  document.getElementById('settingsModal').classList.add('hidden');
+}
+
+function syncSettingsUI() {
+  if (gameState && gameState.settings) {
+    currentSettings = { ...gameState.settings };
+  }
+
+  const isHost = gameState && gameState.you ? gameState.you.isHost : true;
+
+  const countEyesInput = document.getElementById('settingCountEyesLive');
+  const alwaysClubInput = document.getElementById('settingAlwaysClubQueenTrump');
+  const allowMitInput = document.getElementById('settingAllowMit');
+
+  if (countEyesInput) {
+    countEyesInput.checked = currentSettings.countEyesLive !== false;
+    countEyesInput.disabled = !isHost;
+  }
+  if (alwaysClubInput) {
+    alwaysClubInput.checked = currentSettings.alwaysClubQueenTrump !== false;
+    alwaysClubInput.disabled = !isHost;
+  }
+  if (allowMitInput) {
+    allowMitInput.checked = currentSettings.allowMit !== false;
+    allowMitInput.disabled = !isHost;
+  }
+
+  const seg4 = document.getElementById('segContra4');
+  const seg3 = document.getElementById('segContra3');
+  if (seg4 && seg3) {
+    seg4.classList.toggle('active', currentSettings.contraPoints === 4);
+    seg3.classList.toggle('active', currentSettings.contraPoints === 3);
+    seg4.disabled = !isHost;
+    seg3.disabled = !isHost;
+  }
+
+  const segPen2 = document.getElementById('segPenalty2');
+  const segPen1 = document.getElementById('segPenalty1');
+  if (segPen2 && segPen1) {
+    segPen2.classList.toggle('active', currentSettings.ansagerZeroTricksPenalty === 2);
+    segPen1.classList.toggle('active', currentSettings.ansagerZeroTricksPenalty === 1);
+    segPen2.disabled = !isHost;
+    segPen1.disabled = !isHost;
+  }
+}
+
+function setContraPointsSetting(val) {
+  const isHost = gameState && gameState.you ? gameState.you.isHost : true;
+  if (!isHost) {
+    showToast('Nur der Raum-Ersteller kann Einstellungen ändern.');
+    return;
+  }
+  currentSettings.contraPoints = val;
+  syncSettingsUI();
+  saveRuleSettings();
+}
+
+function setZeroTricksPenaltySetting(val) {
+  const isHost = gameState && gameState.you ? gameState.you.isHost : true;
+  if (!isHost) {
+    showToast('Nur der Raum-Ersteller kann Einstellungen ändern.');
+    return;
+  }
+  currentSettings.ansagerZeroTricksPenalty = val;
+  syncSettingsUI();
+  saveRuleSettings();
+}
+
+function saveRuleSettings() {
+  const isHost = gameState && gameState.you ? gameState.you.isHost : true;
+  if (!isHost) return;
+
+  const countEyesInput = document.getElementById('settingCountEyesLive');
+  const alwaysClubInput = document.getElementById('settingAlwaysClubQueenTrump');
+  const allowMitInput = document.getElementById('settingAllowMit');
+
+  const settingsPayload = {
+    countEyesLive: countEyesInput ? countEyesInput.checked : true,
+    alwaysClubQueenTrump: alwaysClubInput ? alwaysClubInput.checked : true,
+    allowMit: allowMitInput ? allowMitInput.checked : true,
+    contraPoints: currentSettings.contraPoints || 4,
+    ansagerZeroTricksPenalty: currentSettings.ansagerZeroTricksPenalty || 2
+  };
+
+  currentSettings = { ...settingsPayload };
+  socket.emit('update_settings', { settings: settingsPayload });
 }
