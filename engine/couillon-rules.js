@@ -53,21 +53,24 @@ function shuffleDeck(deck) {
 
 /**
  * Prüft, ob eine Karte unter gegebenem Trumpf und Mit'-Status als Trumpf zählt.
- * - Kreuz-Dame ist IMMER Trumpf.
- * - Pik-Dame ist Trumpf, wenn Pik Trumpffarbe ist ODER wenn Mit' angesagt wurde.
+ * - Kreuz-Dame ist IMMER Trumpf (wenn alwaysClubQueenTrump !== false).
+ * - Pik-Dame ist Trumpf, wenn Pik Trumpffarbe ist ODER wenn Mit' angesagt wurde (wenn allowMit !== false).
  * - Alle Karten der gewählten Trumpffarbe sind Trumpf.
  */
-function isTrumpCard(card, trumpSuit, isMitAnnounced) {
+function isTrumpCard(card, trumpSuit, isMitAnnounced, options = {}) {
   if (!card || !trumpSuit) return false;
   
-  // Kreuz-Dame ist IMMER Trumpf
-  if (card.suit === SUITS.CLUBS && card.rank === 'Q') {
+  const alwaysClubQueenTrump = options.alwaysClubQueenTrump !== false;
+  const allowMit = options.allowMit !== false;
+
+  // Kreuz-Dame ist IMMER Trumpf (falls Option aktiviert)
+  if (alwaysClubQueenTrump && card.suit === SUITS.CLUBS && card.rank === 'Q') {
     return true;
   }
   
   // Pik-Dame ist Trumpf, wenn Mit' angesagt ODER Pik die Trumpffarbe ist
   if (card.suit === SUITS.SPADES && card.rank === 'Q') {
-    return isMitAnnounced || trumpSuit === SUITS.SPADES;
+    return (allowMit && isMitAnnounced) || trumpSuit === SUITS.SPADES;
   }
   
   // Reguläre Trumpffarbe
@@ -79,8 +82,8 @@ function isTrumpCard(card, trumpSuit, isMitAnnounced) {
  * - Jede Trumpfkarte hat die effektive Farbe 'TRUMP'.
  * - Alle anderen Karten behalten ihr aufgedrucktes Symbol als effektive Farbe.
  */
-function getEffectiveSuit(card, trumpSuit, isMitAnnounced) {
-  if (isTrumpCard(card, trumpSuit, isMitAnnounced)) {
+function getEffectiveSuit(card, trumpSuit, isMitAnnounced, options = {}) {
+  if (isTrumpCard(card, trumpSuit, isMitAnnounced, options)) {
     return 'TRUMP';
   }
   return card.suit;
@@ -90,20 +93,23 @@ function getEffectiveSuit(card, trumpSuit, isMitAnnounced) {
  * Berechnet die relative Stärke einer Trumpfkarte für den Stichvergleich.
  * Höherer Wert = stärkere Karte.
  *
- * Trumpf-Hierarchie (vom höchsten zum niedrigsten):
+ * Trumpf-Hierarchie:
  * 1. Trumpf-Ass (Wert 100)
- * 2. Pik-Dame ("Die Mit'") [nur wenn Mit' angesagt wurde!] (Wert 90)
- * 3. Kreuz-Dame (permanent) (Wert 80)
+ * 2. Pik-Dame ("Die Mit'") [nur wenn allowMit && isMitAnnounced!] (Wert 90)
+ * 3. Kreuz-Dame [nur wenn alwaysClubQueenTrump!] (Wert 80)
  * 4. Trumpf-König (Wert 70)
  * 5. Reguläre Trumpf-Dame [Herz/Karo, bzw. Pik falls nicht Mit'] (Wert 60)
  * 6. Trumpf-Bube (Wert 50)
  * 7. Trumpf-10 (Wert 40)
  * 8. Trumpf-9 (Wert 30)
  */
-function getTrumpPower(card, trumpSuit, isMitAnnounced) {
-  if (!isTrumpCard(card, trumpSuit, isMitAnnounced)) {
+function getTrumpPower(card, trumpSuit, isMitAnnounced, options = {}) {
+  if (!isTrumpCard(card, trumpSuit, isMitAnnounced, options)) {
     return -1;
   }
+
+  const alwaysClubQueenTrump = options.alwaysClubQueenTrump !== false;
+  const allowMit = options.allowMit !== false;
 
   // 1. Trumpf-Ass
   if (card.suit === trumpSuit && card.rank === 'A') {
@@ -111,12 +117,12 @@ function getTrumpPower(card, trumpSuit, isMitAnnounced) {
   }
 
   // 2. Pik-Dame ("Die Mit'") - wenn aktiv angesagt
-  if (isMitAnnounced && card.suit === SUITS.SPADES && card.rank === 'Q') {
+  if (allowMit && isMitAnnounced && card.suit === SUITS.SPADES && card.rank === 'Q') {
     return 90;
   }
 
-  // 3. Kreuz-Dame (immer Trumpf, über König)
-  if (card.suit === SUITS.CLUBS && card.rank === 'Q') {
+  // 3. Kreuz-Dame (wenn permanent aktiviert: immer Trumpf über König)
+  if (alwaysClubQueenTrump && card.suit === SUITS.CLUBS && card.rank === 'Q') {
     return 80;
   }
 
@@ -125,8 +131,8 @@ function getTrumpPower(card, trumpSuit, isMitAnnounced) {
     return 70;
   }
 
-  // 5. Reguläre Trumpf-Dame (falls Herz/Karo Trumpf, oder Pik-Dame wenn NICHT als Mit' angesagt)
-  if (card.suit === trumpSuit && card.rank === 'Q' && !(isMitAnnounced && card.suit === SUITS.SPADES)) {
+  // 5. Reguläre Trumpf-Dame (Herz, Karo, bzw. Kreuz/Pik falls normale Farbe)
+  if (card.suit === trumpSuit && card.rank === 'Q') {
     return 60;
   }
 
@@ -173,20 +179,41 @@ function getOffSuitPower(card) {
  * 3. Kann der Spieler nicht bedienen, darf er JEDE Karte spielen (freiwillig stechen oder abwerfen).
  * 4. Kein Überstichzwang / Untertrumpfen erlaubt.
  */
-function isCardPlayable(cardToPlay, playerHand, currentTrick, trumpSuit, isMitAnnounced) {
-  // Wenn noch keine Karte im Stich liegt (Ausspiel), ist jede Karte der Hand erlaubt
-  if (!currentTrick || currentTrick.length === 0) {
+function isCardPlayable(cardToPlay, playerHand, currentTrickOrLead, trumpSuit, isMitAnnounced, options = {}) {
+  if (!cardToPlay || !playerHand || playerHand.length === 0) {
+    return false;
+  }
+
+  // Die Karte muss sich auf der Hand befinden (per ID oder suit+rank)
+  const cardInHand = playerHand.some(c => (cardToPlay.id ? c.id === cardToPlay.id : (c.suit === cardToPlay.suit && c.rank === cardToPlay.rank)));
+  if (!cardInHand) {
+    return false;
+  }
+
+  // Wenn keine Karte angespielt wurde: Jede Karte erlaubt
+  let leadCard = null;
+  if (Array.isArray(currentTrickOrLead)) {
+    if (currentTrickOrLead.length === 0) {
+      return true;
+    }
+    leadCard = currentTrickOrLead[0].card;
+  } else if (currentTrickOrLead && currentTrickOrLead.card) {
+    leadCard = currentTrickOrLead.card;
+  } else if (currentTrickOrLead && currentTrickOrLead.suit) {
+    leadCard = currentTrickOrLead;
+  }
+
+  if (!leadCard) {
     return true;
   }
 
-  const leadCard = currentTrick[0].card;
-  const leadEffectiveSuit = getEffectiveSuit(leadCard, trumpSuit, isMitAnnounced);
-  const cardEffectiveSuit = getEffectiveSuit(cardToPlay, trumpSuit, isMitAnnounced);
-  const cardIsTrump = isTrumpCard(cardToPlay, trumpSuit, isMitAnnounced);
+  const leadEffectiveSuit = getEffectiveSuit(leadCard, trumpSuit, isMitAnnounced, options);
+  const cardEffectiveSuit = getEffectiveSuit(cardToPlay, trumpSuit, isMitAnnounced, options);
+  const cardIsTrump = isTrumpCard(cardToPlay, trumpSuit, isMitAnnounced, options);
 
   // Fall 1: Trumpf wurde angespielt (Lead ist TRUMP)
   if (leadEffectiveSuit === 'TRUMP') {
-    const hasTrump = playerHand.some(c => isTrumpCard(c, trumpSuit, isMitAnnounced));
+    const hasTrump = playerHand.some(c => isTrumpCard(c, trumpSuit, isMitAnnounced, options));
     if (hasTrump) {
       // Muss Trumpf bedienen
       return cardIsTrump;
@@ -196,7 +223,7 @@ function isCardPlayable(cardToPlay, playerHand, currentTrick, trumpSuit, isMitAn
   }
 
   // Fall 2: Eine Fehlfarbe (Nicht-Trumpf) wurde angespielt
-  const hasLeadSuit = playerHand.some(c => getEffectiveSuit(c, trumpSuit, isMitAnnounced) === leadEffectiveSuit);
+  const hasLeadSuit = playerHand.some(c => getEffectiveSuit(c, trumpSuit, isMitAnnounced, options) === leadEffectiveSuit);
 
   if (hasLeadSuit) {
     // Der Spieler darf entweder die angespielte Farbe bedienen ODER mit Trumpf stechen/übertrumpfen!
@@ -214,20 +241,20 @@ function isCardPlayable(cardToPlay, playerHand, currentTrick, trumpSuit, isMitAn
  * @param {Array<{playerIndex: number, card: object}>} trick - Die 4 gespielten Karten mit Spielerindex.
  * @param {string} trumpSuit - Das Trumpfsymbol
  * @param {boolean} isMitAnnounced - Ob Mit' aktiv ist
+ * @param {object} options - Regel-Optionen
  * @returns {{winnerIndex: number, winningCard: object, points: number}}
  */
-function evaluateTrick(trick, trumpSuit, isMitAnnounced) {
+function evaluateTrick(trick, trumpSuit, isMitAnnounced, options = {}) {
   if (!trick || trick.length === 0) {
     throw new Error('Stich ist leer.');
   }
 
   const leadCard = trick[0].card;
-  const leadEffectiveSuit = getEffectiveSuit(leadCard, trumpSuit, isMitAnnounced);
 
   let bestEntry = trick[0];
-  let bestIsTrump = isTrumpCard(leadCard, trumpSuit, isMitAnnounced);
+  let bestIsTrump = isTrumpCard(leadCard, trumpSuit, isMitAnnounced, options);
   let bestPower = bestIsTrump 
-    ? getTrumpPower(leadCard, trumpSuit, isMitAnnounced)
+    ? getTrumpPower(leadCard, trumpSuit, isMitAnnounced, options)
     : getOffSuitPower(leadCard);
 
   let totalTrickPoints = 0;
@@ -237,12 +264,12 @@ function evaluateTrick(trick, trumpSuit, isMitAnnounced) {
     const card = entry.card;
     totalTrickPoints += (card.points || 0);
 
-    const isTrump = isTrumpCard(card, trumpSuit, isMitAnnounced);
+    const isTrump = isTrumpCard(card, trumpSuit, isMitAnnounced, options);
 
     if (bestIsTrump) {
       // Bisher bester ist Trumpf: Nur ein höherer Trumpf kann gewinnen
       if (isTrump) {
-        const power = getTrumpPower(card, trumpSuit, isMitAnnounced);
+        const power = getTrumpPower(card, trumpSuit, isMitAnnounced, options);
         if (power > bestPower) {
           bestPower = power;
           bestEntry = entry;
@@ -253,7 +280,7 @@ function evaluateTrick(trick, trumpSuit, isMitAnnounced) {
       if (isTrump) {
         // Ein beliebiger Trumpf sticht die Fehlfarbe
         bestIsTrump = true;
-        bestPower = getTrumpPower(card, trumpSuit, isMitAnnounced);
+        bestPower = getTrumpPower(card, trumpSuit, isMitAnnounced, options);
         bestEntry = entry;
       } else {
         // Fehlfarbe: Nur dieselbe angespielte Farbe kann die Führung übernehmen
@@ -284,13 +311,18 @@ function evaluateTrick(trick, trumpSuit, isMitAnnounced) {
  * @param {number} tricksTeamA - Anzahl gewonnener Stiche von Team A (0..5)
  * @param {number} tricksTeamB - Anzahl gewonnener Stiche von Team B (0..5)
  * @param {boolean} isMitAnnounced - Ob Mit' angesagt wurde
+ * @param {boolean} isContraAnnounced - Ob Kontra angesagt wurde
+ * @param {object} options - Regel-Optionen
  * @returns {object} Details der Rundenabrechnung (Punkteabzüge/Strafen, Textbegründung)
  */
-function evaluateRound({ declarerTeam, eyesTeamA, eyesTeamB, tricksTeamA, tricksTeamB, isMitAnnounced, isContraAnnounced }) {
-  // P-Wert: Normal 1, Mit' 2, Kontra 4
+function evaluateRound({ declarerTeam, eyesTeamA, eyesTeamB, tricksTeamA, tricksTeamB, isMitAnnounced, isContraAnnounced, options = {} }) {
+  const contraPoints = (options.contraPoints === 3) ? 3 : 4;
+  const ansagerZeroTricksPenalty = (options.ansagerZeroTricksPenalty === 1) ? 1 : 2;
+
+  // P-Wert: Normal 1, Mit' 2, Kontra 3 oder 4
   let P = 1;
   if (isContraAnnounced) {
-    P = 4;
+    P = contraPoints;
   } else if (isMitAnnounced) {
     P = 2;
   }
@@ -306,8 +338,8 @@ function evaluateRound({ declarerTeam, eyesTeamA, eyesTeamB, tricksTeamA, tricks
   let reason = '';
   let winningTeam = null;
 
-  // Fall 4: Match / Durchmarsch (Ein Team hat alle 5 Stiche gewonnen: Basis P + 1 Zusatzpunkt -> 2, 3 oder 5)
-  const sweepPoints = P + 1; // 2 (1+1), 3 (2+1) oder 5 (4+1 mit Kontra)
+  // Fall 4: Match / Durchmarsch (Ein Team hat alle 5 Stiche gewonnen: Basis P + 1 Zusatzpunkt)
+  const sweepPoints = P + 1; // z.B. 2 (1+1), 3 (2+1), 4 (3+1) oder 5 (4+1 mit Kontra)
   if (tricksDeclarer === 5) {
     winningTeam = declarerTeam;
     declarerDelta = -sweepPoints;
@@ -315,9 +347,9 @@ function evaluateRound({ declarerTeam, eyesTeamA, eyesTeamB, tricksTeamA, tricks
   } else if (tricksOpponent === 5) {
     winningTeam = 1 - declarerTeam;
     opponentDelta = -sweepPoints;
-    declarerPenalty = 1;
-    declarerDelta = +1;
-    reason = `Durchmarsch! Gegner-Team gewinnt alle 5 Stiche und zieht ${sweepPoints} Punkte ab (${P} regulär + 1 Bonus-Punkt). Ansager-Team erhält +1 Strafpunkt.`;
+    declarerPenalty = ansagerZeroTricksPenalty;
+    declarerDelta = +ansagerZeroTricksPenalty;
+    reason = `Durchmarsch! Gegner-Team gewinnt alle 5 Stiche und zieht ${sweepPoints} Punkte ab (${P} regulär + 1 Bonus-Punkt). Ansager-Team erhält +${ansagerZeroTricksPenalty} Strafpunkt(e).`;
   }
   // Fall 1: Ansager hat mehr Augen als Gegner
   else if (eyesDeclarer > eyesOpponent) {
@@ -325,7 +357,7 @@ function evaluateRound({ declarerTeam, eyesTeamA, eyesTeamB, tricksTeamA, tricks
     declarerDelta = -P;
     reason = `Ansager-Team gewinnt mit ${eyesDeclarer}:${eyesOpponent} Augen und zieht ${P} Punkt(e) ab.`;
   }
-  // Fall 2: Gegner hat mehr Augen als Ansager
+  // Fall 2: Gegner hat mehr Augen als Ansager (Ansager hat aber mindestens 1 Stich geholt)
   else if (eyesOpponent > eyesDeclarer) {
     winningTeam = 1 - declarerTeam;
     opponentDelta = -P;
@@ -347,7 +379,7 @@ function evaluateRound({ declarerTeam, eyesTeamA, eyesTeamB, tricksTeamA, tricks
 
   return {
     P,
-    isMitAnnounced,
+    isMitAnnounced: !!isMitAnnounced,
     isContraAnnounced: !!isContraAnnounced,
     declarerTeam,
     winningTeam,
