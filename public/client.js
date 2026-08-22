@@ -745,7 +745,7 @@ function renderMyHand() {
 /**
  * Erzeugt das SVG-HTML für eine Spielkarte im belgischen Carta Mundi Vektor-Design.
  */
-function createCardHTML(card, isDisabled = false, showTrumpTag = false) {
+function createCardHTML(card, isDisabled = false) {
   const svgId = getSvgCardId(card);
   const isTrump = gameState ? isCardTrump(card, gameState.trumpSuit, gameState.isMitAnnounced) : false;
 
@@ -754,7 +754,6 @@ function createCardHTML(card, isDisabled = false, showTrumpTag = false) {
       <svg class="card-svg-element" viewBox="0 0 169.075 244.640">
         <use href="#${svgId}"></use>
       </svg>
-      ${(showTrumpTag && isTrump) ? '<span class="card-trump-tag">TRUMPF</span>' : ''}
     </div>
   `;
 }

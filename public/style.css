@@ -617,8 +617,8 @@ input[type="text"]:focus {
   box-shadow: inset 0 0 60px rgba(0, 0, 0, 0.8), 0 10px 40px rgba(0, 0, 0, 0.9);
   position: relative;
   display: grid;
-  grid-template-rows: 95px 1fr 145px;
-  grid-template-columns: 105px 1fr 105px;
+  grid-template-rows: 52px 1fr 135px;
+  grid-template-columns: 95px 1fr 95px;
   grid-template-areas:
     ". top ."
     "left center right"
@@ -709,10 +709,31 @@ input[type="text"]:focus {
 
 .player-top {
   grid-area: top;
-  flex-direction: column;
-  justify-content: flex-start;
+  display: flex;
+  flex-direction: row;
+  justify-content: center;
   align-items: center;
-  margin-top: 4px;
+  gap: 8px;
+  margin-top: 2px;
+  height: 48px;
+}
+
+.player-top .player-avatar-box {
+  width: 32px;
+  height: 32px;
+  font-size: 0.95rem;
+}
+
+.player-top .player-meta {
+  flex-direction: row;
+  gap: 4px;
+  align-items: center;
+  margin-top: 0;
+}
+
+.player-top .hand-card-backs {
+  margin-top: 0;
+  margin-left: 2px;
 }
 
 .player-left {
@@ -858,15 +879,15 @@ input[type="text"]:focus {
 
 .trick-slot {
   position: absolute;
-  width: 72px;
-  height: 104px;
+  width: 66px;
+  height: 95px;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-.trick-slot.slot-top { top: 40px; }
+.trick-slot.slot-top { top: 12px; }
 .trick-slot.slot-bottom { bottom: 12px; }
 .trick-slot.slot-left { left: 16px; }
 .trick-slot.slot-right { right: 16px; }
@@ -1622,8 +1643,13 @@ input[type="text"]:focus {
   .felt-table {
     border-radius: 20px;
     border-width: 4px;
-    grid-template-rows: 68px 1fr 115px;
+    grid-template-rows: 46px 1fr 115px;
     grid-template-columns: 75px 1fr 75px;
+  }
+
+  .player-top {
+    height: 42px;
+    gap: 6px;
   }
 
   .playing-card {
@@ -1645,7 +1671,7 @@ input[type="text"]:focus {
     height: 78px;
   }
 
-  .trick-slot.slot-top { top: 34px; }
+  .trick-slot.slot-top { top: 10px; }
   .trick-slot.slot-bottom { bottom: 8px; }
   .trick-slot.slot-left { left: 8px; }
   .trick-slot.slot-right { right: 8px; }
@@ -1682,7 +1708,7 @@ input[type="text"]:focus {
 
 @media (max-width: 400px) {
   .felt-table {
-    grid-template-rows: 62px 1fr 105px;
+    grid-template-rows: 42px 1fr 105px;
     grid-template-columns: 68px 1fr 68px;
   }
 
@@ -1704,7 +1730,7 @@ input[type="text"]:focus {
     height: 68px;
   }
 
-  .trick-slot.slot-top { top: 28px; }
+  .trick-slot.slot-top { top: 8px; }
   .trick-slot.slot-bottom { bottom: 6px; }
   .trick-slot.slot-left { left: 5px; }
   .trick-slot.slot-right { right: 5px; }
