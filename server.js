@@ -28,8 +28,14 @@ const io = new Server(server, {
 
 const PORT = process.env.PORT || 3000;
 
-// Statische Dateien aus dem public-Ordner bereitstellen
-app.use(express.static(path.join(__dirname, 'public')));
+// Statische Dateien aus dem public-Ordner bereitstellen (ohne Caching für sofortige Updates)
+app.use(express.static(path.join(__dirname, 'public'), {
+  etag: false,
+  maxAge: 0,
+  setHeaders: (res) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  }
+}));
 
 // Fallback-Route für direkte Glitch-/Browser-Zugriffe
 app.get('*', (req, res) => {
