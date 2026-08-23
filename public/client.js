@@ -105,6 +105,18 @@ function playSound(type) {
         osc.start(now + i * 0.15);
         osc.stop(now + i * 0.15 + 0.4);
       });
+    } else if (type === 'emote') {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(550, now);
+      osc.frequency.exponentialRampToValueAtTime(1100, now + 0.12);
+      gain.gain.setValueAtTime(0.25, now);
+      gain.gain.linearRampToValueAtTime(0.01, now + 0.12);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.12);
     }
   } catch (e) {
     console.warn('Audio play error:', e);
@@ -153,14 +165,15 @@ function setupEventListeners() {
     showToast(soundEnabled ? 'Ton aktiviert' : 'Ton stummgeschaltet');
   });
 
-  document.getElementById('logToggleBtn').addEventListener('click', () => {
-    document.getElementById('sideDrawer').classList.toggle('open');
-    document.getElementById('chatBadge').classList.add('hidden');
-    document.getElementById('chatBadge').textContent = '0';
-  });
-
-  document.getElementById('closeDrawerBtn').addEventListener('click', () => {
-    document.getElementById('sideDrawer').classList.remove('open');
+  // Klick außerhalb des Emote-Pickers schließt ihn
+  document.addEventListener('click', (e) => {
+    const picker = document.getElementById('emotePickerPopup');
+    const trigger = document.getElementById('openEmoteBtn');
+    if (picker && !picker.classList.contains('hidden')) {
+      if (!picker.contains(e.target) && (!trigger || !trigger.contains(e.target))) {
+        picker.classList.add('hidden');
+      }
+    }
   });
 
   document.getElementById('roomCodeInput').addEventListener('keyup', (e) => {
@@ -254,6 +267,42 @@ function chooseTrump(suit) {
   socket.emit('select_trump', { suit });
   document.getElementById('trumpModal').classList.add('hidden');
   playSound('trump_fanfare');
+}
+
+function turnTrump() {
+  socket.emit('turn_trump');
+  document.getElementById('trumpModal').classList.add('hidden');
+  playSound('trump_fanfare');
+}
+
+// Clash Royale Ragebait Emotes
+function toggleEmotePicker() {
+  const popup = document.getElementById('emotePickerPopup');
+  popup.classList.toggle('hidden');
+}
+
+function sendEmote(emoji) {
+  socket.emit('send_emote', { emote: emoji });
+  document.getElementById('emotePickerPopup').classList.add('hidden');
+}
+
+function showEmoteBubble(seatIndex, emote) {
+  const mySeat = gameState && gameState.you ? gameState.you.seatIndex : 0;
+  const relativePos = getRelativePosition(seatIndex, mySeat); // 'bottom', 'left', 'top', 'right'
+  const containerId = 'emoteBubble' + relativePos.charAt(0).toUpperCase() + relativePos.slice(1);
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  const bubble = document.createElement('div');
+  bubble.className = 'clash-emote-bubble';
+  bubble.textContent = emote;
+  container.appendChild(bubble);
+
+  playSound('emote');
+
+  setTimeout(() => {
+    bubble.remove();
+  }, 2400);
 }
 
 function announceMit(announce) {
@@ -417,6 +466,10 @@ socket.on('game_state', (state) => {
 
 socket.on('error_message', (msg) => {
   showToast(msg);
+});
+
+socket.on('player_emote', ({ seatIndex, emote }) => {
+  showEmoteBubble(seatIndex, emote);
 });
 
 // --------------------------------------------------------------------------
@@ -712,8 +765,12 @@ function renderTrickCenter() {
     const winnerTeam = (typeof info.winnerTeam === 'number') ? info.winnerTeam : (info.winnerIndex % 2 === 0 ? 0 : 1);
     const isWe = (winnerTeam === myTeam);
     const teamLabel = isWe ? 'WIR' : 'SIE';
+
+    const countEyesLive = gameState.settings ? (gameState.settings.countEyesLive !== false) : true;
+    const pointsSuffix = countEyesLive ? ` (+${info.points} Augen)` : '';
+
     document.getElementById('trickWinnerText').textContent = 
-      `🏆 Stich an ${info.winnerName} (${teamLabel})! (+${info.points} Augen)`;
+      `🏆 Stich an ${info.winnerName} (${teamLabel})!${pointsSuffix}`;
   } else {
     banner.classList.add('hidden');
   }
@@ -835,6 +892,7 @@ function handleModals() {
     gameOverModal.classList.remove('hidden');
     const myTeam = gameState.you ? gameState.you.team : 0;
     const weWon = (gameState.scores.teamA <= 0 && myTeam === 0) || (gameState.scores.teamB <= 0 && myTeam === 1);
+    const isHost = gameState.you ? gameState.you.isHost : true;
 
     document.getElementById('gameOverTitle').textContent = weWon
       ? '🏆 WIR haben die Partie gewonnen!'
@@ -848,6 +906,19 @@ function handleModals() {
     document.getElementById('finalScoreWe').textContent = scoreWe;
     document.getElementById('finalScoreThey').textContent = scoreThey;
 
+    const restartBtn = document.getElementById('restartGameBtn');
+    const goWaitingNote = document.getElementById('gameOverWaitingNote');
+    if (restartBtn && goWaitingNote) {
+      if (isHost) {
+        restartBtn.classList.remove('hidden');
+        restartBtn.disabled = false;
+        goWaitingNote.classList.add('hidden');
+      } else {
+        restartBtn.classList.add('hidden');
+        goWaitingNote.classList.remove('hidden');
+      }
+    }
+
     if (weWon) playSound('victory');
   } else {
     gameOverModal.classList.add('hidden');
@@ -856,6 +927,7 @@ function handleModals() {
 
 function renderRoundSummary(summary) {
   const myTeam = gameState.you ? gameState.you.team : 0;
+  const isHost = gameState.you ? gameState.you.isHost : true;
 
   const eyesWe = myTeam === 0 ? summary.eyesTeamA : summary.eyesTeamB;
   const eyesThey = myTeam === 0 ? summary.eyesTeamB : summary.eyesTeamA;
@@ -903,51 +975,50 @@ function renderRoundSummary(summary) {
   }
   document.getElementById('summaryReason').textContent = cleanReason;
 
+  // Trinkspiel-Modus Task anzeigen (wenn aktiviert)
+  const drinkingBox = document.getElementById('drinkingTaskBox');
+  const drinkingText = document.getElementById('drinkingTaskText');
+  if (drinkingBox && drinkingText) {
+    if (summary.drinkingTask) {
+      let task = summary.drinkingTask;
+      if (myTeam === 0) {
+        task = task.replace(/Team A/g, 'WIR').replace(/Team B/g, 'SIE');
+      } else {
+        task = task.replace(/Team B/g, 'WIR').replace(/Team A/g, 'SIE');
+      }
+      drinkingText.textContent = task;
+      drinkingBox.classList.remove('hidden');
+    } else {
+      drinkingBox.classList.add('hidden');
+    }
+  }
+
   // Stock-Karten aufdecken
   const stockContainer = document.getElementById('summaryStockCards');
   stockContainer.innerHTML = '';
   (summary.stockCards || []).forEach(card => {
     stockContainer.innerHTML += createCardHTML(card, false, false);
   });
+
+  // Host vs Mitspieler Weiter-Button Steuerung
+  const nextBtn = document.getElementById('nextRoundBtn');
+  const waitingNote = document.getElementById('waitingForHostNote');
+  if (nextBtn && waitingNote) {
+    if (isHost) {
+      nextBtn.classList.remove('hidden');
+      nextBtn.disabled = false;
+      waitingNote.classList.add('hidden');
+    } else {
+      nextBtn.classList.add('hidden');
+      waitingNote.classList.remove('hidden');
+    }
+  }
 }
 
 function formatDelta(val) {
   if (val > 0) return `+${val}`;
   if (val < 0) return `${val}`;
   return '0';
-}
-
-function renderDrawerContent() {
-  const logList = document.getElementById('actionLogList');
-  logList.innerHTML = '';
-  const myTeam = gameState.you ? gameState.you.team : 0;
-
-  (gameState.actionLog || []).slice(-30).forEach(entry => {
-    const li = document.createElement('li');
-    let text = entry;
-    if (myTeam === 0) {
-      text = text.replace(/Team A/g, 'WIR').replace(/Team B/g, 'SIE');
-    } else {
-      text = text.replace(/Team B/g, 'WIR').replace(/Team A/g, 'SIE');
-    }
-    li.textContent = text;
-    logList.appendChild(li);
-  });
-
-  const chatList = document.getElementById('chatMessagesList');
-  chatList.innerHTML = '';
-  (gameState.chatMessages || []).forEach(chat => {
-    const div = document.createElement('div');
-    div.className = 'chat-msg';
-    div.innerHTML = `
-      <div class="chat-sender">
-        <span>${chat.sender}</span>
-        <span class="time">${chat.time}</span>
-      </div>
-      <div class="chat-text">${chat.text}</div>
-    `;
-    chatList.appendChild(div);
-  });
 }
 
 // --------------------------------------------------------------------------
@@ -958,7 +1029,10 @@ let currentSettings = {
   alwaysClubQueenTrump: true,
   allowMit: true,
   contraPoints: 4,
-  ansagerZeroTricksPenalty: 2
+  ansagerZeroTricksPenalty: 2,
+  startScoreA: 13,
+  startScoreB: 13,
+  drinkingGameMode: false
 };
 
 function openSettingsModal() {
@@ -980,6 +1054,9 @@ function syncSettingsUI() {
   const countEyesInput = document.getElementById('settingCountEyesLive');
   const alwaysClubInput = document.getElementById('settingAlwaysClubQueenTrump');
   const allowMitInput = document.getElementById('settingAllowMit');
+  const drinkingInput = document.getElementById('settingDrinkingGameMode');
+  const scoreAInput = document.getElementById('settingStartScoreA');
+  const scoreBInput = document.getElementById('settingStartScoreB');
 
   if (countEyesInput) {
     countEyesInput.checked = currentSettings.countEyesLive !== false;
@@ -992,6 +1069,18 @@ function syncSettingsUI() {
   if (allowMitInput) {
     allowMitInput.checked = currentSettings.allowMit !== false;
     allowMitInput.disabled = !isHost;
+  }
+  if (drinkingInput) {
+    drinkingInput.checked = !!currentSettings.drinkingGameMode;
+    drinkingInput.disabled = !isHost;
+  }
+  if (scoreAInput) {
+    scoreAInput.value = currentSettings.startScoreA || 13;
+    scoreAInput.disabled = !isHost;
+  }
+  if (scoreBInput) {
+    scoreBInput.value = currentSettings.startScoreB || 13;
+    scoreBInput.disabled = !isHost;
   }
 
   const seg4 = document.getElementById('segContra4');
@@ -1011,6 +1100,39 @@ function syncSettingsUI() {
     segPen2.disabled = !isHost;
     segPen1.disabled = !isHost;
   }
+}
+
+function adjustStartScore(team, delta) {
+  const isHost = gameState && gameState.you ? gameState.you.isHost : true;
+  if (!isHost) {
+    showToast('Nur der Raum-Ersteller kann Einstellungen ändern.');
+    return;
+  }
+  const inputId = team === 'A' ? 'settingStartScoreA' : 'settingStartScoreB';
+  const input = document.getElementById(inputId);
+  if (!input) return;
+  let val = (parseInt(input.value) || 13) + delta;
+  if (val < 1) val = 1;
+  if (val > 30) val = 30;
+  input.value = val;
+  if (team === 'A') currentSettings.startScoreA = val;
+  else currentSettings.startScoreB = val;
+  saveRuleSettings();
+}
+
+function setScorePreset(scoreA, scoreB) {
+  const isHost = gameState && gameState.you ? gameState.you.isHost : true;
+  if (!isHost) {
+    showToast('Nur der Raum-Ersteller kann Einstellungen ändern.');
+    return;
+  }
+  const inputA = document.getElementById('settingStartScoreA');
+  const inputB = document.getElementById('settingStartScoreB');
+  if (inputA) inputA.value = scoreA;
+  if (inputB) inputB.value = scoreB;
+  currentSettings.startScoreA = scoreA;
+  currentSettings.startScoreB = scoreB;
+  saveRuleSettings();
 }
 
 function setContraPointsSetting(val) {
@@ -1042,13 +1164,19 @@ function saveRuleSettings() {
   const countEyesInput = document.getElementById('settingCountEyesLive');
   const alwaysClubInput = document.getElementById('settingAlwaysClubQueenTrump');
   const allowMitInput = document.getElementById('settingAllowMit');
+  const drinkingInput = document.getElementById('settingDrinkingGameMode');
+  const scoreAInput = document.getElementById('settingStartScoreA');
+  const scoreBInput = document.getElementById('settingStartScoreB');
 
   const settingsPayload = {
     countEyesLive: countEyesInput ? countEyesInput.checked : true,
     alwaysClubQueenTrump: alwaysClubInput ? alwaysClubInput.checked : true,
     allowMit: allowMitInput ? allowMitInput.checked : true,
     contraPoints: currentSettings.contraPoints || 4,
-    ansagerZeroTricksPenalty: currentSettings.ansagerZeroTricksPenalty || 2
+    ansagerZeroTricksPenalty: currentSettings.ansagerZeroTricksPenalty || 2,
+    startScoreA: scoreAInput ? (parseInt(scoreAInput.value) || 13) : (currentSettings.startScoreA || 13),
+    startScoreB: scoreBInput ? (parseInt(scoreBInput.value) || 13) : (currentSettings.startScoreB || 13),
+    drinkingGameMode: drinkingInput ? drinkingInput.checked : false
   };
 
   currentSettings = { ...settingsPayload };

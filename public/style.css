@@ -887,8 +887,8 @@ input[type="text"]:focus {
   transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-.trick-slot.slot-top { top: 12px; }
-.trick-slot.slot-bottom { bottom: 12px; }
+.trick-slot.slot-top { top: 40px; }
+.trick-slot.slot-bottom { bottom: 14px; }
 .trick-slot.slot-left { left: 16px; }
 .trick-slot.slot-right { right: 16px; }
 
@@ -905,7 +905,11 @@ input[type="text"]:focus {
   border-radius: 16px;
   font-size: 0.76rem;
   white-space: nowrap;
+  max-width: 95%;
+  overflow: hidden;
+  text-overflow: ellipsis;
   z-index: 30;
+  pointer-events: none;
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.8);
   animation: bannerPop 0.3s ease;
 }
@@ -1566,145 +1570,340 @@ input:checked + .slider:before {
 }
 
 /* --------------------------------------------------------------------------
-   SIDE DRAWER (CHAT & LOG)
+   CLASH ROYALE STYLE EMOTE SYSTEM & RAGEBAIT
    -------------------------------------------------------------------------- */
-.side-drawer {
+.btn-emote-trigger {
+  font-size: 1.15rem;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.btn-emote-trigger:hover {
+  background: rgba(245, 158, 11, 0.2);
+  border-color: var(--team-we-gold);
+  transform: scale(1.1);
+}
+
+.emote-picker-popup {
   position: fixed;
-  top: 0;
-  right: -340px;
-  width: 320px;
-  height: 100vh;
-  height: 100dvh;
+  top: 60px;
+  right: 14px;
   background: rgba(15, 23, 42, 0.96);
   backdrop-filter: blur(16px);
-  border-left: 1px solid var(--panel-border);
-  z-index: 500;
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  border-radius: 16px;
+  padding: 10px 12px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.6), 0 0 15px rgba(245, 158, 11, 0.15);
+  z-index: 1000;
   display: flex;
   flex-direction: column;
-  transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  gap: 8px;
+  animation: popIn 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-.side-drawer.open {
-  right: 0;
-}
-
-.drawer-header {
-  padding: 12px 16px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  border-bottom: 1px solid var(--panel-border);
-}
-
-.drawer-header h3 {
-  font-size: 0.95rem;
+.emote-picker-title {
+  font-size: 0.72rem;
   font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--team-we-gold);
+  text-align: center;
 }
 
-.drawer-tabs {
+.emote-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+}
+
+.emote-btn {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  font-size: 1.4rem;
+  padding: 6px 8px;
+  cursor: pointer;
   display: flex;
-  border-bottom: 1px solid var(--panel-border);
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.15s;
 }
 
-.tab-btn {
-  flex: 1;
-  background: transparent;
-  border: none;
+.emote-btn:hover {
+  transform: scale(1.28);
+  background: rgba(255, 255, 255, 0.15);
+  border-color: var(--team-we-gold);
+}
+
+.emote-btn:active {
+  transform: scale(0.95);
+}
+
+/* Emote Bubbles Floating over Players */
+.emote-bubble-box {
+  position: absolute;
+  top: -24px;
+  left: 50%;
+  transform: translateX(-50%);
+  pointer-events: none;
+  z-index: 200;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.player-bottom .emote-bubble-box {
+  top: -36px;
+}
+
+.player-left .emote-bubble-box {
+  top: -28px;
+  left: 30px;
+}
+
+.player-right .emote-bubble-box {
+  top: -28px;
+  left: 30px;
+}
+
+.clash-emote-bubble {
+  background: #ffffff;
+  color: #000;
+  font-size: 1.8rem;
+  padding: 4px 10px;
+  border-radius: 16px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.5), 0 0 0 2px #0f172a;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  animation: clashEmoteFloat 2.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.clash-emote-bubble::after {
+  content: '';
+  position: absolute;
+  bottom: -6px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-width: 6px 6px 0;
+  border-style: solid;
+  border-color: #ffffff transparent;
+  display: block;
+  width: 0;
+}
+
+@keyframes clashEmoteFloat {
+  0% {
+    opacity: 0;
+    transform: scale(0) translateY(10px);
+  }
+  15% {
+    opacity: 1;
+    transform: scale(1.35) translateY(-4px);
+  }
+  25% {
+    transform: scale(1) translateY(0);
+  }
+  75% {
+    opacity: 1;
+    transform: scale(1) translateY(-6px);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.6) translateY(-28px);
+  }
+}
+
+/* --------------------------------------------------------------------------
+   TRUMPF DREHEN & TRINKSPIEL-MODUS
+   -------------------------------------------------------------------------- */
+.trump-turn-divider {
+  display: flex;
+  align-items: center;
+  text-align: center;
+  margin: 12px 0 8px;
   color: var(--text-muted);
-  padding: 10px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.trump-turn-divider::before,
+.trump-turn-divider::after {
+  content: '';
+  flex: 1;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.trump-turn-divider span {
+  padding: 0 10px;
+}
+
+.btn-turn-trump {
+  width: 100%;
+  padding: 10px 14px;
+  font-size: 0.88rem;
+  font-weight: 700;
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.15) 0%, rgba(217, 119, 6, 0.25) 100%);
+  border: 1px dashed var(--team-we-gold);
+  color: #fef08a;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.btn-turn-trump:hover {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.3) 0%, rgba(217, 119, 6, 0.45) 100%);
+  border-style: solid;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 14px rgba(245, 158, 11, 0.25);
+}
+
+/* Drinking Task Box */
+.drinking-task-box {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.22) 0%, rgba(234, 88, 12, 0.28) 100%);
+  border: 2px solid #f59e0b;
+  border-radius: 14px;
+  padding: 10px 14px;
+  box-shadow: 0 0 18px rgba(245, 158, 11, 0.25);
+  animation: pulseGlow 2s infinite ease-in-out;
+}
+
+.drinking-icon {
+  font-size: 1.8rem;
+  animation: bounce 1.2s infinite;
+}
+
+.drinking-text {
+  font-size: 0.92rem;
+  font-weight: 800;
+  color: #fffbeb;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+  line-height: 1.3;
+}
+
+@keyframes pulseGlow {
+  0%, 100% { box-shadow: 0 0 12px rgba(245, 158, 11, 0.2); }
+  50% { box-shadow: 0 0 24px rgba(245, 158, 11, 0.5); }
+}
+
+.waiting-host-note {
   font-size: 0.85rem;
   font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.tab-btn.active {
-  color: var(--team-we-gold);
-  border-bottom: 2px solid var(--team-we-gold);
-}
-
-.drawer-content {
-  flex: 1;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
-
-.tab-panel {
-  flex: 1;
-  overflow-y: auto;
-  padding: 12px;
-  display: none;
-  flex-direction: column;
-}
-
-.tab-panel.active {
-  display: flex;
-}
-
-.log-list {
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  font-size: 0.8rem;
-  color: #cbd5e1;
-}
-
-.log-list li {
-  background: rgba(0, 0, 0, 0.3);
-  padding: 6px 10px;
-  border-radius: 6px;
-  border-left: 3px solid rgba(255, 255, 255, 0.2);
-}
-
-.chat-list {
-  flex: 1;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding-bottom: 10px;
-}
-
-.chat-msg {
-  display: flex;
-  flex-direction: column;
-  background: rgba(255, 255, 255, 0.05);
-  padding: 8px 10px;
-  border-radius: 8px;
-  font-size: 0.85rem;
-}
-
-.chat-sender {
-  font-size: 0.7rem;
-  font-weight: 700;
-  color: var(--team-we-gold);
-  display: flex;
-  justify-content: space-between;
-}
-
-.chat-sender .time {
   color: var(--text-muted);
-  font-weight: 400;
+  text-align: center;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px dashed rgba(255, 255, 255, 0.15);
+  border-radius: 10px;
+  width: 100%;
 }
 
-.chat-text {
-  margin-top: 2px;
-  word-break: break-word;
+/* --------------------------------------------------------------------------
+   START-PUNKTESTAND STEPPERS & PRESETS
+   -------------------------------------------------------------------------- */
+.setting-scores-item {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
 }
 
-.chat-input-row {
+.score-inputs-row {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+}
+
+.score-input-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.score-input-col label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.stepper-input {
+  display: flex;
+  align-items: center;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.stepper-input input {
+  width: 100%;
+  text-align: center;
+  background: transparent;
+  border: none;
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 800;
+  padding: 6px 0;
+  -moz-appearance: textfield;
+}
+
+.stepper-input input::-webkit-outer-spin-button,
+.stepper-input input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.btn-stepper {
+  background: rgba(255, 255, 255, 0.08);
+  border: none;
+  color: #fff;
+  font-size: 1.1rem;
+  font-weight: 700;
+  width: 32px;
+  height: 32px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+}
+
+.btn-stepper:hover {
+  background: rgba(245, 158, 11, 0.3);
+  color: var(--team-we-gold);
+}
+
+.score-presets-row {
   display: flex;
   gap: 6px;
-  padding-top: 8px;
-  border-top: 1px solid var(--panel-border);
+  width: 100%;
 }
 
-.chat-input-row input {
+.btn-preset {
   flex: 1;
-  padding: 8px 12px;
-  font-size: 0.85rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 5px 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: center;
+}
+
+.btn-preset:hover {
+  background: rgba(245, 158, 11, 0.15);
+  border-color: rgba(245, 158, 11, 0.4);
+  color: #fef08a;
 }
 
 /* --------------------------------------------------------------------------
@@ -1798,16 +1997,47 @@ input:checked + .slider:before {
     font-size: 0.75rem;
   }
 
+  .emote-picker-popup {
+    top: 50px;
+    right: 6px;
+    padding: 8px 10px;
+    border-radius: 12px;
+  }
+
+  .emote-btn {
+    font-size: 1.25rem;
+    padding: 4px 6px;
+  }
+
+  .felt-table-wrapper {
+    padding: 4px;
+  }
+
   .felt-table {
     border-radius: 20px;
     border-width: 4px;
     grid-template-rows: 46px 1fr 115px;
-    grid-template-columns: 75px 1fr 75px;
+    grid-template-columns: 70px 1fr 70px;
   }
 
   .player-top {
     height: 42px;
     gap: 6px;
+  }
+
+  .player-left {
+    margin-left: 2px;
+    padding-left: 1px;
+  }
+
+  .player-right {
+    margin-right: 2px;
+    padding-right: 1px;
+  }
+
+  .player-meta .name {
+    font-size: 0.72rem;
+    max-width: 65px;
   }
 
   .playing-card {
@@ -1824,12 +2054,19 @@ input:checked + .slider:before {
     margin: 0 -8px;
   }
 
+  .trick-banner {
+    top: 2px;
+    padding: 3px 10px;
+    font-size: 0.7rem;
+    max-width: 92%;
+  }
+
   .trick-slot {
     width: 54px;
     height: 78px;
   }
 
-  .trick-slot.slot-top { top: 10px; }
+  .trick-slot.slot-top { top: 34px; }
   .trick-slot.slot-bottom { bottom: 8px; }
   .trick-slot.slot-left { left: 8px; }
   .trick-slot.slot-right { right: 8px; }
@@ -1865,9 +2102,18 @@ input:checked + .slider:before {
 }
 
 @media (max-width: 400px) {
+  .felt-table-wrapper {
+    padding: 2px;
+  }
+
   .felt-table {
     grid-template-rows: 42px 1fr 105px;
-    grid-template-columns: 68px 1fr 68px;
+    grid-template-columns: 60px 1fr 60px;
+  }
+
+  .player-meta .name {
+    font-size: 0.65rem;
+    max-width: 55px;
   }
 
   .playing-card {
@@ -1883,13 +2129,19 @@ input:checked + .slider:before {
     margin: 0 -10px;
   }
 
+  .trick-banner {
+    top: 1px;
+    padding: 2px 8px;
+    font-size: 0.64rem;
+  }
+
   .trick-slot {
     width: 46px;
     height: 68px;
   }
 
-  .trick-slot.slot-top { top: 8px; }
+  .trick-slot.slot-top { top: 30px; }
   .trick-slot.slot-bottom { bottom: 6px; }
-  .trick-slot.slot-left { left: 5px; }
-  .trick-slot.slot-right { right: 5px; }
+  .trick-slot.slot-left { left: 4px; }
+  .trick-slot.slot-right { right: 4px; }
 }

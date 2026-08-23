@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=3.0">
+  <link rel="stylesheet" href="style.css?v=4.0">
 </head>
 <body>
 
@@ -182,7 +182,7 @@
             👁️ Stich
           </button>
           <button id="soundToggleBtn" class="btn-tool btn-tool-icon" title="Ton ein/ausschalten">🔊</button>
-          <button id="logToggleBtn" class="btn-tool btn-tool-icon" title="Spielprotokoll & Chat">💬 <span id="chatBadge" class="badge hidden">0</span></button>
+          <button id="openEmoteBtn" class="btn-tool btn-tool-icon btn-emote-trigger" onclick="toggleEmotePicker()" title="Reaktionen & Ragebait">💬</button>
         </div>
       </header>
 
@@ -210,6 +210,7 @@
 
           <!-- SPIELER OBEN (Partner) -->
           <div class="table-player player-top" id="playerTop">
+            <div class="emote-bubble-box" id="emoteBubbleTop"></div>
             <div class="player-avatar-box">
               <div class="avatar-icon">👤</div>
               <div class="player-badges">
@@ -228,6 +229,7 @@
 
           <!-- SPIELER LINKS (Gegner 1) -->
           <div class="table-player player-left" id="playerLeft">
+            <div class="emote-bubble-box" id="emoteBubbleLeft"></div>
             <div class="player-avatar-box">
               <div class="avatar-icon">👤</div>
               <div class="player-badges">
@@ -246,6 +248,7 @@
 
           <!-- SPIELER RECHTS (Gegner 2) -->
           <div class="table-player player-right" id="playerRight">
+            <div class="emote-bubble-box" id="emoteBubbleRight"></div>
             <div class="player-avatar-box">
               <div class="avatar-icon">👤</div>
               <div class="player-badges">
@@ -284,6 +287,7 @@
 
           <!-- SPIELER UNTEN (Du / Eigene Hand) -->
           <div class="table-player player-bottom" id="playerBottom">
+            <div class="emote-bubble-box" id="emoteBubbleBottom"></div>
             <div class="player-meta-row">
               <div class="my-info">
                 <span class="name" id="nameBottom">Du</span>
@@ -321,6 +325,23 @@
       </main>
     </div>
 
+    <!-- CLASH ROYALE STYLE EMOTE PICKER POPUP -->
+    <div id="emotePickerPopup" class="emote-picker-popup hidden">
+      <div class="emote-picker-title">Reaktionen</div>
+      <div class="emote-grid">
+        <button type="button" class="emote-btn" onclick="sendEmote('🤡')" title="Clown">🤡</button>
+        <button type="button" class="emote-btn" onclick="sendEmote('😂')" title="Lachen">😂</button>
+        <button type="button" class="emote-btn" onclick="sendEmote('💀')" title="Tot">💀</button>
+        <button type="button" class="emote-btn" onclick="sendEmote('🤫')" title="Shhh">🤫</button>
+        <button type="button" class="emote-btn" onclick="sendEmote('👑')" title="König">👑</button>
+        <button type="button" class="emote-btn" onclick="sendEmote('💩')" title="Kacke">💩</button>
+        <button type="button" class="emote-btn" onclick="sendEmote('🔥')" title="Feuer">🔥</button>
+        <button type="button" class="emote-btn" onclick="sendEmote('🍺')" title="Prost">🍺</button>
+        <button type="button" class="emote-btn" onclick="sendEmote('🤬')" title="Rage">🤬</button>
+        <button type="button" class="emote-btn" onclick="sendEmote('🥱')" title="Gähnen">🥱</button>
+      </div>
+    </div>
+
   </div>
 
   <!-- MODAL: TRUMPFAUSWAHL (Für den Ansager) -->
@@ -356,6 +377,11 @@
           <span class="suit-name">KREUZ</span>
         </button>
       </div>
+
+      <div class="trump-turn-divider"><span>ODER</span></div>
+      <button class="btn btn-outline btn-turn-trump" onclick="turnTrump()">
+        🎲 Trumpf drehen (Blind aus deinen restlichen 2 Karten)
+      </button>
     </div>
   </div>
 
@@ -407,6 +433,12 @@
           Abrechnungsgrund...
         </div>
 
+        <!-- TRINKSPIEL BANNER (Wenn Trinkspiel-Modus aktiv ist) -->
+        <div class="drinking-task-box hidden" id="drinkingTaskBox">
+          <div class="drinking-icon">🍻</div>
+          <div class="drinking-text" id="drinkingTaskText">Trinkaufgabe...</div>
+        </div>
+
         <div class="stock-reveal-box">
           <span class="stock-title">Im verdeckten Stock lagen (4 Karten):</span>
           <div class="stock-cards-row" id="summaryStockCards"></div>
@@ -416,6 +448,9 @@
         <button id="nextRoundBtn" class="btn btn-primary btn-large btn-glow" onclick="nextRound()">
           Nächste Runde starten ➜
         </button>
+        <div id="waitingForHostNote" class="waiting-host-note hidden">
+          ⏳ Warte auf den Spielleiter...
+        </div>
       </div>
     </div>
   </div>
@@ -432,9 +467,12 @@
         <div class="score-col" id="finalColThey">SIE: <strong id="finalScoreThey">13</strong></div>
       </div>
       <div class="modal-actions">
-        <button class="btn btn-primary btn-large btn-glow" onclick="restartGame()">
-          🔄 Neues Spiel starten (13 Punkte)
+        <button id="restartGameBtn" class="btn btn-primary btn-large btn-glow" onclick="restartGame()">
+          🔄 Neues Spiel starten
         </button>
+        <div id="gameOverWaitingNote" class="waiting-host-note hidden">
+          ⏳ Warte auf den Spielleiter...
+        </div>
       </div>
     </div>
   </div>
@@ -509,34 +547,53 @@
             <button type="button" class="seg-btn" id="segPenalty1" onclick="setZeroTricksPenaltySetting(1)">+1 Strafpunkt</button>
           </div>
         </div>
+
+        <!-- 6. Start-Punktestand festlegen -->
+        <div class="setting-item setting-scores-item">
+          <div class="setting-info">
+            <span class="setting-title">Start-Punktestand (Handicap / Schnellspiel)</span>
+            <span class="setting-desc">Standard ist 13 Punkte. Teams können auch mit unterschiedlichen Punkten starten (z. B. 10:8).</span>
+          </div>
+          <div class="score-inputs-row">
+            <div class="score-input-col">
+              <label for="settingStartScoreA">Team A (WIR)</label>
+              <div class="stepper-input">
+                <button type="button" class="btn-stepper" onclick="adjustStartScore('A', -1)">-</button>
+                <input type="number" id="settingStartScoreA" min="1" max="30" value="13" onchange="saveRuleSettings()">
+                <button type="button" class="btn-stepper" onclick="adjustStartScore('A', 1)">+</button>
+              </div>
+            </div>
+            <div class="score-input-col">
+              <label for="settingStartScoreB">Team B (SIE)</label>
+              <div class="stepper-input">
+                <button type="button" class="btn-stepper" onclick="adjustStartScore('B', -1)">-</button>
+                <input type="number" id="settingStartScoreB" min="1" max="30" value="13" onchange="saveRuleSettings()">
+                <button type="button" class="btn-stepper" onclick="adjustStartScore('B', 1)">+</button>
+              </div>
+            </div>
+          </div>
+          <div class="score-presets-row">
+            <button type="button" class="btn-preset" onclick="setScorePreset(13, 13)">13 Pkt (Standard)</button>
+            <button type="button" class="btn-preset" onclick="setScorePreset(10, 10)">10 Pkt (Schnell)</button>
+            <button type="button" class="btn-preset" onclick="setScorePreset(7, 7)">7 Pkt (Blitz)</button>
+          </div>
+        </div>
+
+        <!-- 7. Trinkspiel-Modus -->
+        <div class="setting-item">
+          <div class="setting-info">
+            <span class="setting-title">🍻 Trinkspiel-Modus (Auf locker)</span>
+            <span class="setting-desc">Verteilt lockere Trinkaufgaben bei Durchmarsch, verlorener Mit', Kontra oder 0 Stichen</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="settingDrinkingGameMode" onchange="saveRuleSettings()">
+            <span class="slider"></span>
+          </label>
+        </div>
       </div>
 
       <div class="modal-footer settings-footer">
         <button class="btn btn-primary" onclick="closeSettingsModal()">Fertig & Schließen</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- SIDEBAR: CHAT & SPIELPROTOKOLL -->
-  <div id="sideDrawer" class="side-drawer">
-    <div class="drawer-header">
-      <h3>Spielprotokoll & Chat</h3>
-      <button id="closeDrawerBtn" class="btn btn-xs btn-outline">✕</button>
-    </div>
-    <div class="drawer-tabs">
-      <button id="tabLog" class="tab-btn active" onclick="switchDrawerTab('log')">Protokoll</button>
-      <button id="tabChat" class="tab-btn" onclick="switchDrawerTab('chat')">Chat</button>
-    </div>
-    <div class="drawer-content">
-      <div id="logPanel" class="tab-panel active">
-        <ul id="actionLogList" class="log-list"></ul>
-      </div>
-      <div id="chatPanel" class="tab-panel">
-        <div id="chatMessagesList" class="chat-list"></div>
-        <form id="chatForm" class="chat-input-row" onsubmit="sendChat(event)">
-          <input type="text" id="chatInput" placeholder="Nachricht tippen..." maxlength="120">
-          <button type="submit" class="btn btn-sm btn-primary">Senden</button>
-        </form>
       </div>
     </div>
   </div>
@@ -547,6 +604,6 @@
   <!-- Socket.io Script -->
   <script src="/socket.io/socket.io.js"></script>
   <!-- Client JavaScript -->
-  <script src="client.js?v=3.0"></script>
+  <script src="client.js?v=4.0"></script>
 </body>
 </html>
