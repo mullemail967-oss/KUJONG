@@ -19,6 +19,7 @@ const {
 
 const {
   chooseTrumpSuit,
+  shouldBotTurnTrump,
   shouldAnnounceMit,
   shouldAnnounceContra,
   chooseCardToPlay
@@ -83,7 +84,10 @@ function createRoom(roomCode, hostName, hostSocketId) {
       alwaysClubQueenTrump: true,     // Kreuz-Dame immer 2. bzw. 3. Trumpf (Standard: true)
       allowMit: true,                 // Pik-Dame Mit'-Ansage erlaubt (Standard: true)
       contraPoints: 4,                // Rundenwert bei Kontra: 4 Pkt (Standard: 4, alternativ: 3)
-      ansagerZeroTricksPenalty: 2     // Strafpunkte bei 0 Stichen für Ansager: 2 Pkt (Standard: 2, alternativ: 1)
+      ansagerZeroTricksPenalty: 2,    // Strafpunkte bei 0 Stichen für Ansager: 2 Pkt (Standard: 2, alternativ: 1)
+      startScoreA: 13,                // Startwert Team A (Standard: 13)
+      startScoreB: 13,                // Startwert Team B (Standard: 13)
+      drinkingGameMode: false         // Trinkspiel-Modus 'auf locker' (Standard: false)
     },
     scores: { teamA: 13, teamB: 13 },
     dealerIndex: 0,
@@ -94,6 +98,7 @@ function createRoom(roomCode, hostName, hostSocketId) {
     hands: [[], [], [], []],
     stock: [],
     trumpSuit: null,
+    turnedCard: null, // Aufgedeckte Karte bei 'Trumpf drehen'
     isMitAnnounced: false,
     isContraAnnounced: false,
     mitHolderIndex: -1,
@@ -207,6 +212,7 @@ function sanitizeStateForPlayer(room, seatIndex) {
     declarerIndex: room.declarerIndex,
     declarerTeam: room.declarerTeam,
     trumpSuit: room.trumpSuit,
+    turnedCard: room.turnedCard,
     isMitAnnounced: room.isMitAnnounced,
     isContraAnnounced: room.isContraAnnounced,
     canAnnounceMit: canAnnounceMit,
@@ -248,6 +254,7 @@ function startNewRound(room) {
   room.eyesTeamA = 0;
   room.eyesTeamB = 0;
   room.trumpSuit = null;
+  room.turnedCard = null;
   room.isMitAnnounced = false;
   room.isContraAnnounced = false;
   room.mitHolderIndex = -1;
@@ -283,16 +290,40 @@ function startNewRound(room) {
 }
 
 /**
+ * Führt das blinde 'Trumpf drehen' aus (eine der restlichen 2 Karten des Ansagers wird aufgedeckt).
+ */
+function handleTurnTrump(room) {
+  if (room.phase !== 'CHOOSE_TRUMP') return;
+  const d = room.declarerIndex;
+  // Die noch verdeckten 2 Karten des Ansagers befinden sich im Deck bei 12 + d*2
+  const turnedCard = room.deck[12 + d * 2];
+  if (!turnedCard) return;
+
+  const chosenSuit = turnedCard.suit;
+  const suitSymbols = { clubs: '♣ Kreuz', spades: '♠ Pik', hearts: '♥ Herz', diamonds: '♦ Karo' };
+  const declarerName = room.seats[d].name;
+
+  room.turnedCard = turnedCard;
+  logAction(room, `🎲 ${declarerName} hat Trumpf gedreht! Aufgedeckt: ${suitSymbols[chosenSuit]} ${turnedCard.rank} ➔ Trumpf ist ${suitSymbols[chosenSuit]}!`);
+
+  handleTrumpSelection(room, chosenSuit, turnedCard);
+}
+
+/**
  * Schließt die Trumpfwahl ab und führt das 2. Austeilen (2 Karten) aus.
  */
-function handleTrumpSelection(room, chosenSuit) {
+function handleTrumpSelection(room, chosenSuit, turnedCard = null) {
   if (room.phase !== 'CHOOSE_TRUMP') return;
   if (!Object.values(SUITS).includes(chosenSuit)) return;
 
   room.trumpSuit = chosenSuit;
+  room.turnedCard = turnedCard;
   const suitSymbols = { clubs: '♣ Kreuz', spades: '♠ Pik', hearts: '♥ Herz', diamonds: '♦ Karo' };
   const declarerName = room.seats[room.declarerIndex].name;
-  logAction(room, `${declarerName} hat ${suitSymbols[chosenSuit]} als Trumpf gewählt!`);
+
+  if (!turnedCard) {
+    logAction(room, `${declarerName} hat ${suitSymbols[chosenSuit]} als Trumpf gewählt!`);
+  }
 
   // Phase 3: Zweites Austeilen (exakt 2 Karten pro Spieler = 8 Karten)
   let deckPtr = 12;
@@ -452,10 +483,16 @@ function handleCardPlay(room, playerIndex, cardId) {
 
     broadcastGameState(room);
 
-    // 2.5 Sekunden Pause, damit alle den Stich & Sieger in Ruhe sehen
+    // Pause, damit alle den Stich & Sieger in Ruhe sehen.
+    // Wenn Augenzählen AUS ist: längere Pause (4s für Stiche 1-4, 5s für den 5. Stich), damit Spieler im Kopf zählen können
+    let trickDelay = 2500;
+    if (room.settings && room.settings.countEyesLive === false) {
+      trickDelay = (room.trickCount === 4) ? 5000 : 4000;
+    }
+
     setTimeout(() => {
       resolveTrick(room, result);
-    }, 2500);
+    }, trickDelay);
   } else {
     // Nächster Spieler im Uhrzeigersinn ist am Zug
     room.currentTurn = (room.currentTurn + 1) % 4;
@@ -486,7 +523,14 @@ function resolveTrick(room, result) {
 
   const suitIcons = { clubs: '♣', spades: '♠', hearts: '♥', diamonds: '♦' };
   const winningCardDisplay = `${suitIcons[result.winningCard.suit]}${result.winningCard.rank}`;
-  logAction(room, `🏆 ${winnerName} gewinnt Stich ${room.trickCount} mit ${winningCardDisplay} (${result.points} Augen).`);
+  // Bot Emote bei fetten Stichen (>= 4 Augen)
+  if (result.points >= 4 && room.seats[winnerIndex] && room.seats[winnerIndex].isBot && Math.random() < 0.7) {
+    const emotes = ['👑', '🔥', '😂', '🤫'];
+    const botEmote = emotes[Math.floor(Math.random() * emotes.length)];
+    setTimeout(() => {
+      io.to(room.code).emit('player_emote', { seatIndex: winnerIndex, emote: botEmote });
+    }, 400);
+  }
 
   room.currentTrick = [];
   room.trickWinnerInfo = null;
@@ -530,6 +574,32 @@ function resolveRound(room) {
   logAction(room, evaluation.reason);
   logAction(room, `Neuer Punktestand: Team A: ${room.scores.teamA} (vorher ${oldScoreA}) | Team B: ${room.scores.teamB} (vorher ${oldScoreB})`);
 
+  // Trinkspiel-Modus Aufgaben berechnen (wenn aktiviert)
+  let drinkingTask = null;
+  if (room.settings && room.settings.drinkingGameMode) {
+    const isGameOver = (room.scores.teamA <= 0 || room.scores.teamB <= 0);
+    if (isGameOver) {
+      const loserTeam = (room.scores.teamA <= 0) ? 'Team B' : 'Team A';
+      drinkingTask = `🍾 SPIEL VORBEI! ${loserTeam} trinkt das Glas auf ex aus!`;
+    } else if (room.tricksTeamA === 5) {
+      drinkingTask = '🍻 DURCHMARSCH! Team B trinkt 2 Schlucke!';
+    } else if (room.tricksTeamB === 5) {
+      drinkingTask = '🍻 DURCHMARSCH! Team A trinkt 2 Schlucke!';
+    } else if (room.isContraAnnounced) {
+      const loserTeam = evaluation.winnerTeam === 0 ? 'Team B' : 'Team A';
+      drinkingTask = `🥃 KONTRA VERLOREN! ${loserTeam} trinkt 3 Schlucke (oder einen Shot)!`;
+    } else if (room.isMitAnnounced && evaluation.winnerTeam !== room.declarerTeam) {
+      const declarerTeamName = room.declarerTeam === 0 ? 'Team A' : 'Team B';
+      drinkingTask = `🍻 MIT' VERLOREN! ${declarerTeamName} trinkt 2 Schlucke!`;
+    } else if (evaluation.isZeroTricksPenalty) {
+      const declarerTeamName = room.declarerTeam === 0 ? 'Team A' : 'Team B';
+      drinkingTask = `🍻 0 STICHE! Ansager-Team (${declarerTeamName}) trinkt 2 Schlucke!`;
+    } else {
+      const loserTeam = evaluation.winnerTeam === 0 ? 'Team B' : 'Team A';
+      drinkingTask = `🍺 RUNDE VERLOREN! ${loserTeam} trinkt 1 Schluck!`;
+    }
+  }
+
   room.roundSummary = {
     roundNumber: room.roundNumber,
     eyesTeamA: room.eyesTeamA,
@@ -544,6 +614,7 @@ function resolveRound(room) {
     newScoreB: room.scores.teamB,
     reason: evaluation.reason,
     stockCards: room.stock,
+    drinkingTask: drinkingTask,
     isGameOver: room.scores.teamA <= 0 || room.scores.teamB <= 0
   };
 
@@ -577,8 +648,12 @@ function checkBotAction(room) {
     if (declarer && declarer.isBot) {
       room.botTimer = setTimeout(() => {
         const hand = room.hands[room.declarerIndex];
-        const bestSuit = chooseTrumpSuit(hand, room.settings);
-        handleTrumpSelection(room, bestSuit);
+        if (shouldBotTurnTrump(hand, room.settings)) {
+          handleTurnTrump(room);
+        } else {
+          const bestSuit = chooseTrumpSuit(hand, room.settings);
+          handleTrumpSelection(room, bestSuit);
+        }
       }, 1000);
     }
   } else if (room.phase === 'PLAY_TRICK') {
@@ -808,6 +883,15 @@ io.on('connection', (socket) => {
       if (typeof settings.allowMit === 'boolean') room.settings.allowMit = settings.allowMit;
       if (settings.contraPoints === 3 || settings.contraPoints === 4) room.settings.contraPoints = settings.contraPoints;
       if (settings.ansagerZeroTricksPenalty === 1 || settings.ansagerZeroTricksPenalty === 2) room.settings.ansagerZeroTricksPenalty = settings.ansagerZeroTricksPenalty;
+      if (typeof settings.startScoreA === 'number' && settings.startScoreA >= 1 && settings.startScoreA <= 30) {
+        room.settings.startScoreA = Math.round(settings.startScoreA);
+        room.scores.teamA = room.settings.startScoreA;
+      }
+      if (typeof settings.startScoreB === 'number' && settings.startScoreB >= 1 && settings.startScoreB <= 30) {
+        room.settings.startScoreB = Math.round(settings.startScoreB);
+        room.scores.teamB = room.settings.startScoreB;
+      }
+      if (typeof settings.drinkingGameMode === 'boolean') room.settings.drinkingGameMode = settings.drinkingGameMode;
     }
 
     logAction(room, `⚙️ Spieleinstellungen aktualisiert durch ${room.seats[currentSeatIndex] ? room.seats[currentSeatIndex].name : 'Host'}.`);
@@ -825,7 +909,10 @@ io.on('connection', (socket) => {
       return socket.emit('error_message', 'Es werden genau 4 Spieler oder Bots benötigt.');
     }
 
-    room.scores = { teamA: 13, teamB: 13 };
+    room.scores = {
+      teamA: room.settings.startScoreA || 13,
+      teamB: room.settings.startScoreB || 13
+    };
     room.dealerIndex = 0;
     startNewRound(room);
   });
@@ -838,6 +925,16 @@ io.on('connection', (socket) => {
     if (room.declarerIndex !== currentSeatIndex) return;
 
     handleTrumpSelection(room, suit);
+  });
+
+  // Trumpf drehen (Blindes Umdrehen einer der restlichen 2 Karten)
+  socket.on('turn_trump', () => {
+    if (!currentRoomCode) return;
+    const room = rooms.get(currentRoomCode);
+    if (!room || room.phase !== 'CHOOSE_TRUMP') return;
+    if (room.declarerIndex !== currentSeatIndex) return;
+
+    handleTurnTrump(room);
   });
 
   // Mit' ansagen
@@ -868,48 +965,52 @@ io.on('connection', (socket) => {
     handleCardPlay(room, currentSeatIndex, cardId);
   });
 
-  // Nächste Runde starten
+  // Nächste Runde starten (Nur Host / Spielleiter)
   socket.on('next_round', () => {
     if (!currentRoomCode) return;
     const room = rooms.get(currentRoomCode);
     if (!room || room.phase !== 'ROUND_END') return;
 
+    const isHost = (currentSeatIndex === 0) || (room.seats[currentSeatIndex] && room.seats[currentSeatIndex].socketId === room.hostSocketId);
+    if (!isHost) {
+      return socket.emit('error_message', 'Nur der Spielleiter kann die nächste Runde starten.');
+    }
+
     startNewRound(room);
   });
 
-  // Spiel neu starten
+  // Spiel neu starten (Nur Host / Spielleiter)
   socket.on('restart_game', () => {
     if (!currentRoomCode) return;
     const room = rooms.get(currentRoomCode);
     if (!room || room.phase !== 'GAME_OVER') return;
 
-    room.scores = { teamA: 13, teamB: 13 };
+    const isHost = (currentSeatIndex === 0) || (room.seats[currentSeatIndex] && room.seats[currentSeatIndex].socketId === room.hostSocketId);
+    if (!isHost) {
+      return socket.emit('error_message', 'Nur der Spielleiter kann ein neues Spiel starten.');
+    }
+
+    room.scores = {
+      teamA: room.settings.startScoreA || 13,
+      teamB: room.settings.startScoreB || 13
+    };
     room.roundNumber = 0;
     room.dealerIndex = 0;
     startNewRound(room);
   });
 
-  // Chat-Nachricht
-  socket.on('send_chat', ({ message }) => {
+  // Clash Royale Ragebait Emotes senden
+  socket.on('send_emote', ({ emote }) => {
     if (!currentRoomCode) return;
     const room = rooms.get(currentRoomCode);
     if (!room) return;
+    if (typeof emote !== 'string') return;
+    const cleanEmote = emote.slice(0, 8);
 
-    const seat = room.seats[currentSeatIndex];
-    const senderName = seat ? seat.name : 'Zuschauer';
-    const cleanMsg = (message || '').trim().slice(0, 150);
-    if (!cleanMsg) return;
-
-    const chatItem = {
-      sender: senderName,
-      text: cleanMsg,
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    };
-
-    room.chatMessages.push(chatItem);
-    if (room.chatMessages.length > 50) room.chatMessages.shift();
-
-    broadcastGameState(room);
+    io.to(currentRoomCode).emit('player_emote', {
+      seatIndex: currentSeatIndex,
+      emote: cleanEmote
+    });
   });
 
   // Trennung behandeln
