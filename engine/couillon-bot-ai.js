@@ -64,6 +64,22 @@ function chooseTrumpSuit(hand3, options = {}) {
 }
 
 /**
+ * Entscheidet, ob der Ansager-Bot lieber blind den Trumpf drehen möchte (bei schwachen 3 Karten).
+ */
+function shouldBotTurnTrump(hand3, options = {}) {
+  // Wenn der Bot kein Ass hat und keine 2 Karten einer Farbe besitzt
+  const hasAce = hand3.some(c => c.rank === 'A');
+  const counts = {};
+  for (const c of hand3) counts[c.suit] = (counts[c.suit] || 0) + 1;
+  const maxInSuit = Math.max(...Object.values(counts));
+
+  if (!hasAce && maxInSuit < 2) {
+    return Math.random() < 0.65;
+  }
+  return false;
+}
+
+/**
  * Entscheidet, ob der Bot (im Besitz der Pik-Dame) in Stich 1 die 'Mit' ansagen soll.
  */
 function shouldAnnounceMit(hand, declarerIndex, botIndex, trumpSuit, options = {}) {
@@ -320,6 +336,7 @@ function sortCardsByPowerAsc(cards, trumpSuit, isMitAnnounced, options) {
 
 module.exports = {
   chooseTrumpSuit,
+  shouldBotTurnTrump,
   shouldAnnounceMit,
   shouldAnnounceContra,
   chooseCardToPlay
