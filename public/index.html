@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=4.1">
+  <link rel="stylesheet" href="style.css?v=4.4">
 </head>
 <body>
 
@@ -36,7 +36,7 @@
             </button>
             <div class="divider"><span>ODER</span></div>
             <div class="join-box">
-              <input type="text" id="roomCodeInput" placeholder="4-stelliger Code (z.B. ABCD)" maxlength="4" autocomplete="off" autocapitalize="characters">
+              <input type="text" id="roomCodeInput" placeholder="Code (z.B. ABCD)" maxlength="4" autocomplete="off" autocapitalize="characters">
               <button id="joinRoomBtn" class="btn btn-secondary" onclick="handleJoinRoom()">Beitreten</button>
             </div>
           </div>
@@ -113,6 +113,7 @@
               ⏳ Warte auf 4 Spieler...
             </button>
             <button id="fillBotsBtn" class="btn btn-outline btn-sm">🤖 Mit Bots auffüllen</button>
+            <button id="leaveLobbyBtn" class="btn btn-outline btn-sm btn-leave-lobby" onclick="leaveLobby()">🚪 Lobby verlassen</button>
           </div>
         </div>
       </div>
@@ -173,8 +174,11 @@
           </div>
         </div>
 
-        <!-- HEADER SUB-TOOLS (Kontra-Knopf, Letzter Stich, Ton, Chat) -->
+        <!-- HEADER SUB-TOOLS (Spielleiter-Menü-Button, Kontra-Knopf, Letzter Stich, Ton, Emotes) -->
         <div class="header-tools">
+          <button id="hostMenuBtn" class="btn-tool btn-host-menu hidden" onclick="openHostMenu()" title="Spielleiter-Menü (Spieler kicken, Lobby, Link)">
+            👑 Menü
+          </button>
           <button id="announceContraBtn" class="btn-tool btn-contra hidden" onclick="announceContra()" title="Kontra ansagen (Rundenwert: 4 Punkte / 5 bei Durchmarsch)">
             ⚡ KONTRA GEBEN! (4 Pkt)
           </button>
@@ -210,7 +214,6 @@
 
           <!-- SPIELER OBEN (Partner) -->
           <div class="table-player player-top" id="playerTop">
-            <div class="emote-bubble-box" id="emoteBubbleTop"></div>
             <div class="player-avatar-box">
               <div class="avatar-icon">👤</div>
               <div class="player-badges">
@@ -218,7 +221,10 @@
               </div>
             </div>
             <div class="player-meta">
-              <span class="name" id="nameTop">Partner</span>
+              <div class="name-emote-wrap">
+                <span class="name" id="nameTop">Partner</span>
+                <div class="emote-bubble-box" id="emoteBubbleTop"></div>
+              </div>
               <span class="declarer-pill hidden" id="declarerPillTop">👑 Ansager</span>
               <span class="team-tag tag-we" id="tagTop">WIR</span>
             </div>
@@ -229,7 +235,6 @@
 
           <!-- SPIELER LINKS (Gegner 1) -->
           <div class="table-player player-left" id="playerLeft">
-            <div class="emote-bubble-box" id="emoteBubbleLeft"></div>
             <div class="player-avatar-box">
               <div class="avatar-icon">👤</div>
               <div class="player-badges">
@@ -237,7 +242,10 @@
               </div>
             </div>
             <div class="player-meta">
-              <span class="name" id="nameLeft">Gegner 1</span>
+              <div class="name-emote-wrap">
+                <span class="name" id="nameLeft">Gegner 1</span>
+                <div class="emote-bubble-box" id="emoteBubbleLeft"></div>
+              </div>
               <span class="declarer-pill hidden" id="declarerPillLeft">👑 Ansager</span>
               <span class="team-tag tag-they" id="tagLeft">SIE</span>
             </div>
@@ -248,7 +256,6 @@
 
           <!-- SPIELER RECHTS (Gegner 2) -->
           <div class="table-player player-right" id="playerRight">
-            <div class="emote-bubble-box" id="emoteBubbleRight"></div>
             <div class="player-avatar-box">
               <div class="avatar-icon">👤</div>
               <div class="player-badges">
@@ -256,7 +263,10 @@
               </div>
             </div>
             <div class="player-meta">
-              <span class="name" id="nameRight">Gegner 2</span>
+              <div class="name-emote-wrap">
+                <span class="name" id="nameRight">Gegner 2</span>
+                <div class="emote-bubble-box" id="emoteBubbleRight"></div>
+              </div>
               <span class="declarer-pill hidden" id="declarerPillRight">👑 Ansager</span>
               <span class="team-tag tag-they" id="tagRight">SIE</span>
             </div>
@@ -287,10 +297,12 @@
 
           <!-- SPIELER UNTEN (Du / Eigene Hand) -->
           <div class="table-player player-bottom" id="playerBottom">
-            <div class="emote-bubble-box" id="emoteBubbleBottom"></div>
             <div class="player-meta-row">
               <div class="my-info">
-                <span class="name" id="nameBottom">Du</span>
+                <div class="name-emote-wrap">
+                  <span class="name" id="nameBottom">Du</span>
+                  <div class="emote-bubble-box" id="emoteBubbleBottom"></div>
+                </div>
                 <span class="declarer-pill hidden" id="declarerPillBottom">👑 Ansager</span>
                 <span class="team-tag tag-we" id="tagBottom">WIR</span>
                 <span class="badge badge-dealer hidden" id="dealerBottom">Geber</span>
@@ -598,12 +610,53 @@
     </div>
   </div>
 
+  <!-- SPIELLEITER-MENÜ MODAL (👑) -->
+  <div id="hostControlModal" class="modal-overlay hidden">
+    <div class="modal-card host-menu-modal">
+      <div class="modal-header">
+        <div class="modal-tag">👑 Spielleiter</div>
+        <h2 class="modal-title">Spielleitung & Verwaltung</h2>
+        <button class="modal-close-btn" onclick="closeHostMenu()">✕</button>
+      </div>
+
+      <div class="modal-body host-menu-body">
+        <!-- Schnelle Raum-Aktionen -->
+        <div class="host-section">
+          <div class="host-section-title">⚡ Raum-Aktionen</div>
+          <div class="host-actions-grid">
+            <button class="btn btn-outline btn-sm" onclick="copyInviteLink()">
+              📋 Einladungslink kopieren
+            </button>
+            <button class="btn btn-outline btn-sm btn-return-lobby" onclick="returnToLobby()">
+              🏠 Partie beenden & Zurück zur Lobby
+            </button>
+          </div>
+        </div>
+
+        <!-- Spieler-Verwaltung & Kick -->
+        <div class="host-section">
+          <div class="host-section-title">👥 Spieler-Verwaltung (4 Plätze)</div>
+          <div id="hostPlayerList" class="host-player-list">
+            <!-- Dynamisch befüllt durch client.js -->
+          </div>
+          <p class="host-hint">
+            💡 Gekickte Spieler werden sofort durch einen Bot ersetzt. Ein neuer Spieler kann über den Link jederzeit einen Bot-Platz im laufenden Spiel übernehmen.
+          </p>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-primary" onclick="closeHostMenu()">Schließen</button>
+      </div>
+    </div>
+  </div>
+
   <!-- TOAST NOTIFICATIONS -->
   <div id="toastContainer" class="toast-container"></div>
 
   <!-- Socket.io Script -->
   <script src="/socket.io/socket.io.js"></script>
   <!-- Client JavaScript -->
-  <script src="client.js?v=4.1"></script>
+  <script src="client.js?v=4.4"></script>
 </body>
 </html>

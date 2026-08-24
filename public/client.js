@@ -176,16 +176,49 @@ function setupEventListeners() {
     }
   });
 
-  document.getElementById('roomCodeInput').addEventListener('keyup', (e) => {
-    if (e.key === 'Enter') handleJoinRoom();
-  });
+  const roomCodeInput = document.getElementById('roomCodeInput');
+  if (roomCodeInput) {
+    roomCodeInput.addEventListener('input', () => {
+      roomCodeInput.value = roomCodeInput.value.toUpperCase();
+      updateLobbyButtonsState();
+    });
+    roomCodeInput.addEventListener('keyup', (e) => {
+      if (e.key === 'Enter') handleJoinRoom();
+    });
+  }
+}
+
+function updateLobbyButtonsState() {
+  const codeInput = document.getElementById('roomCodeInput');
+  const createBtn = document.getElementById('createRoomBtn');
+  const joinBtn = document.getElementById('joinRoomBtn');
+  if (!codeInput || !createBtn || !joinBtn) return;
+
+  const hasCode = codeInput.value.trim().length > 0;
+  if (hasCode) {
+    createBtn.disabled = true;
+    createBtn.classList.add('btn-create-disabled');
+    createBtn.title = 'Raumcode eingegeben: Klicke auf "Beitreten"';
+    joinBtn.classList.remove('btn-secondary');
+    joinBtn.classList.add('btn-primary', 'btn-glow');
+  } else {
+    createBtn.disabled = false;
+    createBtn.classList.remove('btn-create-disabled');
+    createBtn.title = 'Neuen Raum erstellen';
+    joinBtn.classList.remove('btn-primary', 'btn-glow');
+    joinBtn.classList.add('btn-secondary');
+  }
 }
 
 function checkUrlParams() {
   const urlParams = new URLSearchParams(window.location.search);
   const room = urlParams.get('room');
   if (room) {
-    document.getElementById('roomCodeInput').value = room.toUpperCase();
+    const codeInput = document.getElementById('roomCodeInput');
+    if (codeInput) {
+      codeInput.value = room.toUpperCase();
+      updateLobbyButtonsState();
+    }
   }
 }
 
@@ -207,6 +240,11 @@ function showToast(message) {
 // LOBBY & RAUM-AKTIONEN
 // --------------------------------------------------------------------------
 function handleCreateRoom() {
+  const codeInput = document.getElementById('roomCodeInput');
+  if (codeInput && codeInput.value.trim().length > 0) {
+    showToast('Du hast einen Raumcode eingegeben! Klicke auf Beitreten.');
+    return;
+  }
   const playerName = getPlayerName();
   socket.emit('create_room', { playerName });
 }
@@ -275,21 +313,59 @@ function turnTrump() {
   playSound('trump_fanfare');
 }
 
-// Clash Royale Ragebait Emotes
+// Helper: Berechnet relative Sitzposition relativ zu Du (Bottom)
+function getRelativePosition(targetSeatIndex, mySeatIndex) {
+  const t = typeof targetSeatIndex === 'number' ? targetSeatIndex : 0;
+  const m = typeof mySeatIndex === 'number' ? mySeatIndex : 0;
+  const diff = (t - m + 4) % 4;
+  if (diff === 0) return 'Bottom';
+  if (diff === 1) return 'Left';
+  if (diff === 2) return 'Top';
+  if (diff === 3) return 'Right';
+  return 'Bottom';
+}
+
+// Clash Royale Ragebait Emotes mit Spam-Schutz & dynamischem Cooldown
+let lastEmoteTime = 0;
+let emoteSpamCount = 0;
+let emoteCooldownUntil = 0;
+
 function toggleEmotePicker() {
   const popup = document.getElementById('emotePickerPopup');
   popup.classList.toggle('hidden');
 }
 
 function sendEmote(emoji) {
+  const now = Date.now();
+  if (now < emoteCooldownUntil) {
+    const remainingSec = Math.ceil((emoteCooldownUntil - now) / 1000);
+    showToast(`⏳ Bitte kurz warten (${remainingSec}s)...`);
+    return;
+  }
+
+  if (now - lastEmoteTime < 2500) {
+    emoteSpamCount++;
+  } else {
+    emoteSpamCount = 0;
+  }
+
+  let cooldownMs = 1200; // Normaler Cooldown: 1,2s
+  if (emoteSpamCount >= 3) {
+    cooldownMs = 4000; // Verlängerter Cooldown bei Spam: 4s
+    showToast('🤫 Nicht spammen! 4s Cooldown.');
+  }
+
+  lastEmoteTime = now;
+  emoteCooldownUntil = now + cooldownMs;
+
   socket.emit('send_emote', { emote: emoji });
   document.getElementById('emotePickerPopup').classList.add('hidden');
 }
 
 function showEmoteBubble(seatIndex, emote) {
   const mySeat = gameState && gameState.you ? gameState.you.seatIndex : 0;
-  const relativePos = getRelativePosition(seatIndex, mySeat); // 'bottom', 'left', 'top', 'right'
-  const containerId = 'emoteBubble' + relativePos.charAt(0).toUpperCase() + relativePos.slice(1);
+  const relativePos = getRelativePosition(seatIndex, mySeat); // 'Bottom', 'Left', 'Top', 'Right'
+  const containerId = 'emoteBubble' + relativePos;
   const container = document.getElementById(containerId);
   if (!container) return;
 
@@ -298,11 +374,9 @@ function showEmoteBubble(seatIndex, emote) {
   bubble.textContent = emote;
   container.appendChild(bubble);
 
-  playSound('emote');
-
   setTimeout(() => {
     bubble.remove();
-  }, 2400);
+  }, 2200);
 }
 
 function announceMit(announce) {
@@ -347,6 +421,96 @@ function nextRound() {
 function restartGame() {
   socket.emit('restart_game');
   document.getElementById('gameOverModal').classList.add('hidden');
+}
+
+function leaveLobby() {
+  socket.emit('leave_room');
+  sessionStorage.removeItem('kujong_session');
+  currentRoomCode = null;
+  mySeatIndex = -1;
+  gameState = null;
+  document.getElementById('lobbyWaitingRoom').classList.add('hidden');
+  document.getElementById('lobbyInitialOptions').classList.remove('hidden');
+  document.getElementById('gameScreen').classList.remove('active');
+  document.getElementById('lobbyScreen').classList.add('active');
+  showToast('Du hast die Lobby verlassen.');
+}
+
+function returnToLobby() {
+  if (!gameState || !gameState.you || !gameState.you.isHost) return;
+  const confirmReturn = confirm('Möchtest du die laufende Partie wirklich beenden und mit allen Spielern zurück in die Lobby wechseln?');
+  if (confirmReturn) {
+    socket.emit('return_to_lobby');
+    closeHostMenu();
+  }
+}
+
+// --------------------------------------------------------------------------
+// SPIELLEITER-MENÜ & SPIELER-VERWALTUNG (KICKEN)
+// --------------------------------------------------------------------------
+function openHostMenu() {
+  if (!gameState || !gameState.you || !gameState.you.isHost) return;
+  renderHostPlayerList();
+  document.getElementById('hostControlModal').classList.remove('hidden');
+}
+
+function closeHostMenu() {
+  document.getElementById('hostControlModal').classList.add('hidden');
+}
+
+function renderHostPlayerList() {
+  const container = document.getElementById('hostPlayerList');
+  if (!container || !gameState) return;
+  container.innerHTML = '';
+
+  for (let i = 0; i < 4; i++) {
+    const player = gameState.players[i];
+    const row = document.createElement('div');
+    row.className = 'host-player-row';
+
+    const isMe = (i === gameState.you.seatIndex);
+    const isBot = player && player.isBot;
+    const teamLabel = i % 2 === 0 ? 'Team A' : 'Team B';
+
+    let tagHTML = '';
+    let actionHTML = '';
+
+    if (!player) {
+      tagHTML = '<span class="host-player-tag tag-bot">Frei</span>';
+    } else if (isMe) {
+      tagHTML = '<span class="host-player-tag tag-host">Spielleiter (Du)</span>';
+    } else if (isBot) {
+      tagHTML = '<span class="host-player-tag tag-bot">🤖 Bot</span>';
+    } else {
+      tagHTML = '<span class="host-player-tag tag-player">👤 Spieler</span>';
+      actionHTML = `<button class="btn-kick" onclick="kickPlayer(${i}, '${player.name}')">👢 Kicken (Bot)</button>`;
+    }
+
+    const pName = player ? player.name : 'Leerer Platz';
+
+    row.innerHTML = `
+      <div class="host-player-info">
+        <span class="host-player-seat">P${i + 1} (${teamLabel})</span>
+        <span class="host-player-name">${pName}</span>
+        ${tagHTML}
+      </div>
+      <div>
+        ${actionHTML}
+      </div>
+    `;
+
+    container.appendChild(row);
+  }
+}
+
+function kickPlayer(seatIndex, playerName) {
+  const confirmKick = confirm(`Möchtest du ${playerName || 'diesen Spieler'} wirklich aus der Partie entfernen und durch einen Bot ersetzen?`);
+  if (confirmKick) {
+    socket.emit('kick_player', { targetSeat: seatIndex });
+    setTimeout(() => {
+      renderHostPlayerList();
+    }, 300);
+  }
 }
 
 function openLastTrickModal() {
@@ -400,6 +564,42 @@ socket.on('connect', () => {
       }
     } catch (e) {}
   }
+});
+
+socket.on('room_disbanded', ({ message }) => {
+  sessionStorage.removeItem('kujong_session');
+  currentRoomCode = null;
+  mySeatIndex = -1;
+  gameState = null;
+  document.getElementById('lobbyWaitingRoom').classList.add('hidden');
+  document.getElementById('lobbyInitialOptions').classList.remove('hidden');
+  document.getElementById('gameScreen').classList.remove('active');
+  document.getElementById('lobbyScreen').classList.add('active');
+  alert(message || 'Die Lobby wurde aufgelöst.');
+});
+
+socket.on('left_room', () => {
+  sessionStorage.removeItem('kujong_session');
+  currentRoomCode = null;
+  mySeatIndex = -1;
+  gameState = null;
+  document.getElementById('lobbyWaitingRoom').classList.add('hidden');
+  document.getElementById('lobbyInitialOptions').classList.remove('hidden');
+  document.getElementById('gameScreen').classList.remove('active');
+  document.getElementById('lobbyScreen').classList.add('active');
+});
+
+socket.on('kicked_from_room', ({ message }) => {
+  sessionStorage.removeItem('kujong_session');
+  currentRoomCode = null;
+  mySeatIndex = -1;
+  gameState = null;
+  document.getElementById('lobbyWaitingRoom').classList.add('hidden');
+  document.getElementById('lobbyInitialOptions').classList.remove('hidden');
+  document.getElementById('gameScreen').classList.remove('active');
+  document.getElementById('lobbyScreen').classList.add('active');
+  closeHostMenu();
+  alert(message || 'Du wurdest vom Spielleiter aus der Partie entfernt.');
 });
 
 socket.on('room_created', ({ roomCode, seatIndex }) => {
@@ -583,6 +783,17 @@ function renderGameScreen() {
 
   const announceContraBtn = document.getElementById('announceContraBtn');
   if (announceContraBtn) announceContraBtn.classList.toggle('hidden', !gameState.canAnnounceContra);
+
+  const hostMenuBtn = document.getElementById('hostMenuBtn');
+  const isHost = gameState.you ? gameState.you.isHost : false;
+  if (hostMenuBtn) {
+    hostMenuBtn.classList.toggle('hidden', !isHost);
+  }
+
+  const hostModal = document.getElementById('hostControlModal');
+  if (hostModal && !hostModal.classList.contains('hidden')) {
+    renderHostPlayerList();
+  }
 
   // Status Ticker
   renderStatusTicker();
