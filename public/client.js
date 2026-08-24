@@ -386,23 +386,6 @@ function closeLastTrickModal() {
   document.getElementById('lastTrickModal').classList.add('hidden');
 }
 
-function switchDrawerTab(tab) {
-  document.getElementById('tabLog').classList.toggle('active', tab === 'log');
-  document.getElementById('tabChat').classList.toggle('active', tab === 'chat');
-  document.getElementById('logPanel').classList.toggle('active', tab === 'log');
-  document.getElementById('chatPanel').classList.toggle('active', tab === 'chat');
-}
-
-function sendChat(e) {
-  e.preventDefault();
-  const input = document.getElementById('chatInput');
-  const msg = input.value.trim();
-  if (msg) {
-    socket.emit('send_chat', { message: msg });
-    input.value = '';
-  }
-}
-
 // --------------------------------------------------------------------------
 // SOCKET.IO EVENT-HANDLER & AUTO-RECONNECT
 // --------------------------------------------------------------------------
@@ -612,9 +595,6 @@ function renderGameScreen() {
 
   // Eigene Handkarten rendern
   renderMyHand();
-
-  // Chat & Protokoll
-  renderDrawerContent();
 }
 
 function renderWonTricksPile(teamKey, trickCount) {
