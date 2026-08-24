@@ -181,12 +181,11 @@ function sanitizeStateForPlayer(room, seatIndex) {
     }
   }
 
-  // canAnnounceMit: Mit' ist in Einstellungen erlaubt, Spieler ist am Zug im 1. Stich, besitzt ♠Q und Mit' wurde noch nicht angesagt
+  // canAnnounceMit: Mit' ist in Einstellungen erlaubt, Stich 1 läuft, Spieler besitzt ♠Q und Mit' wurde noch nicht angesagt
   const canAnnounceMit = (
     room.settings.allowMit !== false &&
     room.phase === 'PLAY_TRICK' &&
     room.trickCount === 0 &&
-    room.currentTurn === seatIndex &&
     room.mitHolderIndex === seatIndex &&
     !room.isMitAnnounced
   );
@@ -330,13 +329,16 @@ function handleTurnTrump(room) {
   room.stock = room.deck.slice(20, 24);
   logAction(room, `Restliche Karten ausgeteilt (4 Karten verbleiben im Stock).`);
 
-  // Prüfe, wer die Pik-Dame (♠Q) besitzt
+  // Prüfe, wer die Pik-Dame (♠Q) besitzt (in Händen oder als aufgedeckte Karte)
   room.mitHolderIndex = -1;
   for (let s = 0; s < 4; s++) {
     if (room.hands[s].some(c => c.suit === SUITS.SPADES && c.rank === 'Q')) {
       room.mitHolderIndex = s;
       break;
     }
+  }
+  if (turnedCard && turnedCard.suit === SUITS.SPADES && turnedCard.rank === 'Q') {
+    room.mitHolderIndex = d;
   }
 
   // DIE AUFGEDECKTE KARTE WIRD DIREKT IN STICH 1 AUSGESPIELT!
@@ -349,6 +351,13 @@ function handleTurnTrump(room) {
   // Nächster Spieler im Uhrzeigersinn ist am Zug
   room.currentTurn = (d + 1) % 4;
   room.phase = 'PLAY_TRICK';
+
+  // Falls der Ansager ein Bot ist und ♠Q hält/gedreht hat: Mit'-Ansage direkt prüfen
+  if (room.seats[d] && room.seats[d].isBot && room.mitHolderIndex === d && room.settings.allowMit !== false) {
+    if (shouldAnnounceMit(room.hands[d], d, d, room.trumpSuit, room.settings)) {
+      handleMitAnnouncement(room, d, true);
+    }
+  }
 
   broadcastGameState(room);
   checkBotAction(room);
@@ -424,12 +433,11 @@ function sortHand(hand, trumpSuit, isMitAnnounced = false) {
 }
 
 /**
- * Verarbeitet die Mit'-Ansage, wenn der Besitzer am Zug ist (vor dem Ausspielen der Karte in Stich 1).
+ * Verarbeitet die Mit'-Ansage des ♠Q-Besitzers im 1. Stich.
  */
 function handleMitAnnouncement(room, playerIndex, announce) {
   if (room.phase !== 'PLAY_TRICK') return;
   if (room.trickCount !== 0) return; // Nur im 1. Stich
-  if (room.currentTurn !== playerIndex) return;
   if (room.mitHolderIndex !== playerIndex) return;
 
   if (announce && !room.isMitAnnounced) {
@@ -566,14 +574,6 @@ function resolveTrick(room, result) {
 
   const suitIcons = { clubs: '♣', spades: '♠', hearts: '♥', diamonds: '♦' };
   const winningCardDisplay = `${suitIcons[result.winningCard.suit]}${result.winningCard.rank}`;
-  // Bot Emote bei fetten Stichen (>= 4 Augen)
-  if (result.points >= 4 && room.seats[winnerIndex] && room.seats[winnerIndex].isBot && Math.random() < 0.7) {
-    const emotes = ['👑', '🔥', '😂', '🤫'];
-    const botEmote = emotes[Math.floor(Math.random() * emotes.length)];
-    setTimeout(() => {
-      io.to(room.code).emit('player_emote', { seatIndex: winnerIndex, emote: botEmote });
-    }, 400);
-  }
 
   room.currentTrick = [];
   room.trickWinnerInfo = null;
@@ -800,14 +800,26 @@ io.on('connection', (socket) => {
       }
     }
 
-    // Freien Platz suchen
-    let targetSeat = (typeof preferredSeat === 'number' && preferredSeat >= 0 && preferredSeat < 4 && !room.seats[preferredSeat])
-      ? preferredSeat
-      : room.seats.findIndex(s => s === null || (s.isBot && room.phase === 'LOBBY'));
+    // Freien Platz oder Bot-Platz suchen (auch im laufenden Spiel Hot-Swap!)
+    let targetSeat = -1;
+    if (typeof preferredSeat === 'number' && preferredSeat >= 0 && preferredSeat < 4 && (!room.seats[preferredSeat] || room.seats[preferredSeat].isBot)) {
+      targetSeat = preferredSeat;
+    } else {
+      // 1. Zuerst komplett leere Plätze suchen
+      targetSeat = room.seats.findIndex(s => s === null);
+      // 2. Falls keine leeren Plätze: Bot-Plätze übernehmen (Hot-Swap)
+      if (targetSeat === -1) {
+        targetSeat = room.seats.findIndex(s => s && s.isBot);
+      }
+    }
 
     if (targetSeat === -1) {
-      return socket.emit('error_message', 'Dieser Raum ist bereits voll (4 Spieler).');
+      return socket.emit('error_message', 'Dieser Raum ist bereits voll (4 echte Spieler).');
     }
+
+    const previousSeat = room.seats[targetSeat];
+    const isReplacingBot = previousSeat && previousSeat.isBot;
+    const oldBotName = isReplacingBot ? previousSeat.name : '';
 
     const newSeat = {
       index: targetSeat,
@@ -823,8 +835,18 @@ io.on('connection', (socket) => {
     currentSeatIndex = targetSeat;
     socket.join(code);
 
-    logAction(room, `${newSeat.name} ist Platz ${targetSeat + 1} beigetreten.`);
+    if (isReplacingBot && room.phase !== 'LOBBY') {
+      logAction(room, `🎉 ${newSeat.name} ist dem laufenden Spiel beigetreten und hat ${oldBotName} ersetzt!`);
+      if (room.currentTurn === targetSeat && room.botTimer) {
+        clearTimeout(room.botTimer);
+        room.botTimer = null;
+      }
+    } else {
+      logAction(room, `${newSeat.name} ist Platz ${targetSeat + 1} beigetreten.`);
+    }
+
     broadcastGameState(room);
+    checkBotAction(room);
   });
 
   // Reconnect nach kurzem Browser-Refresh / Verbindungsabbruch
@@ -1042,14 +1064,128 @@ io.on('connection', (socket) => {
     startNewRound(room);
   });
 
+  // Lobby verlassen (nur in Phase LOBBY möglich)
+  socket.on('leave_room', () => {
+    if (!currentRoomCode) return;
+    const room = rooms.get(currentRoomCode);
+    if (!room || room.phase !== 'LOBBY') return;
+
+    const isHost = (currentSeatIndex === 0) || (room.seats[currentSeatIndex] && room.seats[currentSeatIndex].socketId === room.hostSocketId);
+
+    if (isHost) {
+      logAction(room, `🚪 Spielleiter hat den Raum verlassen. Die Lobby wurde aufgelöst.`);
+      io.to(currentRoomCode).emit('room_disbanded', { message: 'Der Spielleiter hat die Lobby verlassen.' });
+      rooms.delete(currentRoomCode);
+    } else {
+      const playerName = room.seats[currentSeatIndex] ? room.seats[currentSeatIndex].name : 'Ein Spieler';
+      room.seats[currentSeatIndex] = null;
+      logAction(room, `🚪 ${playerName} hat die Lobby verlassen.`);
+      socket.leave(currentRoomCode);
+      socket.emit('left_room');
+      broadcastGameState(room);
+    }
+
+    currentRoomCode = null;
+    currentSeatIndex = -1;
+  });
+
+  // Zurück zur Lobby (während des Spiels, nur für den Spielleiter)
+  socket.on('return_to_lobby', () => {
+    if (!currentRoomCode) return;
+    const room = rooms.get(currentRoomCode);
+    if (!room) return;
+
+    const isHost = (currentSeatIndex === 0) || (room.seats[currentSeatIndex] && room.seats[currentSeatIndex].socketId === room.hostSocketId);
+    if (!isHost) {
+      return socket.emit('error_message', 'Nur der Spielleiter kann die Partie beenden und zur Lobby zurückkehren.');
+    }
+
+    if (room.botTimer) {
+      clearTimeout(room.botTimer);
+      room.botTimer = null;
+    }
+
+    room.phase = 'LOBBY';
+    room.currentTrick = [];
+    room.trickCount = 0;
+    room.hands = [[], [], [], []];
+    room.stock = [];
+    room.turnedCard = null;
+    room.trumpSuit = null;
+    room.isMitAnnounced = false;
+    room.isContraAnnounced = false;
+    room.mitHolderIndex = -1;
+    room.lastTrick = null;
+    room.trickWinnerInfo = null;
+    room.roundSummary = null;
+    room.roundNumber = 0;
+    room.dealerIndex = 0;
+    room.scores = {
+      teamA: room.settings.startScoreA || 13,
+      teamB: room.settings.startScoreB || 13
+    };
+
+    logAction(room, `🏠 ${room.seats[currentSeatIndex] ? room.seats[currentSeatIndex].name : 'Spielleiter'} hat die Partie beendet. Alle Spieler sind zurück in der Lobby.`);
+    broadcastGameState(room);
+  });
+
+  // Spieler durch den Spielleiter kicken (wird sofort durch Bot ersetzt)
+  socket.on('kick_player', ({ targetSeat }) => {
+    if (!currentRoomCode) return;
+    const room = rooms.get(currentRoomCode);
+    if (!room) return;
+
+    const isHost = (currentSeatIndex === 0) || (room.seats[currentSeatIndex] && room.seats[currentSeatIndex].socketId === room.hostSocketId);
+    if (!isHost) {
+      return socket.emit('error_message', 'Nur der Spielleiter kann Spieler kicken.');
+    }
+
+    if (typeof targetSeat !== 'number' || targetSeat < 0 || targetSeat >= 4) return;
+    if (targetSeat === currentSeatIndex) {
+      return socket.emit('error_message', 'Der Spielleiter kann sich nicht selbst kicken.');
+    }
+
+    const targetPlayer = room.seats[targetSeat];
+    if (!targetPlayer) return;
+
+    const kickedName = targetPlayer.name;
+    const kickedSocketId = targetPlayer.socketId;
+    const botNames = ['Bot Ardennen', 'Bot Eifel', 'Bot Venn', 'Bot Hohes Venn'];
+    const newBotName = botNames[targetSeat % botNames.length] || `Bot ${targetSeat + 1}`;
+
+    room.seats[targetSeat] = {
+      index: targetSeat,
+      name: newBotName,
+      socketId: null,
+      isBot: true,
+      connected: true,
+      team: targetSeat % 2 === 0 ? 0 : 1
+    };
+
+    logAction(room, `👢 ${kickedName} wurde vom Spielleiter entfernt und durch ${newBotName} ersetzt.`);
+
+    if (kickedSocketId) {
+      io.to(kickedSocketId).emit('kicked_from_room', { message: 'Du wurdest vom Spielleiter aus der Partie entfernt.' });
+    }
+
+    broadcastGameState(room);
+    checkBotAction(room);
+  });
+
   // Clash Royale Ragebait Emotes senden
   socket.on('send_emote', ({ emote }) => {
     if (!currentRoomCode) return;
     const room = rooms.get(currentRoomCode);
     if (!room) return;
     if (typeof emote !== 'string') return;
-    const cleanEmote = emote.slice(0, 8);
 
+    const now = Date.now();
+    if (socket.lastEmoteTime && now - socket.lastEmoteTime < 700) {
+      return;
+    }
+    socket.lastEmoteTime = now;
+
+    const cleanEmote = emote.slice(0, 8);
     io.to(currentRoomCode).emit('player_emote', {
       seatIndex: currentSeatIndex,
       emote: cleanEmote
