@@ -290,40 +290,82 @@ function startNewRound(room) {
 }
 
 /**
- * Führt das blinde 'Trumpf drehen' aus (eine der restlichen 2 Karten des Ansagers wird aufgedeckt).
+ * Führt das blinde 'Trumpf drehen' aus:
+ * Eine der 2 verdeckten Restkarten des Ansagers wird zufällig aufgedeckt,
+ * bestimmt die Trumpffarbe UND wird sofort als 1. Karte in Stich 1 ausgespielt!
  */
 function handleTurnTrump(room) {
   if (room.phase !== 'CHOOSE_TRUMP') return;
   const d = room.declarerIndex;
-  // Die noch verdeckten 2 Karten des Ansagers befinden sich im Deck bei 12 + d*2
-  const turnedCard = room.deck[12 + d * 2];
-  if (!turnedCard) return;
+  const card1 = room.deck[12 + d * 2];
+  const card2 = room.deck[12 + d * 2 + 1];
+  if (!card1 || !card2) return;
+
+  // Zufällig eine der beiden Karten wählen
+  const pickFirst = Math.random() < 0.5;
+  const turnedCard = pickFirst ? card1 : card2;
+  const keptCard = pickFirst ? card2 : card1;
 
   const chosenSuit = turnedCard.suit;
   const suitSymbols = { clubs: '♣ Kreuz', spades: '♠ Pik', hearts: '♥ Herz', diamonds: '♦ Karo' };
   const declarerName = room.seats[d].name;
 
+  room.trumpSuit = chosenSuit;
   room.turnedCard = turnedCard;
-  logAction(room, `🎲 ${declarerName} hat Trumpf gedreht! Aufgedeckt: ${suitSymbols[chosenSuit]} ${turnedCard.rank} ➔ Trumpf ist ${suitSymbols[chosenSuit]}!`);
+  logAction(room, `🎲 ${declarerName} hat Trumpf gedreht! Aufgedeckt & direkt angespielt: ${suitSymbols[chosenSuit]} ${turnedCard.rank} ➔ Trumpf ist ${suitSymbols[chosenSuit]}!`);
 
-  handleTrumpSelection(room, chosenSuit, turnedCard);
+  // Zweites Austeilen:
+  // Ansager behält die andere Karte (hat 4 Handkarten, da 1 ausgespielt)
+  // Alle anderen 3 Spieler erhalten ihre 2 Karten (haben 5 Handkarten)
+  for (let s = 0; s < 4; s++) {
+    if (s === d) {
+      room.hands[s].push(keptCard);
+    } else {
+      room.hands[s].push(room.deck[12 + s * 2], room.deck[12 + s * 2 + 1]);
+    }
+    sortHand(room.hands[s], room.trumpSuit, false);
+  }
+
+  // Stock (4 Karten)
+  room.stock = room.deck.slice(20, 24);
+  logAction(room, `Restliche Karten ausgeteilt (4 Karten verbleiben im Stock).`);
+
+  // Prüfe, wer die Pik-Dame (♠Q) besitzt
+  room.mitHolderIndex = -1;
+  for (let s = 0; s < 4; s++) {
+    if (room.hands[s].some(c => c.suit === SUITS.SPADES && c.rank === 'Q')) {
+      room.mitHolderIndex = s;
+      break;
+    }
+  }
+
+  // DIE AUFGEDECKTE KARTE WIRD DIREKT IN STICH 1 AUSGESPIELT!
+  room.currentTrick = [{
+    playerIndex: d,
+    card: turnedCard,
+    playerName: declarerName
+  }];
+
+  // Nächster Spieler im Uhrzeigersinn ist am Zug
+  room.currentTurn = (d + 1) % 4;
+  room.phase = 'PLAY_TRICK';
+
+  broadcastGameState(room);
+  checkBotAction(room);
 }
 
 /**
- * Schließt die Trumpfwahl ab und führt das 2. Austeilen (2 Karten) aus.
+ * Schließt die manuelle Trumpfwahl ab und führt das 2. Austeilen (2 Karten) aus.
  */
-function handleTrumpSelection(room, chosenSuit, turnedCard = null) {
+function handleTrumpSelection(room, chosenSuit) {
   if (room.phase !== 'CHOOSE_TRUMP') return;
   if (!Object.values(SUITS).includes(chosenSuit)) return;
 
   room.trumpSuit = chosenSuit;
-  room.turnedCard = turnedCard;
+  room.turnedCard = null;
   const suitSymbols = { clubs: '♣ Kreuz', spades: '♠ Pik', hearts: '♥ Herz', diamonds: '♦ Karo' };
   const declarerName = room.seats[room.declarerIndex].name;
-
-  if (!turnedCard) {
-    logAction(room, `${declarerName} hat ${suitSymbols[chosenSuit]} als Trumpf gewählt!`);
-  }
+  logAction(room, `${declarerName} hat ${suitSymbols[chosenSuit]} als Trumpf gewählt!`);
 
   // Phase 3: Zweites Austeilen (exakt 2 Karten pro Spieler = 8 Karten)
   let deckPtr = 12;
@@ -349,6 +391,7 @@ function handleTrumpSelection(room, chosenSuit, turnedCard = null) {
   }
 
   // Spiel geht direkt in den Stichmodus über – Ansager spielt die 1. Karte an
+  room.currentTrick = [];
   room.currentTurn = room.declarerIndex;
   room.phase = 'PLAY_TRICK';
 
