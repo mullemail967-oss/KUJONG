@@ -908,9 +908,48 @@ input[type="text"]:focus {
 }
 
 .player-left .mini-card-back,
-.player-right .mini-card-back {
+.player-right .mini-card-back,
+.player-bottom-left .mini-card-back,
+.player-bottom-right .mini-card-back {
   width: 20px;
   height: 14px;
+}
+
+/* 6-Spieler Modus Spieler-Positionen */
+.player-top-left {
+  position: absolute;
+  top: 14px;
+  left: 20px;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+}
+
+.player-bottom-left {
+  position: absolute;
+  bottom: 120px;
+  left: 16px;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+}
+
+.player-top-right {
+  position: absolute;
+  top: 14px;
+  right: 20px;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+}
+
+.player-bottom-right {
+  position: absolute;
+  bottom: 120px;
+  right: 16px;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
 }
 
 /* --------------------------------------------------------------------------
@@ -938,6 +977,43 @@ input[type="text"]:focus {
 .trick-slot.slot-bottom { bottom: 14px; }
 .trick-slot.slot-left { left: 16px; }
 .trick-slot.slot-right { right: 16px; }
+
+/* 6P Trick Slots */
+.felt-table.mode-6p .trick-slot.slot-top {
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.felt-table.mode-6p .trick-slot.slot-top-left {
+  top: 36px;
+  left: calc(50% - 92px);
+  transform: translateX(-50%);
+}
+
+.felt-table.mode-6p .trick-slot.slot-top-right {
+  top: 36px;
+  left: calc(50% + 92px);
+  transform: translateX(-50%);
+}
+
+.felt-table.mode-6p .trick-slot.slot-bottom-left {
+  bottom: 24px;
+  left: calc(50% - 92px);
+  transform: translateX(-50%);
+}
+
+.felt-table.mode-6p .trick-slot.slot-bottom-right {
+  bottom: 24px;
+  left: calc(50% + 92px);
+  transform: translateX(-50%);
+}
+
+.felt-table.mode-6p .trick-slot.slot-bottom {
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+}
 
 .trick-banner {
   position: absolute;
@@ -1063,38 +1139,38 @@ input[type="text"]:focus {
 /* Mit' Action Banner in Player Area */
 .mit-action-banner {
   background: rgba(15, 23, 42, 0.96);
-  border: 2px solid var(--team-we-gold);
-  border-radius: 14px;
-  padding: 6px 14px;
+  border: 1.5px solid var(--team-we-gold);
+  border-radius: 12px;
+  padding: 4px 8px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  box-shadow: 0 4px 20px rgba(245, 158, 11, 0.45);
+  justify-content: center;
+  gap: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6), 0 0 10px rgba(245, 158, 11, 0.3);
   margin-bottom: 4px;
-  animation: bannerSlideUp 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  animation: bannerSlideUp 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
   z-index: 40;
+  max-width: 96%;
+  box-sizing: border-box;
 }
 
 @keyframes bannerSlideUp {
-  0% { transform: translateY(10px); opacity: 0; }
+  0% { transform: translateY(8px); opacity: 0; }
   100% { transform: translateY(0); opacity: 1; }
-}
-
-.mit-banner-text {
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: #fff;
-}
-
-.mit-banner-text strong {
-  color: var(--team-we-gold);
 }
 
 .mit-banner-buttons {
   display: flex;
   gap: 6px;
   align-items: center;
+  justify-content: center;
+}
+
+.mit-banner-buttons .btn {
+  padding: 4px 10px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  white-space: nowrap;
 }
 
 /* Kontra Action Banner in Player Area */
@@ -1916,6 +1992,13 @@ input:checked + .slider:before {
   animation: pulseGlow 2s infinite ease-in-out;
 }
 
+.drinking-task-box.we-drink {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.3) 0%, rgba(220, 38, 38, 0.45) 100%);
+  border: 2px solid #ef4444;
+  box-shadow: 0 0 24px rgba(239, 68, 68, 0.5);
+  animation: pulseDrinkAlert 1.5s infinite ease-in-out;
+}
+
 .drinking-icon {
   font-size: 1.8rem;
   animation: bounce 1.2s infinite;
@@ -1932,6 +2015,23 @@ input:checked + .slider:before {
 @keyframes pulseGlow {
   0%, 100% { box-shadow: 0 0 12px rgba(245, 158, 11, 0.2); }
   50% { box-shadow: 0 0 24px rgba(245, 158, 11, 0.5); }
+}
+
+@keyframes pulseDrinkAlert {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 14px rgba(239, 68, 68, 0.4); }
+  50% { transform: scale(1.02); box-shadow: 0 0 28px rgba(239, 68, 68, 0.8); }
+}
+
+.setting-drink-item {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.segmented-drinking {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  width: 100%;
 }
 
 .waiting-host-note {
@@ -2022,10 +2122,47 @@ input:checked + .slider:before {
   color: var(--team-we-gold);
 }
 
-.score-presets-row {
+.score-presets-row,
+.speed-presets-row {
   display: flex;
   gap: 6px;
   width: 100%;
+}
+
+.setting-speeds-item {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+}
+
+.speed-inputs-row {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+}
+
+.speed-input-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.speed-input-col label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.speed-val {
+  width: 100%;
+  text-align: center;
+  color: #fff;
+  font-size: 0.95rem;
+  font-weight: 800;
+  padding: 6px 0;
+  display: block;
 }
 
 .btn-preset {
@@ -2162,6 +2299,59 @@ input:checked + .slider:before {
     grid-template-columns: 70px 1fr 70px;
   }
 
+  .felt-table.mode-6p {
+    grid-template-rows: 46px 1fr 115px;
+    grid-template-columns: 80px 1fr 80px;
+  }
+
+  .felt-table.mode-6p .player-top-left {
+    top: 8px;
+    left: 8px;
+  }
+
+  .felt-table.mode-6p .player-top-right {
+    top: 8px;
+    right: 8px;
+  }
+
+  .felt-table.mode-6p .player-bottom-left {
+    bottom: 95px;
+    left: 6px;
+  }
+
+  .felt-table.mode-6p .player-bottom-right {
+    bottom: 95px;
+    right: 6px;
+  }
+
+  .felt-table.mode-6p .trick-slot.slot-top {
+    top: 12px;
+  }
+
+  .felt-table.mode-6p .trick-slot.slot-top-left {
+    top: 28px;
+    left: calc(50% - 68px);
+  }
+
+  .felt-table.mode-6p .trick-slot.slot-top-right {
+    top: 28px;
+    left: calc(50% + 68px);
+  }
+
+  .felt-table.mode-6p .trick-slot.slot-bottom-left {
+    bottom: 16px;
+    left: calc(50% - 68px);
+  }
+
+  .felt-table.mode-6p .trick-slot.slot-bottom-right {
+    bottom: 16px;
+    left: calc(50% + 68px);
+  }
+
+  .felt-table.mode-6p .trick-slot.slot-bottom {
+    bottom: 4px;
+  }
+
   .player-top {
     height: 42px;
     gap: 6px;
@@ -2280,6 +2470,46 @@ input:checked + .slider:before {
   .trick-slot {
     width: 46px;
     height: 68px;
+  }
+
+  .felt-table.mode-6p .player-top-left {
+    top: 6px;
+    left: 4px;
+  }
+
+  .felt-table.mode-6p .player-top-right {
+    top: 6px;
+    right: 4px;
+  }
+
+  .felt-table.mode-6p .player-bottom-left {
+    bottom: 85px;
+    left: 4px;
+  }
+
+  .felt-table.mode-6p .player-bottom-right {
+    bottom: 85px;
+    right: 4px;
+  }
+
+  .felt-table.mode-6p .trick-slot.slot-top-left {
+    top: 22px;
+    left: calc(50% - 56px);
+  }
+
+  .felt-table.mode-6p .trick-slot.slot-top-right {
+    top: 22px;
+    left: calc(50% + 56px);
+  }
+
+  .felt-table.mode-6p .trick-slot.slot-bottom-left {
+    bottom: 12px;
+    left: calc(50% - 56px);
+  }
+
+  .felt-table.mode-6p .trick-slot.slot-bottom-right {
+    bottom: 12px;
+    left: calc(50% + 56px);
   }
 
   .trick-slot.slot-top { top: 30px; }

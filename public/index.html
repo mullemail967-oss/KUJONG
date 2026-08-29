@@ -55,9 +55,9 @@
           </div>
 
           <div class="team-seats-container">
-            <!-- TEAM A (Sitze 1 & 3 / Index 0 & 2) -->
+            <!-- TEAM A (Sitze 1 & 3 [& 5]) -->
             <div class="team-box team-a">
-              <div class="team-title">Team A <span>(Sitze 1 & 3)</span></div>
+              <div class="team-title" id="teamATitle">Team A <span id="teamASubtitle">(Sitze 1 & 3)</span></div>
               <div class="seat-slot" data-seat="0" id="seatSlot0">
                 <div class="seat-info">
                   <span class="seat-num">Platz 1</span>
@@ -70,7 +70,7 @@
               </div>
               <div class="seat-slot" data-seat="2" id="seatSlot2">
                 <div class="seat-info">
-                  <span class="seat-num">Platz 3 (Partner)</span>
+                  <span class="seat-num" id="seatLabel2">Platz 3 (Partner)</span>
                   <span class="player-name">Frei</span>
                 </div>
                 <div class="seat-controls">
@@ -78,13 +78,23 @@
                   <button class="btn btn-xs btn-seat-bot" onclick="toggleBot(2)">+ Bot</button>
                 </div>
               </div>
+              <div class="seat-slot hidden" data-seat="4" id="seatSlot4">
+                <div class="seat-info">
+                  <span class="seat-num" id="seatLabel4">Platz 5 (Partner 2)</span>
+                  <span class="player-name">Frei</span>
+                </div>
+                <div class="seat-controls">
+                  <button class="btn btn-xs btn-seat-join" onclick="switchSeat(4)">Einnehmen</button>
+                  <button class="btn btn-xs btn-seat-bot" onclick="toggleBot(4)">+ Bot</button>
+                </div>
+              </div>
             </div>
 
             <div class="vs-badge">VS</div>
 
-            <!-- TEAM B (Sitze 2 & 4 / Index 1 & 3) -->
+            <!-- TEAM B (Sitze 2 & 4 [& 6]) -->
             <div class="team-box team-b">
-              <div class="team-title">Team B <span>(Sitze 2 & 4)</span></div>
+              <div class="team-title" id="teamBTitle">Team B <span id="teamBSubtitle">(Sitze 2 & 4)</span></div>
               <div class="seat-slot" data-seat="1" id="seatSlot1">
                 <div class="seat-info">
                   <span class="seat-num">Platz 2</span>
@@ -97,12 +107,22 @@
               </div>
               <div class="seat-slot" data-seat="3" id="seatSlot3">
                 <div class="seat-info">
-                  <span class="seat-num">Platz 4 (Partner)</span>
+                  <span class="seat-num" id="seatLabel3">Platz 4 (Partner)</span>
                   <span class="player-name">Frei</span>
                 </div>
                 <div class="seat-controls">
                   <button class="btn btn-xs btn-seat-join" onclick="switchSeat(3)">Einnehmen</button>
                   <button class="btn btn-xs btn-seat-bot" onclick="toggleBot(3)">+ Bot</button>
+                </div>
+              </div>
+              <div class="seat-slot hidden" data-seat="5" id="seatSlot5">
+                <div class="seat-info">
+                  <span class="seat-num" id="seatLabel5">Platz 6 (Gegner 3)</span>
+                  <span class="player-name">Frei</span>
+                </div>
+                <div class="seat-controls">
+                  <button class="btn btn-xs btn-seat-join" onclick="switchSeat(5)">Einnehmen</button>
+                  <button class="btn btn-xs btn-seat-bot" onclick="toggleBot(5)">+ Bot</button>
                 </div>
               </div>
             </div>
@@ -212,7 +232,7 @@
             </div>
           </div>
 
-          <!-- SPIELER OBEN (Partner) -->
+          <!-- SPIELER OBEN (Partner bei 4P / Gegner 2 bei 6P) -->
           <div class="table-player player-top" id="playerTop">
             <div class="player-avatar-box">
               <div class="avatar-icon">👤</div>
@@ -233,7 +253,7 @@
             </div>
           </div>
 
-          <!-- SPIELER LINKS (Gegner 1) -->
+          <!-- SPIELER LINKS (Gegner 1 bei 4P) -->
           <div class="table-player player-left" id="playerLeft">
             <div class="player-avatar-box">
               <div class="avatar-icon">👤</div>
@@ -254,7 +274,7 @@
             </div>
           </div>
 
-          <!-- SPIELER RECHTS (Gegner 2) -->
+          <!-- SPIELER RECHTS (Gegner 2 bei 4P) -->
           <div class="table-player player-right" id="playerRight">
             <div class="player-avatar-box">
               <div class="avatar-icon">👤</div>
@@ -275,8 +295,82 @@
             </div>
           </div>
 
-          <!-- ZENTRUM: STICH-BEREICH (4 gelegte Karten) -->
+          <!-- 6-SPIELER-MODUS POSITIONEN (OBEN-LINKS, UNTEN-LINKS, OBEN-RECHTS, UNTEN-RECHTS) -->
+          <div class="table-player player-top-left hidden" id="playerTopLeft">
+            <div class="player-avatar-box">
+              <div class="avatar-icon">👤</div>
+              <div class="player-badges">
+                <span class="badge badge-dealer hidden" id="dealerTopLeft">G</span>
+              </div>
+            </div>
+            <div class="player-meta">
+              <div class="name-emote-wrap">
+                <span class="name" id="nameTopLeft">Partner 1</span>
+                <div class="emote-bubble-box" id="emoteBubbleTopLeft"></div>
+              </div>
+              <span class="declarer-pill hidden" id="declarerPillTopLeft">👑 Ansager</span>
+              <span class="team-tag tag-we" id="tagTopLeft">WIR</span>
+            </div>
+            <div class="hand-card-backs" id="cardsTopLeft"></div>
+          </div>
+
+          <div class="table-player player-bottom-left hidden" id="playerBottomLeft">
+            <div class="player-avatar-box">
+              <div class="avatar-icon">👤</div>
+              <div class="player-badges">
+                <span class="badge badge-dealer hidden" id="dealerBottomLeft">G</span>
+              </div>
+            </div>
+            <div class="player-meta">
+              <div class="name-emote-wrap">
+                <span class="name" id="nameBottomLeft">Gegner 1</span>
+                <div class="emote-bubble-box" id="emoteBubbleBottomLeft"></div>
+              </div>
+              <span class="declarer-pill hidden" id="declarerPillBottomLeft">👑 Ansager</span>
+              <span class="team-tag tag-they" id="tagBottomLeft">SIE</span>
+            </div>
+            <div class="hand-card-backs" id="cardsBottomLeft"></div>
+          </div>
+
+          <div class="table-player player-top-right hidden" id="playerTopRight">
+            <div class="player-avatar-box">
+              <div class="avatar-icon">👤</div>
+              <div class="player-badges">
+                <span class="badge badge-dealer hidden" id="dealerTopRight">G</span>
+              </div>
+            </div>
+            <div class="player-meta">
+              <div class="name-emote-wrap">
+                <span class="name" id="nameTopRight">Partner 2</span>
+                <div class="emote-bubble-box" id="emoteBubbleTopRight"></div>
+              </div>
+              <span class="declarer-pill hidden" id="declarerPillTopRight">👑 Ansager</span>
+              <span class="team-tag tag-we" id="tagTopRight">WIR</span>
+            </div>
+            <div class="hand-card-backs" id="cardsTopRight"></div>
+          </div>
+
+          <div class="table-player player-bottom-right hidden" id="playerBottomRight">
+            <div class="player-avatar-box">
+              <div class="avatar-icon">👤</div>
+              <div class="player-badges">
+                <span class="badge badge-dealer hidden" id="dealerBottomRight">G</span>
+              </div>
+            </div>
+            <div class="player-meta">
+              <div class="name-emote-wrap">
+                <span class="name" id="nameBottomRight">Gegner 3</span>
+                <div class="emote-bubble-box" id="emoteBubbleBottomRight"></div>
+              </div>
+              <span class="declarer-pill hidden" id="declarerPillBottomRight">👑 Ansager</span>
+              <span class="team-tag tag-they" id="tagBottomRight">SIE</span>
+            </div>
+            <div class="hand-card-backs" id="cardsBottomRight"></div>
+          </div>
+
+          <!-- ZENTRUM: STICH-BEREICH (4 bzw. 6 gelegte Karten) -->
           <div class="trick-center" id="trickCenter">
+            <!-- 4P Slots -->
             <div class="trick-slot slot-top" id="trickSlotTop">
               <div class="card-placeholder"></div>
             </div>
@@ -287,6 +381,20 @@
               <div class="card-placeholder"></div>
             </div>
             <div class="trick-slot slot-bottom" id="trickSlotBottom">
+              <div class="card-placeholder"></div>
+            </div>
+
+            <!-- 6P zusätzliche Slots -->
+            <div class="trick-slot slot-top-left hidden" id="trickSlotTopLeft">
+              <div class="card-placeholder"></div>
+            </div>
+            <div class="trick-slot slot-bottom-left hidden" id="trickSlotBottomLeft">
+              <div class="card-placeholder"></div>
+            </div>
+            <div class="trick-slot slot-top-right hidden" id="trickSlotTopRight">
+              <div class="card-placeholder"></div>
+            </div>
+            <div class="trick-slot slot-bottom-right hidden" id="trickSlotBottomRight">
               <div class="card-placeholder"></div>
             </div>
             
@@ -310,14 +418,11 @@
               <div id="turnIndicator" class="turn-indicator hidden">⚡ Du bist am Zug!</div>
             </div>
 
-            <!-- MIT'-ANSAGE BANNER IN DER EIGENEN ECKE VOR DEM LEGEN -->
+            <!-- MIT'-ANSAGE BANNER (KOMPAKT & MOBILE-OPTIMIERT) -->
             <div id="mitActionBanner" class="mit-action-banner hidden">
-              <div class="mit-banner-text">
-                ⭐ Du hast die <strong>Pik-Dame (Mit')</strong>! Möchtest du vor dem Legen ansagen?
-              </div>
               <div class="mit-banner-buttons">
                 <button class="btn btn-xs btn-primary btn-glow" onclick="announceMit(true)">
-                  ⭐ Mit' ansagen (2 Pkt)
+                  ⭐ Mit' ansagen
                 </button>
                 <button class="btn btn-xs btn-outline" onclick="dismissMitBanner()">
                   ✕ Nicht ansagen
@@ -500,6 +605,18 @@
       <div class="modal-body settings-body">
         <p class="settings-subtitle">Passe die regionalen Kujong-Spielregeln für diese Partie an:</p>
 
+        <!-- 0. Spieleranzahl / Modus -->
+        <div class="setting-item">
+          <div class="setting-info">
+            <span class="setting-title">👥 Spieleranzahl & Spielmodus</span>
+            <span class="setting-desc">4 Spieler (2 vs 2, 24 Karten) oder 6 Spieler (3 vs 3 im Kreis, 32 Karten inkl. 7 & 8)</span>
+          </div>
+          <div class="segmented-control" id="settingPlayerCountGroup">
+            <button type="button" class="seg-btn active" id="segPlayerCount4" onclick="setPlayerCountSetting(4)">4 Spieler <small>(2 vs 2)</small></button>
+            <button type="button" class="seg-btn" id="segPlayerCount6" onclick="setPlayerCountSetting(6)">6 Spieler <small>(3 vs 3)</small></button>
+          </div>
+        </div>
+
         <!-- 1. Live-Augenzähler -->
         <div class="setting-item">
           <div class="setting-info">
@@ -592,15 +709,48 @@
         </div>
 
         <!-- 7. Trinkspiel-Modus -->
-        <div class="setting-item">
+        <div class="setting-item setting-drink-item">
           <div class="setting-info">
-            <span class="setting-title">🍻 Trinkspiel-Modus (Auf locker)</span>
-            <span class="setting-desc">Verteilt lockere Trinkaufgaben bei Durchmarsch, verlorener Mit', Kontra oder 0 Stichen</span>
+            <span class="setting-title">🍻 Trinkspiel-Modus</span>
+            <span class="setting-desc">Verteilt Schlucke an das Verlierer-Team bei Rundenverlust, verpatztem Trumpf, Mit', Kontra & Durchmarsch</span>
           </div>
-          <label class="switch">
-            <input type="checkbox" id="settingDrinkingGameMode" onchange="saveRuleSettings()">
-            <span class="slider"></span>
-          </label>
+          <div class="segmented-control segmented-drinking" id="settingDrinkingGameGroup">
+            <button type="button" class="seg-btn active" id="segDrinkOff" onclick="setDrinkingGameSetting('none')">Aus</button>
+            <button type="button" class="seg-btn" id="segDrinkLight" onclick="setDrinkingGameSetting('light')">Leicht <small>(1–4 Schl.)</small></button>
+            <button type="button" class="seg-btn" id="segDrinkMedium" onclick="setDrinkingGameSetting('medium')">Mittel <small>(2–8 Schl.)</small></button>
+            <button type="button" class="seg-btn" id="segDrinkHeavy" onclick="setDrinkingGameSetting('heavy')">Schwer <small>(4–12 Schl.)</small></button>
+          </div>
+        </div>
+
+        <!-- 8. Spieltempo & Wartezeiten -->
+        <div class="setting-item setting-speeds-item">
+          <div class="setting-info">
+            <span class="setting-title">⏱️ Spieltempo & Wartezeiten</span>
+            <span class="setting-desc">Passe die Anzeigedauer der Stiche und die Zuggeschwindigkeit der Bots an (1 bis 7 Sek.)</span>
+          </div>
+          <div class="speed-inputs-row">
+            <div class="speed-input-col">
+              <label for="displayTrickDelay">Stich-Anzeige</label>
+              <div class="stepper-input">
+                <button type="button" class="btn-stepper" onclick="adjustSpeedSetting('trickDelay', -0.5)">-</button>
+                <span id="displayTrickDelay" class="speed-val">2.5s</span>
+                <button type="button" class="btn-stepper" onclick="adjustSpeedSetting('trickDelay', 0.5)">+</button>
+              </div>
+            </div>
+            <div class="speed-input-col">
+              <label for="displayDealDelay">Austeil- / Bot-Tempo</label>
+              <div class="stepper-input">
+                <button type="button" class="btn-stepper" onclick="adjustSpeedSetting('dealDelay', -0.2)">-</button>
+                <span id="displayDealDelay" class="speed-val">1.0s</span>
+                <button type="button" class="btn-stepper" onclick="adjustSpeedSetting('dealDelay', 0.2)">+</button>
+              </div>
+            </div>
+          </div>
+          <div class="speed-presets-row">
+            <button type="button" class="btn-preset" onclick="setSpeedPreset(2.5, 1.0)">⚡ Normal (2.5s / 1.0s)</button>
+            <button type="button" class="btn-preset" onclick="setSpeedPreset(1.2, 0.5)">🚀 Blitz (1.2s / 0.5s)</button>
+            <button type="button" class="btn-preset" onclick="setSpeedPreset(4.0, 1.5)">☕ Gemütlich (4.0s / 1.5s)</button>
+          </div>
         </div>
       </div>
 
@@ -635,7 +785,7 @@
 
         <!-- Spieler-Verwaltung & Kick -->
         <div class="host-section">
-          <div class="host-section-title">👥 Spieler-Verwaltung (4 Plätze)</div>
+          <div class="host-section-title" id="hostPlayerSectionTitle">👥 Spieler-Verwaltung</div>
           <div id="hostPlayerList" class="host-player-list">
             <!-- Dynamisch befüllt durch client.js -->
           </div>
@@ -657,6 +807,6 @@
   <!-- Socket.io Script -->
   <script src="/socket.io/socket.io.js"></script>
   <!-- Client JavaScript -->
-  <script src="client.js?v=4.4"></script>
+  <script src="client.js?v=4.8"></script>
 </body>
 </html>

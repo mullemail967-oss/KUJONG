@@ -246,7 +246,7 @@ function handleCreateRoom() {
     return;
   }
   const playerName = getPlayerName();
-  socket.emit('create_room', { playerName });
+  socket.emit('create_room', { playerName, settings: currentSettings });
 }
 
 function handleJoinRoom() {
@@ -287,7 +287,8 @@ function toggleBot(seatIndex) {
 
 function handleFillBots() {
   if (!gameState) return;
-  for (let i = 0; i < 4; i++) {
+  const maxPlayers = gameState.settings ? (gameState.settings.playerCount || 4) : 4;
+  for (let i = 0; i < maxPlayers; i++) {
     if (!gameState.players[i]) {
       socket.emit('add_bot', { seatIndex: i });
     }
@@ -317,12 +318,25 @@ function turnTrump() {
 function getRelativePosition(targetSeatIndex, mySeatIndex) {
   const t = typeof targetSeatIndex === 'number' ? targetSeatIndex : 0;
   const m = typeof mySeatIndex === 'number' ? mySeatIndex : 0;
-  const diff = (t - m + 4) % 4;
-  if (diff === 0) return 'Bottom';
-  if (diff === 1) return 'Left';
-  if (diff === 2) return 'Top';
-  if (diff === 3) return 'Right';
-  return 'Bottom';
+  const maxPlayers = gameState && gameState.settings ? (gameState.settings.playerCount || 4) : 4;
+
+  if (maxPlayers === 6) {
+    const diff = (t - m + 6) % 6;
+    if (diff === 0) return 'Bottom';
+    if (diff === 1) return 'BottomLeft';
+    if (diff === 2) return 'TopLeft';
+    if (diff === 3) return 'Top';
+    if (diff === 4) return 'TopRight';
+    if (diff === 5) return 'BottomRight';
+    return 'Bottom';
+  } else {
+    const diff = (t - m + 4) % 4;
+    if (diff === 0) return 'Bottom';
+    if (diff === 1) return 'Left';
+    if (diff === 2) return 'Top';
+    if (diff === 3) return 'Right';
+    return 'Bottom';
+  }
 }
 
 // Clash Royale Ragebait Emotes mit Spam-Schutz & dynamischem Cooldown
@@ -463,7 +477,13 @@ function renderHostPlayerList() {
   if (!container || !gameState) return;
   container.innerHTML = '';
 
-  for (let i = 0; i < 4; i++) {
+  const maxPlayers = gameState.settings ? (gameState.settings.playerCount || 4) : 4;
+  const sectionTitle = document.getElementById('hostPlayerSectionTitle');
+  if (sectionTitle) {
+    sectionTitle.textContent = `👥 Spieler-Verwaltung (${maxPlayers} Plätze)`;
+  }
+
+  for (let i = 0; i < maxPlayers; i++) {
     const player = gameState.players[i];
     const row = document.createElement('div');
     row.className = 'host-player-row';
@@ -679,9 +699,23 @@ function renderLobby() {
   document.getElementById('lobbyWaitingRoom').classList.remove('hidden');
   document.getElementById('displayRoomCode').textContent = gameState.roomCode;
 
+  const maxPlayers = gameState.settings ? (gameState.settings.playerCount || 4) : 4;
+  const is6p = (maxPlayers === 6);
+
+  const slot4 = document.getElementById('seatSlot4');
+  const slot5 = document.getElementById('seatSlot5');
+  if (slot4) slot4.classList.toggle('hidden', !is6p);
+  if (slot5) slot5.classList.toggle('hidden', !is6p);
+
+  const teamASub = document.getElementById('teamASubtitle');
+  const teamBSub = document.getElementById('teamBSubtitle');
+  if (teamASub) teamASub.textContent = is6p ? '(Sitze 1, 3 & 5)' : '(Sitze 1 & 3)';
+  if (teamBSub) teamBSub.textContent = is6p ? '(Sitze 2, 4 & 6)' : '(Sitze 2 & 4)';
+
   let totalOccupied = 0;
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < maxPlayers; i++) {
     const slotEl = document.getElementById(`seatSlot${i}`);
+    if (!slotEl) continue;
     const seat = gameState.players[i];
     const nameEl = slotEl.querySelector('.player-name');
     const joinBtn = slotEl.querySelector('.btn-seat-join');
@@ -707,12 +741,12 @@ function renderLobby() {
   const startBtn = document.getElementById('startGameBtn');
   if (gameState.you.isHost) {
     startBtn.classList.remove('hidden');
-    if (totalOccupied === 4) {
+    if (totalOccupied === maxPlayers) {
       startBtn.disabled = false;
       startBtn.textContent = '🎮 Spiel jetzt starten!';
     } else {
       startBtn.disabled = true;
-      startBtn.textContent = `⏳ Warte auf 4 Spieler (${totalOccupied}/4)...`;
+      startBtn.textContent = `⏳ Warte auf ${maxPlayers} Spieler (${totalOccupied}/${maxPlayers})...`;
     }
   } else {
     startBtn.classList.remove('hidden');
@@ -850,16 +884,39 @@ function renderStatusTicker() {
 }
 
 function renderTablePlayers() {
-  // Relative Sitze:
-  // Bottom: mySeatIndex (Du)
-  // Left: (mySeatIndex + 1) % 4
-  // Top: (mySeatIndex + 2) % 4 (Partner)
-  // Right: (mySeatIndex + 3) % 4
   const myTeam = gameState.you ? gameState.you.team : 0;
-  const suitIcons = { clubs: '♣', spades: '♠', hearts: '♥', diamonds: '♦' };
-  const trumpText = gameState.trumpSuit ? ` ${suitIcons[gameState.trumpSuit]}` : '';
+  const maxPlayers = gameState.settings ? (gameState.settings.playerCount || 4) : 4;
+  const is6p = (maxPlayers === 6);
 
-  const positions = [
+  const feltTable = document.getElementById('feltTable');
+  if (feltTable) {
+    feltTable.classList.toggle('mode-6p', is6p);
+  }
+
+  // 4P spezifische Spieler
+  const playerLeft = document.getElementById('playerLeft');
+  const playerRight = document.getElementById('playerRight');
+  if (playerLeft) playerLeft.classList.toggle('hidden', is6p);
+  if (playerRight) playerRight.classList.toggle('hidden', is6p);
+
+  // 6P spezifische Spieler
+  const pTL = document.getElementById('playerTopLeft');
+  const pBL = document.getElementById('playerBottomLeft');
+  const pTR = document.getElementById('playerTopRight');
+  const pBR = document.getElementById('playerBottomRight');
+  if (pTL) pTL.classList.toggle('hidden', !is6p);
+  if (pBL) pBL.classList.toggle('hidden', !is6p);
+  if (pTR) pTR.classList.toggle('hidden', !is6p);
+  if (pBR) pBR.classList.toggle('hidden', !is6p);
+
+  const positions = is6p ? [
+    { key: 'Bottom', seatIdx: mySeatIndex },
+    { key: 'BottomLeft', seatIdx: (mySeatIndex + 1) % 6 },
+    { key: 'TopLeft', seatIdx: (mySeatIndex + 2) % 6 },
+    { key: 'Top', seatIdx: (mySeatIndex + 3) % 6 },
+    { key: 'TopRight', seatIdx: (mySeatIndex + 4) % 6 },
+    { key: 'BottomRight', seatIdx: (mySeatIndex + 5) % 6 }
+  ] : [
     { key: 'Bottom', seatIdx: mySeatIndex },
     { key: 'Left', seatIdx: (mySeatIndex + 1) % 4 },
     { key: 'Top', seatIdx: (mySeatIndex + 2) % 4 },
@@ -871,7 +928,6 @@ function renderTablePlayers() {
     if (!player) return;
 
     const isMe = (seatIdx === mySeatIndex);
-    const isPartner = (key === 'Top');
     const isWe = (player.team === myTeam);
 
     // Name & Ansager-Pill
@@ -929,19 +985,34 @@ function renderTablePlayers() {
 }
 
 function renderTrickCenter() {
-  const slotMap = {
-    [mySeatIndex]: 'Bottom',
-    [(mySeatIndex + 1) % 4]: 'Left',
-    [(mySeatIndex + 2) % 4]: 'Top',
-    [(mySeatIndex + 3) % 4]: 'Right'
-  };
+  const maxPlayers = gameState.settings ? (gameState.settings.playerCount || 4) : 4;
+  const is6p = (maxPlayers === 6);
 
-  ['Top', 'Bottom', 'Left', 'Right'].forEach(pos => {
-    document.getElementById(`trickSlot${pos}`).innerHTML = '<div class="card-placeholder"></div>';
+  const slotLeft = document.getElementById('trickSlotLeft');
+  const slotRight = document.getElementById('trickSlotRight');
+  if (slotLeft) slotLeft.classList.toggle('hidden', is6p);
+  if (slotRight) slotRight.classList.toggle('hidden', is6p);
+
+  const sTL = document.getElementById('trickSlotTopLeft');
+  const sBL = document.getElementById('trickSlotBottomLeft');
+  const sTR = document.getElementById('trickSlotTopRight');
+  const sBR = document.getElementById('trickSlotBottomRight');
+  if (sTL) sTL.classList.toggle('hidden', !is6p);
+  if (sBL) sBL.classList.toggle('hidden', !is6p);
+  if (sTR) sTR.classList.toggle('hidden', !is6p);
+  if (sBR) sBR.classList.toggle('hidden', !is6p);
+
+  const allPositions = is6p
+    ? ['Bottom', 'BottomLeft', 'TopLeft', 'Top', 'TopRight', 'BottomRight']
+    : ['Bottom', 'Left', 'Top', 'Right'];
+
+  allPositions.forEach(pos => {
+    const slot = document.getElementById(`trickSlot${pos}`);
+    if (slot) slot.innerHTML = '<div class="card-placeholder"></div>';
   });
 
   gameState.currentTrick.forEach(trickItem => {
-    const pos = slotMap[trickItem.playerIndex];
+    const pos = getRelativePosition(trickItem.playerIndex, mySeatIndex);
     const slot = document.getElementById(`trickSlot${pos}`);
     if (slot) {
       slot.innerHTML = createCardHTML(trickItem.card, false, true);
@@ -1035,7 +1106,9 @@ function getSvgCardId(card) {
     'Q': 'queen',
     'J': 'jack',
     '10': '10',
-    '9': '9'
+    '9': '9',
+    '8': '8',
+    '7': '7'
   };
 
   const s = suitMap[card.suit] || 'club';
@@ -1178,6 +1251,8 @@ function renderRoundSummary(summary) {
         task = task.replace(/Team B/g, 'WIR').replace(/Team A/g, 'SIE');
       }
       drinkingText.textContent = task;
+      const weMustDrink = task.includes('WIR');
+      drinkingBox.classList.toggle('we-drink', weMustDrink);
       drinkingBox.classList.remove('hidden');
     } else {
       drinkingBox.classList.add('hidden');
@@ -1216,6 +1291,7 @@ function formatDelta(val) {
 // SPIELEINSTELLUNGEN & REGEL-MODAL (⚙️)
 // --------------------------------------------------------------------------
 let currentSettings = {
+  playerCount: 4,
   countEyesLive: true,
   alwaysClubQueenTrump: true,
   allowMit: true,
@@ -1223,10 +1299,15 @@ let currentSettings = {
   ansagerZeroTricksPenalty: 2,
   startScoreA: 13,
   startScoreB: 13,
-  drinkingGameMode: false
+  drinkingGameMode: 'none',
+  trickDisplaySeconds: 2.5,
+  dealAndTurnDelaySeconds: 1.0
 };
 
 function openSettingsModal() {
+  if (gameState && gameState.settings) {
+    currentSettings = { ...gameState.settings };
+  }
   syncSettingsUI();
   document.getElementById('settingsModal').classList.remove('hidden');
 }
@@ -1236,16 +1317,21 @@ function closeSettingsModal() {
 }
 
 function syncSettingsUI() {
-  if (gameState && gameState.settings) {
-    currentSettings = { ...gameState.settings };
-  }
-
   const isHost = gameState && gameState.you ? gameState.you.isHost : true;
+
+  const segPC4 = document.getElementById('segPlayerCount4');
+  const segPC6 = document.getElementById('segPlayerCount6');
+  if (segPC4 && segPC6) {
+    const pc = currentSettings.playerCount || 4;
+    segPC4.classList.toggle('active', pc === 4);
+    segPC6.classList.toggle('active', pc === 6);
+    segPC4.disabled = !isHost;
+    segPC6.disabled = !isHost;
+  }
 
   const countEyesInput = document.getElementById('settingCountEyesLive');
   const alwaysClubInput = document.getElementById('settingAlwaysClubQueenTrump');
   const allowMitInput = document.getElementById('settingAllowMit');
-  const drinkingInput = document.getElementById('settingDrinkingGameMode');
   const scoreAInput = document.getElementById('settingStartScoreA');
   const scoreBInput = document.getElementById('settingStartScoreB');
 
@@ -1260,10 +1346,6 @@ function syncSettingsUI() {
   if (allowMitInput) {
     allowMitInput.checked = currentSettings.allowMit !== false;
     allowMitInput.disabled = !isHost;
-  }
-  if (drinkingInput) {
-    drinkingInput.checked = !!currentSettings.drinkingGameMode;
-    drinkingInput.disabled = !isHost;
   }
   if (scoreAInput) {
     scoreAInput.value = currentSettings.startScoreA || 13;
@@ -1291,6 +1373,103 @@ function syncSettingsUI() {
     segPen2.disabled = !isHost;
     segPen1.disabled = !isHost;
   }
+
+  // Trinkspiel-Modus Segmented Buttons
+  const segDrinkOff = document.getElementById('segDrinkOff');
+  const segDrinkLight = document.getElementById('segDrinkLight');
+  const segDrinkMedium = document.getElementById('segDrinkMedium');
+  const segDrinkHeavy = document.getElementById('segDrinkHeavy');
+  if (segDrinkOff && segDrinkLight && segDrinkMedium && segDrinkHeavy) {
+    const dm = currentSettings.drinkingGameMode || 'none';
+    segDrinkOff.classList.toggle('active', dm === 'none' || dm === false);
+    segDrinkLight.classList.toggle('active', dm === 'light');
+    segDrinkMedium.classList.toggle('active', dm === 'medium' || dm === true);
+    segDrinkHeavy.classList.toggle('active', dm === 'heavy');
+    segDrinkOff.disabled = !isHost;
+    segDrinkLight.disabled = !isHost;
+    segDrinkMedium.disabled = !isHost;
+    segDrinkHeavy.disabled = !isHost;
+  }
+
+  // Speed / Delays Display
+  const dispTrick = document.getElementById('displayTrickDelay');
+  const dispDeal = document.getElementById('displayDealDelay');
+  if (dispTrick) {
+    const trickVal = (typeof currentSettings.trickDisplaySeconds === 'number') ? currentSettings.trickDisplaySeconds : 2.5;
+    dispTrick.textContent = `${trickVal.toFixed(1)}s`;
+  }
+  if (dispDeal) {
+    const dealVal = (typeof currentSettings.dealAndTurnDelaySeconds === 'number') ? currentSettings.dealAndTurnDelaySeconds : 1.0;
+    dispDeal.textContent = `${dealVal.toFixed(1)}s`;
+  }
+}
+
+function setPlayerCountSetting(val) {
+  const isHost = gameState && gameState.you ? gameState.you.isHost : true;
+  if (!isHost) {
+    showToast('Nur der Raum-Ersteller kann Einstellungen ändern.');
+    return;
+  }
+  currentSettings.playerCount = val;
+  syncSettingsUI();
+  saveRuleSettings();
+}
+
+function setDrinkingGameSetting(mode) {
+  const isHost = gameState && gameState.you ? gameState.you.isHost : true;
+  if (!isHost) {
+    showToast('Nur der Raum-Ersteller kann Einstellungen ändern.');
+    return;
+  }
+  currentSettings.drinkingGameMode = mode;
+  if (mode !== 'none') {
+    // Automatisches schnelles Tempo bei Trinkspiel
+    currentSettings.trickDisplaySeconds = 1.2;
+    currentSettings.dealAndTurnDelaySeconds = 0.5;
+    const names = { light: 'Leicht (1–4 Schlucke)', medium: 'Mittel (2–8 Schlucke)', heavy: 'Schwer (4–12 Schlucke)' };
+    showToast(`🍻 Trinkspiel-Modus: ${names[mode] || mode} aktiviert! Spieltempo auf schnell (1.2s / 0.5s) geschaltet.`);
+  } else {
+    currentSettings.trickDisplaySeconds = 2.5;
+    currentSettings.dealAndTurnDelaySeconds = 1.0;
+    showToast('🍻 Trinkspiel-Modus deaktiviert.');
+  }
+  syncSettingsUI();
+  saveRuleSettings();
+}
+
+function adjustSpeedSetting(type, delta) {
+  const isHost = gameState && gameState.you ? gameState.you.isHost : true;
+  if (!isHost) {
+    showToast('Nur der Raum-Ersteller kann Einstellungen ändern.');
+    return;
+  }
+  if (type === 'trickDelay') {
+    let val = ((typeof currentSettings.trickDisplaySeconds === 'number') ? currentSettings.trickDisplaySeconds : 2.5) + delta;
+    val = Math.round(val * 10) / 10;
+    if (val < 0.8) val = 0.8;
+    if (val > 7.0) val = 7.0;
+    currentSettings.trickDisplaySeconds = val;
+  } else if (type === 'dealDelay') {
+    let val = ((typeof currentSettings.dealAndTurnDelaySeconds === 'number') ? currentSettings.dealAndTurnDelaySeconds : 1.0) + delta;
+    val = Math.round(val * 10) / 10;
+    if (val < 0.3) val = 0.3;
+    if (val > 5.0) val = 5.0;
+    currentSettings.dealAndTurnDelaySeconds = val;
+  }
+  syncSettingsUI();
+  saveRuleSettings();
+}
+
+function setSpeedPreset(trickSec, dealSec) {
+  const isHost = gameState && gameState.you ? gameState.you.isHost : true;
+  if (!isHost) {
+    showToast('Nur der Raum-Ersteller kann Einstellungen ändern.');
+    return;
+  }
+  currentSettings.trickDisplaySeconds = trickSec;
+  currentSettings.dealAndTurnDelaySeconds = dealSec;
+  syncSettingsUI();
+  saveRuleSettings();
 }
 
 function adjustStartScore(team, delta) {
@@ -1355,11 +1534,11 @@ function saveRuleSettings() {
   const countEyesInput = document.getElementById('settingCountEyesLive');
   const alwaysClubInput = document.getElementById('settingAlwaysClubQueenTrump');
   const allowMitInput = document.getElementById('settingAllowMit');
-  const drinkingInput = document.getElementById('settingDrinkingGameMode');
   const scoreAInput = document.getElementById('settingStartScoreA');
   const scoreBInput = document.getElementById('settingStartScoreB');
 
   const settingsPayload = {
+    playerCount: currentSettings.playerCount || 4,
     countEyesLive: countEyesInput ? countEyesInput.checked : true,
     alwaysClubQueenTrump: alwaysClubInput ? alwaysClubInput.checked : true,
     allowMit: allowMitInput ? allowMitInput.checked : true,
@@ -1367,9 +1546,13 @@ function saveRuleSettings() {
     ansagerZeroTricksPenalty: currentSettings.ansagerZeroTricksPenalty || 2,
     startScoreA: scoreAInput ? (parseInt(scoreAInput.value) || 13) : (currentSettings.startScoreA || 13),
     startScoreB: scoreBInput ? (parseInt(scoreBInput.value) || 13) : (currentSettings.startScoreB || 13),
-    drinkingGameMode: drinkingInput ? drinkingInput.checked : false
+    drinkingGameMode: currentSettings.drinkingGameMode || 'none',
+    trickDisplaySeconds: (typeof currentSettings.trickDisplaySeconds === 'number') ? currentSettings.trickDisplaySeconds : 2.5,
+    dealAndTurnDelaySeconds: (typeof currentSettings.dealAndTurnDelaySeconds === 'number') ? currentSettings.dealAndTurnDelaySeconds : 1.0
   };
 
   currentSettings = { ...settingsPayload };
-  socket.emit('update_settings', { settings: settingsPayload });
+  if (currentRoomCode) {
+    socket.emit('update_settings', { settings: settingsPayload });
+  }
 }
