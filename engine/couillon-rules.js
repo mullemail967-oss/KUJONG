@@ -11,6 +11,8 @@ const SUITS = {
 };
 
 const RANKS = ['9', '10', 'J', 'Q', 'K', 'A'];
+const RANKS_4P = ['9', '10', 'J', 'Q', 'K', 'A'];
+const RANKS_6P = ['7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
 
 const POINT_VALUES = {
   'A': 4,
@@ -18,16 +20,19 @@ const POINT_VALUES = {
   'Q': 2,
   'J': 1,
   '10': 0,
-  '9': 0
+  '9': 0,
+  '8': 0,
+  '7': 0
 };
 
 /**
- * Erstellt ein neues 24-Karten-Deck.
+ * Erstellt ein neues Kartendeck (24 Karten bei 4 Spielern, 32 Karten bei 6 Spielern).
  */
-function createDeck() {
+function createDeck(playerCount = 4) {
+  const ranks = (playerCount === 6) ? RANKS_6P : RANKS_4P;
   const deck = [];
   for (const suit of Object.values(SUITS)) {
-    for (const rank of RANKS) {
+    for (const rank of ranks) {
       deck.push({
         id: `${suit}_${rank}`,
         suit: suit,
@@ -151,21 +156,33 @@ function getTrumpPower(card, trumpSuit, isMitAnnounced, options = {}) {
     return 30;
   }
 
+  // 9. Trumpf-8 (im 6-Spieler-Modus)
+  if (card.suit === trumpSuit && card.rank === '8') {
+    return 20;
+  }
+
+  // 10. Trumpf-7 (im 6-Spieler-Modus)
+  if (card.suit === trumpSuit && card.rank === '7') {
+    return 10;
+  }
+
   return 0;
 }
 
 /**
  * Berechnet die relative Stärke einer Fehlfarbenkarte (Nicht-Trumpf).
- * Rangfolge: A > K > Q > J > 10 > 9
+ * Rangfolge: A > K > Q > J > 10 > 9 > 8 > 7
  */
 function getOffSuitPower(card) {
   const OFF_SUIT_RANKS = {
-    'A': 6,
-    'K': 5,
-    'Q': 4,
-    'J': 3,
-    '10': 2,
-    '9': 1
+    'A': 8,
+    'K': 7,
+    'Q': 6,
+    'J': 5,
+    '10': 4,
+    '9': 3,
+    '8': 2,
+    '7': 1
   };
   return OFF_SUIT_RANKS[card.rank] || 0;
 }
@@ -262,7 +279,8 @@ function evaluateTrick(trick, trumpSuit, isMitAnnounced, options = {}) {
   for (let i = 0; i < trick.length; i++) {
     const entry = trick[i];
     const card = entry.card;
-    totalTrickPoints += (card.points || 0);
+    const cardPts = (card.points !== undefined) ? card.points : (POINT_VALUES[card.rank] || 0);
+    totalTrickPoints += cardPts;
 
     const isTrump = isTrumpCard(card, trumpSuit, isMitAnnounced, options);
 
@@ -297,6 +315,7 @@ function evaluateTrick(trick, trumpSuit, isMitAnnounced, options = {}) {
 
   return {
     winnerIndex: bestEntry.playerIndex,
+    winnerTeam: bestEntry.playerIndex % 2 === 0 ? 0 : 1,
     winningCard: bestEntry.card,
     points: totalTrickPoints
   };

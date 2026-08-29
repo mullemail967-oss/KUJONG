@@ -6,7 +6,9 @@
  * 0-Punkte-Abwurf (Schnorren), Mit'- und Kontra-Strategie.
  */
 
-const { SUITS, isTrumpCard, getTrumpPower, getOffSuitPower, isCardPlayable, evaluateTrick } = require('./couillon-rules');
+const { SUITS, isTrumpCard, getTrumpPower, getOffSuitPower, isCardPlayable, evaluateTrick, POINT_VALUES } = require('./couillon-rules');
+
+const getCardPoints = (c) => (c && c.points !== undefined) ? c.points : (c ? (POINT_VALUES[c.rank] || 0) : 0);
 
 /**
  * Wählt die beste Trumpffarbe für den Ansager-Bot aus seinen ersten 3 Handkarten.
@@ -197,8 +199,8 @@ function chooseLeadCard(playable, hand, trumpSuit, isMitAnnounced, botIndex, opt
     return offSuitHigh[0];
   }
 
-  // 5. Kleine Fehlfarbe (9 oder 10) anspielen, um keine hohen Karten zu riskieren
-  const offSuitLow = playable.filter(c => !isTrumpCard(c, trumpSuit, isMitAnnounced, options) && (c.rank === '9' || c.rank === '10'));
+  // 5. Kleine Fehlfarbe (7, 8, 9 oder 10) anspielen, um keine hohen Karten zu riskieren
+  const offSuitLow = playable.filter(c => !isTrumpCard(c, trumpSuit, isMitAnnounced, options) && (c.rank === '7' || c.rank === '8' || c.rank === '9' || c.rank === '10'));
   if (offSuitLow.length > 0) {
     return offSuitLow[0];
   }
@@ -215,8 +217,9 @@ function chooseFollowCard(playable, hand, currentTrick, trumpSuit, isMitAnnounce
   const evalResult = evaluateTrick(currentTrick, trumpSuit, isMitAnnounced, options);
   const currentWinner = evalResult.winnerIndex;
   const isPartnerWinning = (currentWinner % 2 === botIndex % 2);
-  const trickPoints = currentTrick.reduce((sum, e) => sum + (e.card.points || 0), 0);
-  const isLastPlayer = (currentTrick.length === 3);
+  const trickPoints = currentTrick.reduce((sum, e) => sum + getCardPoints(e.card), 0);
+  const maxPlayers = options.playerCount || 4;
+  const isLastPlayer = (currentTrick.length === maxPlayers - 1);
 
   // Welche unserer Karten können den Stich übernehmen?
   const winningCards = [];
@@ -236,33 +239,33 @@ function chooseFollowCard(playable, hand, currentTrick, trumpSuit, isMitAnnounce
   // FALL 1: PARTNER FÜHRT AKTUELL DEN STICH!
   // --------------------------------------------------------------------------
   if (isPartnerWinning) {
-    // Wenn Bot der 4. (letzte) Spieler ist: Partner HAT den Stich 100% sicher!
+    // Wenn Bot der letzte Spieler ist: Partner HAT den Stich 100% sicher!
     // ODER Partner führt mit dem Trumpf-Ass / extrem starker Karte
     const isSafePartnerWin = isLastPlayer || (evalResult.winningCard && evalResult.winningCard.suit === trumpSuit && evalResult.winningCard.rank === 'A');
 
     if (isSafePartnerWin) {
       // --> SCHMIEREN! (Dem Partner möglichst viele Augen füttern)
-      // Wähle die höchste Nicht-Trumpf-Augen-Karte: König (3), Dame (2), Bube (1)
+      // Wähle die höchste Nicht-Trumpf-Augen-Karte: Ass (4), König (3), Dame (2), Bube (1)
       const offSuitPoints = playable
         .filter(c => !isTrumpCard(c, trumpSuit, isMitAnnounced, options))
-        .sort((a, b) => (b.points || 0) - (a.points || 0));
+        .sort((a, b) => getCardPoints(b) - getCardPoints(a));
 
-      if (offSuitPoints.length > 0 && (offSuitPoints[0].points || 0) > 0) {
-        return offSuitPoints[0]; // Schmieren mit König oder Dame!
+      if (offSuitPoints.length > 0 && getCardPoints(offSuitPoints[0]) > 0) {
+        return offSuitPoints[0]; // Schmieren mit Ass, König oder Dame!
       }
 
       // Wenn nur Trümpfe oder 0-Punkte da sind: Niedrigste Karte abwerfen, keinen hohen Trumpf verschwenden
       return sortCardsByPowerAsc(playable, trumpSuit, isMitAnnounced, options)[0];
     } else {
-      // Partner führt zwar, aber es kommt noch ein gegnerischer Spieler (3. Platz)
+      // Partner führt zwar, aber es kommt noch ein gegnerischer Spieler
       // Wenn wir noch höher stechen können und viele Punkte drin sind: absichern
       if (winningCards.length > 0 && trickPoints >= 4) {
         // Mit kleinster gewinnender Karte absichern
         return sortCardsByPowerAsc(winningCards, trumpSuit, isMitAnnounced, options)[0];
       }
       // Ansonsten Punkte schmieren oder kleine Karte beilegen
-      const highPointPlayable = playable.sort((a, b) => (b.points || 0) - (a.points || 0));
-      if (highPointPlayable[0].points > 0 && Math.random() < 0.7) {
+      const highPointPlayable = playable.sort((a, b) => getCardPoints(b) - getCardPoints(a));
+      if (getCardPoints(highPointPlayable[0]) > 0 && Math.random() < 0.7) {
         return highPointPlayable[0];
       }
       return sortCardsByPowerAsc(playable, trumpSuit, isMitAnnounced, options)[0];
@@ -274,7 +277,7 @@ function chooseFollowCard(playable, hand, currentTrick, trumpSuit, isMitAnnounce
   // --------------------------------------------------------------------------
   if (winningCards.length > 0) {
     const minWinningCard = sortCardsByPowerAsc(winningCards, trumpSuit, isMitAnnounced, options)[0];
-    const totalPointsIfWon = trickPoints + (minWinningCard.points || 0);
+    const totalPointsIfWon = trickPoints + getCardPoints(minWinningCard);
 
     // Kriterium zum Stechen:
     // A) Letzter Spieler (isLastPlayer) -> Jeder Stichgewinn ist sicher!
@@ -288,8 +291,8 @@ function chooseFollowCard(playable, hand, currentTrick, trumpSuit, isMitAnnounce
     }
 
     // Bei wenig Punkten (0-1 Augen) und noch Spielern nach uns:
-    // Sparsam sein, aber zu 60% mitnehmen wenn wir einen kleinen Trumpf (9/10/Bube) haben
-    const isLowTrump = isTrumpCard(minWinningCard, trumpSuit, isMitAnnounced, options) && (minWinningCard.rank === '9' || minWinningCard.rank === '10' || minWinningCard.rank === 'J');
+    // Sparsam sein, aber zu 60% mitnehmen wenn wir einen kleinen Trumpf (7/8/9/10/Bube) haben
+    const isLowTrump = isTrumpCard(minWinningCard, trumpSuit, isMitAnnounced, options) && (minWinningCard.rank === '7' || minWinningCard.rank === '8' || minWinningCard.rank === '9' || minWinningCard.rank === '10' || minWinningCard.rank === 'J');
     if (isLowTrump && Math.random() < 0.65) {
       return minWinningCard;
     }
@@ -299,8 +302,8 @@ function chooseFollowCard(playable, hand, currentTrick, trumpSuit, isMitAnnounce
   // FALL 3: WIR KÖNNEN/WOLLEN DEN STICH NICHT GEWINNEN
   // --> SCHNORREN / 0-PUNKTE-ABWURF: Dem Gegner bloß keine Augen schenken!
   // --------------------------------------------------------------------------
-  // 1. Zuerst 0-Punkte-Karten (9er, 10er) abwerfen
-  const zeroPointCards = playable.filter(c => (c.points || 0) === 0);
+  // 1. Zuerst 0-Punkte-Karten (7er, 8er, 9er, 10er) abwerfen
+  const zeroPointCards = playable.filter(c => getCardPoints(c) === 0);
   if (zeroPointCards.length > 0) {
     // Bevorzuge Fehlfarben-0er vor Trumpf-0ern
     const offSuitZeroes = zeroPointCards.filter(c => !isTrumpCard(c, trumpSuit, isMitAnnounced, options));
@@ -311,7 +314,7 @@ function chooseFollowCard(playable, hand, currentTrick, trumpSuit, isMitAnnounce
   }
 
   // 2. Wenn keine 0-Punkte-Karte da ist: Niedrigste Punktzahl abwerfen (Bube=1 vor Dame=2 vor König=3 vor Ass=4)
-  const sortedByPointsAsc = playable.sort((a, b) => (a.points || 0) - (b.points || 0));
+  const sortedByPointsAsc = playable.sort((a, b) => getCardPoints(a) - getCardPoints(b));
   return sortedByPointsAsc[0];
 }
 
