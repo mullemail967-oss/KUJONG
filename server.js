@@ -53,6 +53,31 @@ app.get('*', (req, res) => {
 // In-Memory Raum-Verwaltung
 const rooms = new Map();
 
+// Kurze, abwechslungsreiche Bot-Namen (kurz, prägnant, mobil-optimiert)
+const SHORT_BOT_NAMES = [
+  'Max', 'Leo', 'Pit', 'Sam', 'Kai', 'Luc', 'Ben', 'Tom', 'Tim', 'Jan',
+  'Pol', 'Guy', 'Dan', 'Rob', 'Marc', 'Nico', 'Finn', 'Paul', 'Noah', 'Alex',
+  'Mia', 'Lea', 'Eva', 'Zoe', 'Lina', 'Emma', 'Lara', 'Sara', 'Jule', 'Nele'
+];
+
+/**
+ * Wählt einen zufälligen, kurzen Bot-Namen, der noch nicht im Raum sitzt.
+ */
+function getRandomBotName(room) {
+  const currentNames = (room && room.seats)
+    ? room.seats.filter(s => s && s.name).map(s => s.name.toLowerCase().trim())
+    : [];
+
+  const available = SHORT_BOT_NAMES.filter(n => {
+    const lower = n.toLowerCase();
+    return !currentNames.includes(`bot ${lower}`) && !currentNames.includes(lower);
+  });
+
+  const pool = available.length > 0 ? available : SHORT_BOT_NAMES;
+  const picked = pool[Math.floor(Math.random() * pool.length)];
+  return `Bot ${picked}`;
+}
+
 /**
  * Generiert einen zufälligen 4-stelligen Raumcode.
  */
@@ -80,6 +105,7 @@ function createRoom(roomCode, hostName, hostSocketId) {
       null
     ],
     settings: {
+      playerCount: 4,                 // 4 oder 6 Spieler (Standard: 4)
       countEyesLive: true,            // Live-Augenzähler im Header (Standard: true)
       alwaysClubQueenTrump: true,     // Kreuz-Dame immer 2. bzw. 3. Trumpf (Standard: true)
       allowMit: true,                 // Pik-Dame Mit'-Ansage erlaubt (Standard: true)
@@ -87,7 +113,9 @@ function createRoom(roomCode, hostName, hostSocketId) {
       ansagerZeroTricksPenalty: 2,    // Strafpunkte bei 0 Stichen für Ansager: 2 Pkt (Standard: 2, alternativ: 1)
       startScoreA: 13,                // Startwert Team A (Standard: 13)
       startScoreB: 13,                // Startwert Team B (Standard: 13)
-      drinkingGameMode: false         // Trinkspiel-Modus 'auf locker' (Standard: false)
+      drinkingGameMode: 'none',       // Trinkspiel-Modus: 'none', 'light', 'medium', 'heavy' (Standard: 'none')
+      trickDisplaySeconds: 2.5,       // Anzeigedauer des fertigen Stichs (Standard: 2.5s)
+      dealAndTurnDelaySeconds: 1.0    // Pause bei Austeilen & Bot-Zügen (Standard: 1.0s)
     },
     scores: { teamA: 13, teamB: 13 },
     dealerIndex: 0,
@@ -136,7 +164,8 @@ function logAction(room, message) {
  * Sendet den Zustand an alle Teilnehmer (mit Cheating-Schutz: nur eigene Handkarten sichtbar).
  */
 function broadcastGameState(room) {
-  for (let i = 0; i < 4; i++) {
+  const maxPlayers = room.settings.playerCount || 4;
+  for (let i = 0; i < maxPlayers; i++) {
     const seat = room.seats[i];
     if (seat && !seat.isBot && seat.socketId) {
       const clientPayload = sanitizeStateForPlayer(room, i);
@@ -243,11 +272,12 @@ function sanitizeStateForPlayer(room, seatIndex) {
  * Startet eine neue Spielrunde (Austeilen 3+2, Trumpfwahl).
  */
 function startNewRound(room) {
+  const maxPlayers = room.settings.playerCount || 4;
   room.roundNumber++;
   room.currentTrick = [];
   room.trickCount = 0;
-  room.tricksWon = [0, 0, 0, 0];
-  room.eyesWon = [0, 0, 0, 0];
+  room.tricksWon = Array(maxPlayers).fill(0);
+  room.eyesWon = Array(maxPlayers).fill(0);
   room.tricksTeamA = 0;
   room.tricksTeamB = 0;
   room.eyesTeamA = 0;
@@ -261,27 +291,28 @@ function startNewRound(room) {
   room.trickWinnerInfo = null;
   room.roundSummary = null;
 
-  // Deck mischen
-  const freshDeck = shuffleDeck(createDeck());
+  // Deck mischen (24 Karten bei 4p, 32 Karten bei 6p)
+  const freshDeck = shuffleDeck(createDeck(maxPlayers));
   room.deck = freshDeck;
 
-  // Phase 2: Erstes Austeilen (exakt 3 Karten pro Spieler = 12 Karten)
-  room.hands = [[], [], [], []];
+  // Phase 2: Erstes Austeilen (exakt 3 Karten pro Spieler = 12 bzw. 18 Karten)
+  room.hands = Array(maxPlayers).fill(null).map(() => []);
   let deckPtr = 0;
-  for (let s = 0; s < 4; s++) {
+  for (let s = 0; s < maxPlayers; s++) {
     for (let c = 0; c < 3; c++) {
       room.hands[s].push(freshDeck[deckPtr++]);
     }
   }
 
   // Ansager ist Spieler links vom Geber
-  room.declarerIndex = (room.dealerIndex + 1) % 4;
+  room.declarerIndex = (room.dealerIndex + 1) % maxPlayers;
   room.declarerTeam = room.declarerIndex % 2 === 0 ? 0 : 1;
   room.currentTurn = room.declarerIndex;
   room.phase = 'CHOOSE_TRUMP';
 
-  const declarerName = room.seats[room.declarerIndex].name;
-  logAction(room, `--- Runde ${room.roundNumber} beginnt --- Geber: ${room.seats[room.dealerIndex].name}, Ansager: ${declarerName}`);
+  const declarerName = room.seats[room.declarerIndex] ? room.seats[room.declarerIndex].name : `Spieler ${room.declarerIndex + 1}`;
+  const dealerName = room.seats[room.dealerIndex] ? room.seats[room.dealerIndex].name : `Spieler ${room.dealerIndex + 1}`;
+  logAction(room, `--- Runde ${room.roundNumber} beginnt --- Geber: ${dealerName}, Ansager: ${declarerName}`);
   logAction(room, `3 Karten ausgeteilt. ${declarerName} wählt die Trumpffarbe...`);
 
   broadcastGameState(room);
@@ -295,9 +326,11 @@ function startNewRound(room) {
  */
 function handleTurnTrump(room) {
   if (room.phase !== 'CHOOSE_TRUMP') return;
+  const maxPlayers = room.settings.playerCount || 4;
   const d = room.declarerIndex;
-  const card1 = room.deck[12 + d * 2];
-  const card2 = room.deck[12 + d * 2 + 1];
+  const basePtr = 3 * maxPlayers;
+  const card1 = room.deck[basePtr + d * 2];
+  const card2 = room.deck[basePtr + d * 2 + 1];
   if (!card1 || !card2) return;
 
   // Zufällig eine der beiden Karten wählen
@@ -307,7 +340,7 @@ function handleTurnTrump(room) {
 
   const chosenSuit = turnedCard.suit;
   const suitSymbols = { clubs: '♣ Kreuz', spades: '♠ Pik', hearts: '♥ Herz', diamonds: '♦ Karo' };
-  const declarerName = room.seats[d].name;
+  const declarerName = room.seats[d] ? room.seats[d].name : `Spieler ${d + 1}`;
 
   room.trumpSuit = chosenSuit;
   room.turnedCard = turnedCard;
@@ -315,23 +348,24 @@ function handleTurnTrump(room) {
 
   // Zweites Austeilen:
   // Ansager behält die andere Karte (hat 4 Handkarten, da 1 ausgespielt)
-  // Alle anderen 3 Spieler erhalten ihre 2 Karten (haben 5 Handkarten)
-  for (let s = 0; s < 4; s++) {
+  // Alle anderen Spieler erhalten ihre 2 Karten (haben 5 Handkarten)
+  for (let s = 0; s < maxPlayers; s++) {
     if (s === d) {
       room.hands[s].push(keptCard);
     } else {
-      room.hands[s].push(room.deck[12 + s * 2], room.deck[12 + s * 2 + 1]);
+      room.hands[s].push(room.deck[basePtr + s * 2], room.deck[basePtr + s * 2 + 1]);
     }
     sortHand(room.hands[s], room.trumpSuit, false);
   }
 
-  // Stock (4 Karten)
-  room.stock = room.deck.slice(20, 24);
-  logAction(room, `Restliche Karten ausgeteilt (4 Karten verbleiben im Stock).`);
+  // Stock (4 Karten bei 4p, 2 Karten bei 6p)
+  const totalCards = maxPlayers === 6 ? 32 : 24;
+  room.stock = room.deck.slice(basePtr + maxPlayers * 2, totalCards);
+  logAction(room, `Restliche Karten ausgeteilt (${room.stock.length} Karte(n) verbleiben im Stock).`);
 
   // Prüfe, wer die Pik-Dame (♠Q) besitzt (in Händen oder als aufgedeckte Karte)
   room.mitHolderIndex = -1;
-  for (let s = 0; s < 4; s++) {
+  for (let s = 0; s < maxPlayers; s++) {
     if (room.hands[s].some(c => c.suit === SUITS.SPADES && c.rank === 'Q')) {
       room.mitHolderIndex = s;
       break;
@@ -349,7 +383,7 @@ function handleTurnTrump(room) {
   }];
 
   // Nächster Spieler im Uhrzeigersinn ist am Zug
-  room.currentTurn = (d + 1) % 4;
+  room.currentTurn = (d + 1) % maxPlayers;
   room.phase = 'PLAY_TRICK';
 
   // Falls der Ansager ein Bot ist und ♠Q hält/gedreht hat: Mit'-Ansage direkt prüfen
@@ -370,15 +404,16 @@ function handleTrumpSelection(room, chosenSuit) {
   if (room.phase !== 'CHOOSE_TRUMP') return;
   if (!Object.values(SUITS).includes(chosenSuit)) return;
 
+  const maxPlayers = room.settings.playerCount || 4;
   room.trumpSuit = chosenSuit;
   room.turnedCard = null;
   const suitSymbols = { clubs: '♣ Kreuz', spades: '♠ Pik', hearts: '♥ Herz', diamonds: '♦ Karo' };
-  const declarerName = room.seats[room.declarerIndex].name;
+  const declarerName = room.seats[room.declarerIndex] ? room.seats[room.declarerIndex].name : `Spieler ${room.declarerIndex + 1}`;
   logAction(room, `${declarerName} hat ${suitSymbols[chosenSuit]} als Trumpf gewählt!`);
 
-  // Phase 3: Zweites Austeilen (exakt 2 Karten pro Spieler = 8 Karten)
-  let deckPtr = 12;
-  for (let s = 0; s < 4; s++) {
+  // Phase 3: Zweites Austeilen (exakt 2 Karten pro Spieler)
+  let deckPtr = 3 * maxPlayers;
+  for (let s = 0; s < maxPlayers; s++) {
     for (let c = 0; c < 2; c++) {
       room.hands[s].push(room.deck[deckPtr++]);
     }
@@ -386,13 +421,14 @@ function handleTrumpSelection(room, chosenSuit) {
     sortHand(room.hands[s], room.trumpSuit, false);
   }
 
-  // Die restlichen 4 Karten bilden den verdeckten Stock (Index 20..23)
-  room.stock = room.deck.slice(20, 24);
-  logAction(room, `Restliche 2 Karten ausgeteilt (4 Karten verbleiben im Stock).`);
+  // Restliche Karten bilden den verdeckten Stock (4 Karten bei 4p, 2 Karten bei 6p)
+  const totalCards = maxPlayers === 6 ? 32 : 24;
+  room.stock = room.deck.slice(deckPtr, totalCards);
+  logAction(room, `Restliche 2 Karten ausgeteilt (${room.stock.length} Karte(n) verbleiben im Stock).`);
 
   // Prüfe, wer die Pik-Dame (♠Q) besitzt
   room.mitHolderIndex = -1;
-  for (let s = 0; s < 4; s++) {
+  for (let s = 0; s < maxPlayers; s++) {
     if (room.hands[s].some(c => c.suit === SUITS.SPADES && c.rank === 'Q')) {
       room.mitHolderIndex = s;
       break;
@@ -413,7 +449,7 @@ function handleTrumpSelection(room, chosenSuit) {
  */
 function sortHand(hand, trumpSuit, isMitAnnounced = false) {
   const suitOrder = { [trumpSuit]: 0, [SUITS.HEARTS]: 1, [SUITS.SPADES]: 2, [SUITS.DIAMONDS]: 3, [SUITS.CLUBS]: 4 };
-  const rankOrder = { 'A': 0, 'K': 1, 'Q': 2, 'J': 3, '10': 4, '9': 5 };
+  const rankOrder = { 'A': 0, 'K': 1, 'Q': 2, 'J': 3, '10': 4, '9': 5, '8': 6, '7': 7 };
 
   hand.sort((a, b) => {
     const aIsTrump = isTrumpCard(a, trumpSuit, isMitAnnounced);
@@ -505,8 +541,10 @@ function handleCardPlay(room, playerIndex, cardId) {
   const cardDisplay = `${suitIcons[card.suit]}${card.rank}`;
   logAction(room, `${playerName} spielt ${cardDisplay}`);
 
-  // Prüfen, ob der Stich vollständig ist (4 Karten)
-  if (room.currentTrick.length === 4) {
+  const maxPlayers = room.settings.playerCount || 4;
+
+  // Prüfen, ob der Stich vollständig ist (4 bzw. 6 Karten)
+  if (room.currentTrick.length === maxPlayers) {
     room.phase = 'EVALUATING_TRICK';
 
     // Stich SOFORT auswerten, damit die Anzeige exakt den Sieger DIESES Stichs zeigt!
@@ -535,9 +573,12 @@ function handleCardPlay(room, playerIndex, cardId) {
     broadcastGameState(room);
 
     // Pause, damit alle den Stich & Sieger in Ruhe sehen.
-    // Wenn Augenzählen AUS ist: längere Pause (4s für Stiche 1-4, 5s für den 5. Stich), damit Spieler im Kopf zählen können
-    let trickDelay = 2500;
-    if (room.settings && room.settings.countEyesLive === false) {
+    let trickDelay = (room.settings && typeof room.settings.trickDisplaySeconds === 'number')
+      ? room.settings.trickDisplaySeconds * 1000
+      : 2500;
+    
+    // Falls Live-Augen AUS sind und Standard (2.5s) aktiv ist: etwas mehr Zeit zum Mitdenken
+    if (room.settings && room.settings.countEyesLive === false && room.settings.trickDisplaySeconds === 2.5) {
       trickDelay = (room.trickCount === 4) ? 5000 : 4000;
     }
 
@@ -546,7 +587,7 @@ function handleCardPlay(room, playerIndex, cardId) {
     }, trickDelay);
   } else {
     // Nächster Spieler im Uhrzeigersinn ist am Zug
-    room.currentTurn = (room.currentTurn + 1) % 4;
+    room.currentTurn = (room.currentTurn + 1) % maxPlayers;
     broadcastGameState(room);
     checkBotAction(room);
   }
@@ -591,9 +632,118 @@ function resolveTrick(room, result) {
 }
 
 /**
+ * Berechnet Trinkspiel-Aufgaben basierend auf Spielmodus und Ereignis.
+ * Modi: 'light' (Leicht: 1–4 Schlucke), 'medium' (Mittel: 2–8 Schlucke), 'heavy' (Schwer: 4–12 Schlucke)
+ * Verlierer trinken immer reine Schlucke.
+ */
+function calculateDrinkingTask(room, evaluation) {
+  const mode = room.settings ? room.settings.drinkingGameMode : null;
+  if (!mode || mode === 'none' || mode === false) {
+    return null;
+  }
+
+  // Modus normalisieren (Kompatibilität mit boolean true)
+  const intensity = (mode === 'light' || mode === 'medium' || mode === 'heavy')
+    ? mode
+    : (mode === true ? 'medium' : 'none');
+
+  if (intensity === 'none') return null;
+
+  const DRINKING_SIPS = {
+    light: {
+      roundLost: 1,           // Normale Runde verloren
+      declarerLost: 2,        // Ansager-Team verliert (+1 Strafpunkt kassiert)
+      mitLost: 2,             // Mit' verloren
+      contraLost: 3,          // Kontra verloren
+      sweepLost: 3,           // Durchmarsch / 0 Stiche kassiert
+      matchLost: 4            // Gesamte Partie verloren
+    },
+    medium: {
+      roundLost: 2,           // Normale Runde verloren
+      declarerLost: 3,        // Ansager-Team verliert (+1 Strafpunkt kassiert)
+      mitLost: 4,             // Mit' verloren
+      contraLost: 5,          // Kontra verloren
+      sweepLost: 6,           // Durchmarsch / 0 Stiche kassiert
+      matchLost: 8            // Gesamte Partie verloren
+    },
+    heavy: {
+      roundLost: 4,           // Normale Runde verloren
+      declarerLost: 6,        // Ansager-Team verliert (+1 Strafpunkt kassiert)
+      mitLost: 7,             // Mit' verloren
+      contraLost: 8,          // Kontra verloren
+      sweepLost: 10,          // Durchmarsch / 0 Stiche kassiert
+      matchLost: 12           // Gesamte Partie verloren
+    }
+  };
+
+  const sipsTable = DRINKING_SIPS[intensity] || DRINKING_SIPS.medium;
+  const isGameOver = (room.scores.teamA <= 0 || room.scores.teamB <= 0);
+
+  // 1. GESAMTSPIEL VORBEI (Match-Ende: Team mit <= 0 gewinnt)
+  if (isGameOver) {
+    let winningTeam = 0;
+    if (room.scores.teamA <= 0 && room.scores.teamB <= 0) {
+      winningTeam = room.scores.teamA < room.scores.teamB ? 0 : 1;
+    } else if (room.scores.teamB <= 0) {
+      winningTeam = 1;
+    } else {
+      winningTeam = 0;
+    }
+    const loserTeamIndex = 1 - winningTeam;
+    const loserTeamName = loserTeamIndex === 0 ? 'Team A' : 'Team B';
+    const sips = sipsTable.matchLost;
+    return `🍾 MATCH VERLOREN! ${loserTeamName} verliert die Partie und trinkt ${sips} Schlucke!`;
+  }
+
+  // 2. DURCHMARSCH (5 Stiche gewonnen)
+  if (room.tricksTeamA === 5 || room.tricksTeamB === 5) {
+    const sweepWinner = room.tricksTeamA === 5 ? 0 : 1;
+    const loserTeamIndex = 1 - sweepWinner;
+    const loserTeamName = loserTeamIndex === 0 ? 'Team A' : 'Team B';
+    const sips = sipsTable.sweepLost;
+    if (loserTeamIndex === room.declarerTeam) {
+      return `💀 0 STICHE FÜR ANSAGER! ${loserTeamName} kassiert einen Durchmarsch und trinkt ${sips} Schlucke!`;
+    }
+    return `🍻 DURCHMARSCH! ${loserTeamName} hat 0 Stiche geholt und trinkt ${sips} Schlucke!`;
+  }
+
+  // 3. KONTRA VERLOREN
+  if (room.isContraAnnounced) {
+    const winningTeam = evaluation.winningTeam;
+    const loserTeamIndex = 1 - winningTeam;
+    const loserTeamName = loserTeamIndex === 0 ? 'Team A' : 'Team B';
+    const sips = sipsTable.contraLost;
+    return `⚡ KONTRA VERLOREN! ${loserTeamName} zahlt die Zeche und trinkt ${sips} Schlucke!`;
+  }
+
+  // 4. MIT' VERLOREN
+  if (room.isMitAnnounced && evaluation.winningTeam !== room.declarerTeam) {
+    const declarerTeamName = room.declarerTeam === 0 ? 'Team A' : 'Team B';
+    const sips = sipsTable.mitLost;
+    return `👑 MIT' VERLOREN! ${declarerTeamName} verliert trotz Pik-Dame und trinkt ${sips} Schlucke!`;
+  }
+
+  // 5. ANSAGER-TEAM VERLIERT (obwohl Trumpf gewählt + Strafpunkt kassiert)
+  if (evaluation.winningTeam !== room.declarerTeam) {
+    const declarerTeamName = room.declarerTeam === 0 ? 'Team A' : 'Team B';
+    const sips = sipsTable.declarerLost;
+    return `🍺 ANSAGE VERPATZT! ${declarerTeamName} verliert trotz Trumpf (+1 Strafpunkt) und trinkt ${sips} Schlucke!`;
+  }
+
+  // 6. NORMALE RUNDE VERLOREN (Gegner-Team verliert)
+  const winningTeam = evaluation.winningTeam;
+  const loserTeamIndex = 1 - winningTeam;
+  const loserTeamName = loserTeamIndex === 0 ? 'Team A' : 'Team B';
+  const sips = sipsTable.roundLost;
+  const sipsWord = sips === 1 ? 'Schluck' : 'Schlucke';
+  return `🍺 RUNDE VERLOREN! ${loserTeamName} trinkt ${sips} ${sipsWord}!`;
+}
+
+/**
  * Wertet die Runde nach 5 Stichen aus.
  */
 function resolveRound(room) {
+  const maxPlayers = room.settings.playerCount || 4;
   const evaluation = evaluateRound({
     declarerTeam: room.declarerTeam,
     eyesTeamA: room.eyesTeamA,
@@ -618,30 +768,7 @@ function resolveRound(room) {
   logAction(room, `Neuer Punktestand: Team A: ${room.scores.teamA} (vorher ${oldScoreA}) | Team B: ${room.scores.teamB} (vorher ${oldScoreB})`);
 
   // Trinkspiel-Modus Aufgaben berechnen (wenn aktiviert)
-  let drinkingTask = null;
-  if (room.settings && room.settings.drinkingGameMode) {
-    const isGameOver = (room.scores.teamA <= 0 || room.scores.teamB <= 0);
-    if (isGameOver) {
-      const loserTeam = (room.scores.teamA <= 0) ? 'Team B' : 'Team A';
-      drinkingTask = `🍾 SPIEL VORBEI! ${loserTeam} trinkt das Glas auf ex aus!`;
-    } else if (room.tricksTeamA === 5) {
-      drinkingTask = '🍻 DURCHMARSCH! Team B trinkt 2 Schlucke!';
-    } else if (room.tricksTeamB === 5) {
-      drinkingTask = '🍻 DURCHMARSCH! Team A trinkt 2 Schlucke!';
-    } else if (room.isContraAnnounced) {
-      const loserTeam = evaluation.winnerTeam === 0 ? 'Team B' : 'Team A';
-      drinkingTask = `🥃 KONTRA VERLOREN! ${loserTeam} trinkt 3 Schlucke (oder einen Shot)!`;
-    } else if (room.isMitAnnounced && evaluation.winnerTeam !== room.declarerTeam) {
-      const declarerTeamName = room.declarerTeam === 0 ? 'Team A' : 'Team B';
-      drinkingTask = `🍻 MIT' VERLOREN! ${declarerTeamName} trinkt 2 Schlucke!`;
-    } else if (evaluation.isZeroTricksPenalty) {
-      const declarerTeamName = room.declarerTeam === 0 ? 'Team A' : 'Team B';
-      drinkingTask = `🍻 0 STICHE! Ansager-Team (${declarerTeamName}) trinkt 2 Schlucke!`;
-    } else {
-      const loserTeam = evaluation.winnerTeam === 0 ? 'Team B' : 'Team A';
-      drinkingTask = `🍺 RUNDE VERLOREN! ${loserTeam} trinkt 1 Schluck!`;
-    }
-  }
+  const drinkingTask = calculateDrinkingTask(room, evaluation);
 
   room.roundSummary = {
     roundNumber: room.roundNumber,
@@ -671,7 +798,7 @@ function resolveRound(room) {
   } else {
     room.phase = 'ROUND_END';
     // Geber rotiert im Uhrzeigersinn um 1
-    room.dealerIndex = (room.dealerIndex + 1) % 4;
+    room.dealerIndex = (room.dealerIndex + 1) % maxPlayers;
   }
 
   broadcastGameState(room);
@@ -686,29 +813,34 @@ function checkBotAction(room) {
     room.botTimer = null;
   }
 
+  const maxPlayers = room.settings.playerCount || 4;
+  const turnDelay = (room.settings && typeof room.settings.dealAndTurnDelaySeconds === 'number')
+    ? room.settings.dealAndTurnDelaySeconds * 1000
+    : 1000;
+
   if (room.phase === 'CHOOSE_TRUMP') {
     const declarer = room.seats[room.declarerIndex];
     if (declarer && declarer.isBot) {
       room.botTimer = setTimeout(() => {
         const hand = room.hands[room.declarerIndex];
-        if (shouldBotTurnTrump(hand, room.settings)) {
+        if (shouldBotTurnTrump(hand, { ...room.settings, playerCount: maxPlayers })) {
           handleTurnTrump(room);
         } else {
-          const bestSuit = chooseTrumpSuit(hand, room.settings);
+          const bestSuit = chooseTrumpSuit(hand, { ...room.settings, playerCount: maxPlayers });
           handleTrumpSelection(room, bestSuit);
         }
-      }, 1000);
+      }, turnDelay);
     }
   } else if (room.phase === 'PLAY_TRICK') {
     // 1. Taktische Kontra-Prüfung für gegnerische Bots
     if (room.trickCount === 0 && room.isMitAnnounced && !room.isContraAnnounced) {
       const mitTeam = room.mitHolderIndex !== -1 ? (room.mitHolderIndex % 2 === 0 ? 0 : 1) : -1;
-      for (let s = 0; s < 4; s++) {
+      for (let s = 0; s < maxPlayers; s++) {
         const seat = room.seats[s];
         const sTeam = s % 2 === 0 ? 0 : 1;
         if (seat && seat.isBot && sTeam !== mitTeam) {
           const hand = room.hands[s];
-          if (shouldAnnounceContra(hand, room.mitHolderIndex, s, room.trumpSuit, room.settings)) {
+          if (shouldAnnounceContra(hand, room.mitHolderIndex, s, room.trumpSuit, { ...room.settings, playerCount: maxPlayers })) {
             handleContraAnnouncement(room, s);
             break;
           }
@@ -722,7 +854,7 @@ function checkBotAction(room) {
         // 2. Taktische Mit'-Prüfung (in Stich 1, wenn Bot ♠Q hält)
         if (room.settings.allowMit !== false && room.trickCount === 0 && room.mitHolderIndex === room.currentTurn && !room.isMitAnnounced) {
           const botHand = room.hands[room.currentTurn];
-          if (shouldAnnounceMit(botHand, room.declarerIndex, room.currentTurn, room.trumpSuit, room.settings)) {
+          if (shouldAnnounceMit(botHand, room.declarerIndex, room.currentTurn, room.trumpSuit, { ...room.settings, playerCount: maxPlayers })) {
             handleMitAnnouncement(room, room.currentTurn, true);
           }
         }
@@ -737,13 +869,13 @@ function checkBotAction(room) {
           room.trumpSuit,
           room.isMitAnnounced,
           room.currentTurn,
-          room.settings
+          { ...room.settings, playerCount: maxPlayers }
         );
 
         if (chosenCard) {
           handleCardPlay(room, room.currentTurn, chosenCard.id);
         }
-      }, 1000);
+      }, turnDelay);
     }
   }
 }
@@ -754,9 +886,39 @@ io.on('connection', (socket) => {
   let currentSeatIndex = -1;
 
   // Raum erstellen
-  socket.on('create_room', ({ playerName }) => {
+  socket.on('create_room', ({ playerName, settings }) => {
     const code = generateRoomCode();
     const room = createRoom(code, playerName || 'Spieler 1', socket.id);
+    if (settings) {
+      if (settings.playerCount === 6) {
+        room.settings.playerCount = 6;
+        while (room.seats.length < 6) room.seats.push(null);
+      }
+      if (typeof settings.countEyesLive === 'boolean') room.settings.countEyesLive = settings.countEyesLive;
+      if (typeof settings.alwaysClubQueenTrump === 'boolean') room.settings.alwaysClubQueenTrump = settings.alwaysClubQueenTrump;
+      if (typeof settings.allowMit === 'boolean') room.settings.allowMit = settings.allowMit;
+      if (settings.contraPoints === 3 || settings.contraPoints === 4) room.settings.contraPoints = settings.contraPoints;
+      if (settings.ansagerZeroTricksPenalty === 1 || settings.ansagerZeroTricksPenalty === 2) room.settings.ansagerZeroTricksPenalty = settings.ansagerZeroTricksPenalty;
+      if (typeof settings.startScoreA === 'number' && settings.startScoreA >= 1 && settings.startScoreA <= 30) {
+        room.settings.startScoreA = Math.round(settings.startScoreA);
+        room.scores.teamA = room.settings.startScoreA;
+      }
+      if (typeof settings.startScoreB === 'number' && settings.startScoreB >= 1 && settings.startScoreB <= 30) {
+        room.settings.startScoreB = Math.round(settings.startScoreB);
+        room.scores.teamB = room.settings.startScoreB;
+      }
+      if (typeof settings.drinkingGameMode === 'string' && ['none', 'light', 'medium', 'heavy'].includes(settings.drinkingGameMode)) {
+        room.settings.drinkingGameMode = settings.drinkingGameMode;
+      } else if (typeof settings.drinkingGameMode === 'boolean') {
+        room.settings.drinkingGameMode = settings.drinkingGameMode ? 'medium' : 'none';
+      }
+      if (typeof settings.trickDisplaySeconds === 'number' && settings.trickDisplaySeconds >= 0.8 && settings.trickDisplaySeconds <= 8) {
+        room.settings.trickDisplaySeconds = Math.round(settings.trickDisplaySeconds * 10) / 10;
+      }
+      if (typeof settings.dealAndTurnDelaySeconds === 'number' && settings.dealAndTurnDelaySeconds >= 0.3 && settings.dealAndTurnDelaySeconds <= 6) {
+        room.settings.dealAndTurnDelaySeconds = Math.round(settings.dealAndTurnDelaySeconds * 10) / 10;
+      }
+    }
     rooms.set(code, room);
     currentRoomCode = code;
     currentSeatIndex = 0;
@@ -801,20 +963,21 @@ io.on('connection', (socket) => {
     }
 
     // Freien Platz oder Bot-Platz suchen (auch im laufenden Spiel Hot-Swap!)
+    const maxPlayers = room.settings.playerCount || 4;
     let targetSeat = -1;
-    if (typeof preferredSeat === 'number' && preferredSeat >= 0 && preferredSeat < 4 && (!room.seats[preferredSeat] || room.seats[preferredSeat].isBot)) {
+    if (typeof preferredSeat === 'number' && preferredSeat >= 0 && preferredSeat < maxPlayers && (!room.seats[preferredSeat] || room.seats[preferredSeat].isBot)) {
       targetSeat = preferredSeat;
     } else {
       // 1. Zuerst komplett leere Plätze suchen
-      targetSeat = room.seats.findIndex(s => s === null);
+      targetSeat = room.seats.findIndex((s, idx) => idx < maxPlayers && s === null);
       // 2. Falls keine leeren Plätze: Bot-Plätze übernehmen (Hot-Swap)
       if (targetSeat === -1) {
-        targetSeat = room.seats.findIndex(s => s && s.isBot);
+        targetSeat = room.seats.findIndex((s, idx) => idx < maxPlayers && s && s.isBot);
       }
     }
 
     if (targetSeat === -1) {
-      return socket.emit('error_message', 'Dieser Raum ist bereits voll (4 echte Spieler).');
+      return socket.emit('error_message', `Dieser Raum ist bereits voll (${maxPlayers} echte Spieler).`);
     }
 
     const previousSeat = room.seats[targetSeat];
@@ -856,7 +1019,8 @@ io.on('connection', (socket) => {
     const room = rooms.get(code);
     if (!room) return;
 
-    if (typeof seatIndex === 'number' && seatIndex >= 0 && seatIndex < 4) {
+    const maxPlayers = room.settings.playerCount || 4;
+    if (typeof seatIndex === 'number' && seatIndex >= 0 && seatIndex < maxPlayers) {
       const seat = room.seats[seatIndex];
       if (seat && !seat.isBot) {
         seat.socketId = socket.id;
@@ -876,7 +1040,8 @@ io.on('connection', (socket) => {
     if (!currentRoomCode) return;
     const room = rooms.get(currentRoomCode);
     if (!room || room.phase !== 'LOBBY') return;
-    if (targetSeat < 0 || targetSeat >= 4) return;
+    const maxPlayers = room.settings.playerCount || 4;
+    if (targetSeat < 0 || targetSeat >= maxPlayers) return;
     if (room.seats[targetSeat] && !room.seats[targetSeat].isBot) return;
 
     const mySeat = room.seats[currentSeatIndex];
@@ -897,11 +1062,11 @@ io.on('connection', (socket) => {
     if (!currentRoomCode) return;
     const room = rooms.get(currentRoomCode);
     if (!room || room.phase !== 'LOBBY') return;
-    if (seatIndex < 0 || seatIndex >= 4) return;
+    const maxPlayers = room.settings.playerCount || 4;
+    if (seatIndex < 0 || seatIndex >= maxPlayers) return;
     if (room.seats[seatIndex]) return;
 
-    const botNames = ['Bot Eifel', 'Bot Ardennen', 'Bot Venn', 'Bot Malmedy'];
-    const botName = botNames[seatIndex] || `Bot ${seatIndex + 1}`;
+    const botName = getRandomBotName(room);
 
     room.seats[seatIndex] = {
       index: seatIndex,
@@ -921,7 +1086,8 @@ io.on('connection', (socket) => {
     if (!currentRoomCode) return;
     const room = rooms.get(currentRoomCode);
     if (!room || room.phase !== 'LOBBY') return;
-    if (seatIndex < 0 || seatIndex >= 4) return;
+    const maxPlayers = room.settings.playerCount || 4;
+    if (seatIndex < 0 || seatIndex >= maxPlayers) return;
     if (room.seats[seatIndex] && room.seats[seatIndex].isBot) {
       logAction(room, `${room.seats[seatIndex].name} entfernt.`);
       room.seats[seatIndex] = null;
@@ -943,6 +1109,23 @@ io.on('connection', (socket) => {
     }
 
     if (settings) {
+      if (settings.playerCount === 4 || settings.playerCount === 6) {
+        const oldPlayerCount = room.settings.playerCount || 4;
+        const newPlayerCount = settings.playerCount;
+        room.settings.playerCount = newPlayerCount;
+        if (newPlayerCount > oldPlayerCount) {
+          while (room.seats.length < newPlayerCount) {
+            room.seats.push(null);
+          }
+        } else if (newPlayerCount < oldPlayerCount) {
+          while (room.seats.length > newPlayerCount) {
+            const removedSeat = room.seats.pop();
+            if (removedSeat && !removedSeat.isBot && removedSeat.socketId) {
+              io.to(removedSeat.socketId).emit('left_room');
+            }
+          }
+        }
+      }
       if (typeof settings.countEyesLive === 'boolean') room.settings.countEyesLive = settings.countEyesLive;
       if (typeof settings.alwaysClubQueenTrump === 'boolean') room.settings.alwaysClubQueenTrump = settings.alwaysClubQueenTrump;
       if (typeof settings.allowMit === 'boolean') room.settings.allowMit = settings.allowMit;
@@ -956,7 +1139,17 @@ io.on('connection', (socket) => {
         room.settings.startScoreB = Math.round(settings.startScoreB);
         room.scores.teamB = room.settings.startScoreB;
       }
-      if (typeof settings.drinkingGameMode === 'boolean') room.settings.drinkingGameMode = settings.drinkingGameMode;
+      if (typeof settings.drinkingGameMode === 'string' && ['none', 'light', 'medium', 'heavy'].includes(settings.drinkingGameMode)) {
+        room.settings.drinkingGameMode = settings.drinkingGameMode;
+      } else if (typeof settings.drinkingGameMode === 'boolean') {
+        room.settings.drinkingGameMode = settings.drinkingGameMode ? 'medium' : 'none';
+      }
+      if (typeof settings.trickDisplaySeconds === 'number' && settings.trickDisplaySeconds >= 0.8 && settings.trickDisplaySeconds <= 8) {
+        room.settings.trickDisplaySeconds = Math.round(settings.trickDisplaySeconds * 10) / 10;
+      }
+      if (typeof settings.dealAndTurnDelaySeconds === 'number' && settings.dealAndTurnDelaySeconds >= 0.3 && settings.dealAndTurnDelaySeconds <= 6) {
+        room.settings.dealAndTurnDelaySeconds = Math.round(settings.dealAndTurnDelaySeconds * 10) / 10;
+      }
     }
 
     logAction(room, `⚙️ Spieleinstellungen aktualisiert durch ${room.seats[currentSeatIndex] ? room.seats[currentSeatIndex].name : 'Host'}.`);
@@ -969,9 +1162,10 @@ io.on('connection', (socket) => {
     const room = rooms.get(currentRoomCode);
     if (!room || room.phase !== 'LOBBY') return;
 
-    const occupiedSeats = room.seats.filter(s => s !== null).length;
-    if (occupiedSeats < 4) {
-      return socket.emit('error_message', 'Es werden genau 4 Spieler oder Bots benötigt.');
+    const maxPlayers = room.settings.playerCount || 4;
+    const occupiedSeats = room.seats.slice(0, maxPlayers).filter(s => s !== null).length;
+    if (occupiedSeats < maxPlayers) {
+      return socket.emit('error_message', `Es werden genau ${maxPlayers} Spieler oder Bots benötigt.`);
     }
 
     room.scores = {
@@ -1105,10 +1299,11 @@ io.on('connection', (socket) => {
       room.botTimer = null;
     }
 
+    const maxPlayers = room.settings.playerCount || 4;
     room.phase = 'LOBBY';
     room.currentTrick = [];
     room.trickCount = 0;
-    room.hands = [[], [], [], []];
+    room.hands = Array(maxPlayers).fill(null).map(() => []);
     room.stock = [];
     room.turnedCard = null;
     room.trumpSuit = null;
@@ -1140,7 +1335,8 @@ io.on('connection', (socket) => {
       return socket.emit('error_message', 'Nur der Spielleiter kann Spieler kicken.');
     }
 
-    if (typeof targetSeat !== 'number' || targetSeat < 0 || targetSeat >= 4) return;
+    const maxPlayers = room.settings.playerCount || 4;
+    if (typeof targetSeat !== 'number' || targetSeat < 0 || targetSeat >= maxPlayers) return;
     if (targetSeat === currentSeatIndex) {
       return socket.emit('error_message', 'Der Spielleiter kann sich nicht selbst kicken.');
     }
@@ -1150,8 +1346,7 @@ io.on('connection', (socket) => {
 
     const kickedName = targetPlayer.name;
     const kickedSocketId = targetPlayer.socketId;
-    const botNames = ['Bot Ardennen', 'Bot Eifel', 'Bot Venn', 'Bot Hohes Venn'];
-    const newBotName = botNames[targetSeat % botNames.length] || `Bot ${targetSeat + 1}`;
+    const newBotName = getRandomBotName(room);
 
     room.seats[targetSeat] = {
       index: targetSeat,
