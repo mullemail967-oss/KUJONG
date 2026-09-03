@@ -80,6 +80,19 @@ function playSound(type) {
         osc.start(now + i * 0.1);
         osc.stop(now + i * 0.1 + 0.2);
       });
+    } else if (type === 'contra_sound') {
+      [440, 330, 220, 165].forEach((freq, i) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(freq, now + i * 0.08);
+        gain.gain.setValueAtTime(0.2, now + i * 0.08);
+        gain.gain.linearRampToValueAtTime(0.01, now + i * 0.08 + 0.16);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now + i * 0.08);
+        osc.stop(now + i * 0.08 + 0.16);
+      });
     } else if (type === 'turn') {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
@@ -648,7 +661,7 @@ socket.on('mit_announced', ({ playerName, seatIndex }) => {
   if (banner && textEl) {
     const isMe = (seatIndex === mySeatIndex);
     const displayName = isMe ? `${playerName} (Du)` : playerName;
-    textEl.textContent = `${displayName} sagt die MIT' an! (+2 Pkt)`;
+    textEl.textContent = `${displayName} sagt die MIT' an!`;
     banner.classList.remove('hidden');
     banner.classList.remove('fade-out');
 
@@ -662,6 +675,30 @@ socket.on('mit_announced', ({ playerName, seatIndex }) => {
     }, 2800);
   }
   playSound('trump_fanfare');
+});
+
+// Auffälliges Banner im Spielfeld, wenn jemand Kontra gibt
+let contraNotificationTimer = null;
+socket.on('contra_announced', ({ playerName, seatIndex }) => {
+  const banner = document.getElementById('contraFieldNotification');
+  const textEl = document.getElementById('contraPopText');
+  if (banner && textEl) {
+    const isMe = (seatIndex === mySeatIndex);
+    const displayName = isMe ? `${playerName} (Du)` : playerName;
+    textEl.textContent = `${displayName} gibt KONTRA!`;
+    banner.classList.remove('hidden');
+    banner.classList.remove('fade-out');
+
+    if (contraNotificationTimer) clearTimeout(contraNotificationTimer);
+    contraNotificationTimer = setTimeout(() => {
+      banner.classList.add('fade-out');
+      setTimeout(() => {
+        banner.classList.add('hidden');
+        banner.classList.remove('fade-out');
+      }, 500);
+    }, 2800);
+  }
+  playSound('contra_sound');
 });
 
 socket.on('room_created', ({ roomCode, seatIndex }) => {

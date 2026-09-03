@@ -225,24 +225,30 @@ input[type="text"]:focus {
 /* Warteraum / Team-Slots */
 .room-info-bar {
   background: rgba(0, 0, 0, 0.4);
-  padding: 12px 16px;
+  padding: 10px 14px;
   border-radius: 14px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   align-items: center;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .room-code-display {
   display: flex;
   align-items: center;
-  gap: 10px;
-  font-size: 1rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 0.95rem;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .code-val {
   font-family: monospace;
-  font-size: 1.4rem;
+  font-size: 1.35rem;
   font-weight: 700;
   letter-spacing: 3px;
   color: var(--team-we-gold);
@@ -1099,6 +1105,46 @@ input[type="text"]:focus {
 .mit-pop-star {
   font-size: 1.15rem;
   animation: pulseGold 1.5s infinite ease-in-out;
+}
+
+/* Auffälliges Spielfeld-Popup bei Kontra-Ansage im oberen freien Bereich */
+.contra-field-notification {
+  position: absolute;
+  top: 54px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: linear-gradient(135deg, rgba(38, 8, 8, 0.97) 0%, rgba(65, 14, 14, 0.98) 100%);
+  border: 2px solid #ef4444;
+  color: #fecaca;
+  font-weight: 800;
+  padding: 6px 16px;
+  border-radius: 20px;
+  font-size: 0.84rem;
+  white-space: nowrap;
+  max-width: 90%;
+  box-sizing: border-box;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  z-index: 50;
+  pointer-events: none;
+  box-shadow: 0 0 25px rgba(239, 68, 68, 0.9), 0 8px 30px rgba(0, 0, 0, 0.95);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  animation: mitNotificationPop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  transition: opacity 0.5s ease, transform 0.5s ease;
+}
+
+.contra-field-notification.fade-out {
+  opacity: 0;
+  transform: translate(-50%, -10px) scale(0.95);
+}
+
+.contra-pop-icon {
+  font-size: 1.15rem;
+  filter: drop-shadow(0 0 6px #ef4444);
+  animation: pulseRed 1.2s infinite ease-in-out;
 }
 
 /* --------------------------------------------------------------------------
@@ -2478,7 +2524,8 @@ input:checked + .slider:before {
     max-width: 92%;
   }
 
-  .mit-field-notification {
+  .mit-field-notification,
+  .contra-field-notification {
     top: 50px;
     padding: 5px 14px;
     font-size: 0.78rem;
@@ -2486,14 +2533,19 @@ input:checked + .slider:before {
   }
 
   .trick-slot {
-    width: 54px;
-    height: 78px;
+    width: 64px;
+    height: 92px;
   }
 
-  .trick-slot.slot-top { top: 34px; }
-  .trick-slot.slot-bottom { bottom: 8px; }
-  .trick-slot.slot-left { left: 8px; }
-  .trick-slot.slot-right { right: 8px; }
+  .trick-slot .playing-card {
+    width: 62px;
+    height: 90px;
+  }
+
+  .trick-slot.slot-top { top: 22px; }
+  .trick-slot.slot-bottom { bottom: 6px; }
+  .trick-slot.slot-left { left: 6px; }
+  .trick-slot.slot-right { right: 6px; }
 
   .game-title {
     font-size: 1.9rem;
@@ -2501,6 +2553,31 @@ input:checked + .slider:before {
 
   .lobby-card {
     padding: 16px 12px;
+    width: 96%;
+    box-sizing: border-box;
+  }
+
+  .room-info-bar {
+    padding: 8px 10px;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .room-code-display {
+    gap: 6px;
+    font-size: 0.88rem;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .code-val {
+    font-size: 1.25rem;
+    letter-spacing: 2px;
+  }
+
+  .room-code-display .btn {
+    padding: 5px 8px;
+    font-size: 0.74rem;
   }
 
   .team-seats-container {
@@ -2527,7 +2604,8 @@ input:checked + .slider:before {
     max-width: 145px;
   }
 
-  .mit-field-notification {
+  .mit-field-notification,
+  .contra-field-notification {
     top: 48px;
     padding: 4px 10px;
     font-size: 0.74rem;
@@ -2574,11 +2652,43 @@ input:checked + .slider:before {
   }
 
   .trick-slot {
-    width: 46px;
-    height: 68px;
+    width: 56px;
+    height: 81px;
   }
 
-  .felt-table.mode-6p .player-top-left {
+  .trick-slot .playing-card {
+    width: 54px;
+    height: 78px;
+  }
+
+  .trick-slot.slot-top { top: 16px; }
+  .trick-slot.slot-bottom { bottom: 4px; }
+  .trick-slot.slot-left { left: 4px; }
+  .trick-slot.slot-right { right: 4px; }
+
+  .lobby-card {
+    padding: 14px 8px;
+    width: 98%;
+  }
+
+  .room-code-display {
+    gap: 4px;
+    font-size: 0.82rem;
+  }
+
+  .room-code-display .label {
+    font-size: 0.82rem;
+  }
+
+  .code-val {
+    font-size: 1.15rem;
+    letter-spacing: 1.5px;
+  }
+
+  .room-code-display .btn {
+    padding: 4px 6px;
+    font-size: 0.7rem;
+  }
     top: 6px;
     left: 4px;
   }

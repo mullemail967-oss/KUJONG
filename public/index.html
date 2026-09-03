@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=4.6">
+  <link rel="stylesheet" href="style.css?v=4.8">
 </head>
 <body>
 
@@ -169,10 +169,10 @@
                 <span class="trump-text">Wahl...</span>
               </div>
               <div id="mitBadge" class="mit-badge hidden">
-                <span>⭐ Mit' (2 Pkt)</span>
+                <span>⭐ Mit'</span>
               </div>
               <div id="contraBadge" class="contra-badge hidden">
-                <span>⚡ KONTRA (4 Pkt)</span>
+                <span>⚡ Kontra</span>
               </div>
             </div>
             <div id="statusMessage" class="status-ticker">Spiel startet...</div>
@@ -202,8 +202,8 @@
           <button id="hostMenuBtn" class="btn-tool btn-host-menu hidden" onclick="openHostMenu()" title="Spielleiter-Menü (Spieler kicken, Lobby, Link)">
             👑 Menü
           </button>
-          <button id="announceContraBtn" class="btn-tool btn-contra hidden" onclick="announceContra()" title="Kontra ansagen (Rundenwert: 4 Punkte / 5 bei Durchmarsch)">
-            ⚡ KONTRA GEBEN! (4 Pkt)
+          <button id="announceContraBtn" class="btn-tool btn-contra hidden" onclick="announceContra()" title="Kontra ansagen">
+            ⚡ KONTRA GEBEN!
           </button>
           <button id="viewLastTrickBtn" class="btn-tool hidden" onclick="openLastTrickModal()" title="Letzten Stich ansehen">
             👁️ Stich
@@ -220,7 +220,13 @@
           <!-- AUFFÄLLIGE MIT'-ANSAGE BENACHRICHTIGUNG IM FREIEN TISCHBEREICH -->
           <div id="mitFieldNotification" class="mit-field-notification hidden">
             <span class="mit-pop-star">⭐</span>
-            <span id="mitPopText" class="mit-pop-text">Max hat die MIT' angesagt! (+2 Pkt)</span>
+            <span id="mitPopText" class="mit-pop-text">Max hat die MIT' angesagt!</span>
+          </div>
+
+          <!-- AUFFÄLLIGE KONTRA-BENACHRICHTIGUNG IM FREIEN TISCHBEREICH -->
+          <div id="contraFieldNotification" class="contra-field-notification hidden">
+            <span class="contra-pop-icon">⚡</span>
+            <span id="contraPopText" class="contra-pop-text">Max gibt KONTRA!</span>
           </div>
 
           <!-- SPIELER OBEN (Partner bei 4P / Gegner 2 bei 6P) -->
@@ -809,6 +815,6 @@
   <!-- Socket.io Script -->
   <script src="/socket.io/socket.io.js"></script>
   <!-- Client JavaScript -->
-  <script src="client.js?v=6.1"></script>
+  <script src="client.js?v=6.2"></script>
 </body>
 </html>
