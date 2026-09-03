@@ -552,6 +552,12 @@ function handleContraAnnouncement(room, playerIndex) {
   const announcerName = room.seats[playerIndex].name;
   logAction(room, `⚡⚡ ${announcerName} hat KONTRA gegeben! Rundenwert verdoppelt auf 4 PUNKTE (5 bei Durchmarsch)!`);
 
+  // Event für auffällige Spielfeld-Benachrichtigung an alle Clients
+  io.to(room.code).emit('contra_announced', {
+    seatIndex: playerIndex,
+    playerName: announcerName
+  });
+
   broadcastGameState(room);
 }
 
