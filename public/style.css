@@ -955,7 +955,17 @@ input[type="text"]:focus {
 .trick-slot.slot-left { left: 16px; }
 .trick-slot.slot-right { right: 16px; }
 
-/* 6P Trick Slots (Positionierung) */
+/* 6P Trick Slots (Positionierung & saubere Skalierung ohne Überlappung) */
+.felt-table.mode-6p .trick-slot {
+  width: 58px;
+  height: 84px;
+}
+
+.felt-table.mode-6p .trick-slot .playing-card {
+  width: 56px;
+  height: 82px;
+}
+
 .felt-table.mode-6p .trick-slot.slot-top {
   top: 12px;
   left: 50%;
@@ -2430,28 +2440,38 @@ input:checked + .slider:before {
     right: 6px;
   }
 
+  .felt-table.mode-6p .trick-slot {
+    width: 48px;
+    height: 70px;
+  }
+
+  .felt-table.mode-6p .trick-slot .playing-card {
+    width: 46px;
+    height: 68px;
+  }
+
   .felt-table.mode-6p .trick-slot.slot-top {
-    top: 12px;
+    top: 8px;
   }
 
   .felt-table.mode-6p .trick-slot.slot-top-left {
-    top: 28px;
-    left: calc(50% - 68px);
+    top: 22px;
+    left: calc(50% - 66px);
   }
 
   .felt-table.mode-6p .trick-slot.slot-top-right {
-    top: 28px;
-    left: calc(50% + 68px);
+    top: 22px;
+    left: calc(50% + 66px);
   }
 
   .felt-table.mode-6p .trick-slot.slot-bottom-left {
-    bottom: 16px;
-    left: calc(50% - 68px);
+    bottom: 14px;
+    left: calc(50% - 66px);
   }
 
   .felt-table.mode-6p .trick-slot.slot-bottom-right {
-    bottom: 16px;
-    left: calc(50% + 68px);
+    bottom: 14px;
+    left: calc(50% + 66px);
   }
 
   .felt-table.mode-6p .trick-slot.slot-bottom {
@@ -2533,19 +2553,19 @@ input:checked + .slider:before {
   }
 
   .trick-slot {
-    width: 64px;
-    height: 92px;
+    width: 58px;
+    height: 84px;
   }
 
   .trick-slot .playing-card {
-    width: 62px;
-    height: 90px;
+    width: 56px;
+    height: 82px;
   }
 
-  .trick-slot.slot-top { top: 22px; }
-  .trick-slot.slot-bottom { bottom: 6px; }
-  .trick-slot.slot-left { left: 6px; }
-  .trick-slot.slot-right { right: 6px; }
+  .trick-slot.slot-top { top: 20px; }
+  .trick-slot.slot-bottom { bottom: 8px; }
+  .trick-slot.slot-left { left: 8px; }
+  .trick-slot.slot-right { right: 8px; }
 
   .game-title {
     font-size: 1.9rem;
@@ -2652,16 +2672,16 @@ input:checked + .slider:before {
   }
 
   .trick-slot {
-    width: 56px;
-    height: 81px;
+    width: 50px;
+    height: 73px;
   }
 
   .trick-slot .playing-card {
-    width: 54px;
-    height: 78px;
+    width: 48px;
+    height: 71px;
   }
 
-  .trick-slot.slot-top { top: 16px; }
+  .trick-slot.slot-top { top: 14px; }
   .trick-slot.slot-bottom { bottom: 4px; }
   .trick-slot.slot-left { left: 4px; }
   .trick-slot.slot-right { right: 4px; }
@@ -2689,6 +2709,8 @@ input:checked + .slider:before {
     padding: 4px 6px;
     font-size: 0.7rem;
   }
+
+  .felt-table.mode-6p .player-top-left {
     top: 6px;
     left: 4px;
   }
@@ -2708,13 +2730,27 @@ input:checked + .slider:before {
     right: 4px;
   }
 
+  .felt-table.mode-6p .trick-slot {
+    width: 42px;
+    height: 61px;
+  }
+
+  .felt-table.mode-6p .trick-slot .playing-card {
+    width: 40px;
+    height: 59px;
+  }
+
+  .felt-table.mode-6p .trick-slot.slot-top {
+    top: 4px;
+  }
+
   .felt-table.mode-6p .trick-slot.slot-top-left {
-    top: 22px;
+    top: 16px;
     left: calc(50% - 56px);
   }
 
   .felt-table.mode-6p .trick-slot.slot-top-right {
-    top: 22px;
+    top: 16px;
     left: calc(50% + 56px);
   }
 
@@ -2728,8 +2764,7 @@ input:checked + .slider:before {
     left: calc(50% + 56px);
   }
 
-  .trick-slot.slot-top { top: 30px; }
-  .trick-slot.slot-bottom { bottom: 6px; }
-  .trick-slot.slot-left { left: 4px; }
-  .trick-slot.slot-right { right: 4px; }
+  .felt-table.mode-6p .trick-slot.slot-bottom {
+    bottom: 2px;
+  }
 }
