@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=4.4">
+  <link rel="stylesheet" href="style.css?v=4.5">
 </head>
 <body>
 
@@ -194,8 +194,11 @@
           </div>
         </div>
 
-        <!-- HEADER SUB-TOOLS (Spielleiter-Menü-Button, Kontra-Knopf, Letzter Stich, Ton, Emotes) -->
+        <!-- HEADER SUB-TOOLS (Verlassen, Spielleiter-Menü, Kontra-Knopf, Letzter Stich, Ton, Emotes) -->
         <div class="header-tools">
+          <button id="leaveGameBtn" class="btn-tool btn-leave-game" onclick="confirmLeaveGame()" title="Partie verlassen (wird durch Bot ersetzt)">
+            🚪 Verlassen
+          </button>
           <button id="hostMenuBtn" class="btn-tool btn-host-menu hidden" onclick="openHostMenu()" title="Spielleiter-Menü (Spieler kicken, Lobby, Link)">
             👑 Menü
           </button>
@@ -246,6 +249,7 @@
                 <div class="emote-bubble-box" id="emoteBubbleTop"></div>
               </div>
               <span class="declarer-pill hidden" id="declarerPillTop">👑 Ansager</span>
+              <span class="mit-pill hidden" id="mitPillTop">⭐ Mit'</span>
               <span class="team-tag tag-we" id="tagTop">WIR</span>
             </div>
             <div class="hand-card-backs" id="cardsTop">
@@ -267,6 +271,7 @@
                 <div class="emote-bubble-box" id="emoteBubbleLeft"></div>
               </div>
               <span class="declarer-pill hidden" id="declarerPillLeft">👑 Ansager</span>
+              <span class="mit-pill hidden" id="mitPillLeft">⭐ Mit'</span>
               <span class="team-tag tag-they" id="tagLeft">SIE</span>
             </div>
             <div class="hand-card-backs vertical" id="cardsLeft">
@@ -288,6 +293,7 @@
                 <div class="emote-bubble-box" id="emoteBubbleRight"></div>
               </div>
               <span class="declarer-pill hidden" id="declarerPillRight">👑 Ansager</span>
+              <span class="mit-pill hidden" id="mitPillRight">⭐ Mit'</span>
               <span class="team-tag tag-they" id="tagRight">SIE</span>
             </div>
             <div class="hand-card-backs vertical" id="cardsRight">
@@ -309,6 +315,7 @@
                 <div class="emote-bubble-box" id="emoteBubbleTopLeft"></div>
               </div>
               <span class="declarer-pill hidden" id="declarerPillTopLeft">👑 Ansager</span>
+              <span class="mit-pill hidden" id="mitPillTopLeft">⭐ Mit'</span>
               <span class="team-tag tag-we" id="tagTopLeft">WIR</span>
             </div>
             <div class="hand-card-backs" id="cardsTopLeft"></div>
@@ -327,6 +334,7 @@
                 <div class="emote-bubble-box" id="emoteBubbleBottomLeft"></div>
               </div>
               <span class="declarer-pill hidden" id="declarerPillBottomLeft">👑 Ansager</span>
+              <span class="mit-pill hidden" id="mitPillBottomLeft">⭐ Mit'</span>
               <span class="team-tag tag-they" id="tagBottomLeft">SIE</span>
             </div>
             <div class="hand-card-backs" id="cardsBottomLeft"></div>
@@ -345,6 +353,7 @@
                 <div class="emote-bubble-box" id="emoteBubbleTopRight"></div>
               </div>
               <span class="declarer-pill hidden" id="declarerPillTopRight">👑 Ansager</span>
+              <span class="mit-pill hidden" id="mitPillTopRight">⭐ Mit'</span>
               <span class="team-tag tag-we" id="tagTopRight">WIR</span>
             </div>
             <div class="hand-card-backs" id="cardsTopRight"></div>
@@ -363,6 +372,7 @@
                 <div class="emote-bubble-box" id="emoteBubbleBottomRight"></div>
               </div>
               <span class="declarer-pill hidden" id="declarerPillBottomRight">👑 Ansager</span>
+              <span class="mit-pill hidden" id="mitPillBottomRight">⭐ Mit'</span>
               <span class="team-tag tag-they" id="tagBottomRight">SIE</span>
             </div>
             <div class="hand-card-backs" id="cardsBottomRight"></div>
@@ -401,6 +411,12 @@
             <div id="trickBanner" class="trick-banner hidden">
               <span id="trickWinnerText">Stich an Spieler X</span>
             </div>
+
+            <!-- AUFFÄLLIGE MIT'-ANSAGE BENACHRICHTIGUNG IM SPIELFELD -->
+            <div id="mitFieldNotification" class="mit-field-notification hidden">
+              <span class="mit-pop-star">⭐</span>
+              <span id="mitPopText" class="mit-pop-text">Max hat die MIT' angesagt! (+2 Pkt)</span>
+            </div>
           </div>
 
           <!-- SPIELER UNTEN (Du / Eigene Hand) -->
@@ -412,6 +428,7 @@
                   <div class="emote-bubble-box" id="emoteBubbleBottom"></div>
                 </div>
                 <span class="declarer-pill hidden" id="declarerPillBottom">👑 Ansager</span>
+                <span class="mit-pill hidden" id="mitPillBottom">⭐ Mit'</span>
                 <span class="team-tag tag-we" id="tagBottom">WIR</span>
                 <span class="badge badge-dealer hidden" id="dealerBottom">Geber</span>
               </div>
@@ -780,6 +797,9 @@
             <button class="btn btn-outline btn-sm btn-return-lobby" onclick="returnToLobby()">
               🏠 Partie beenden & Zurück zur Lobby
             </button>
+            <button class="btn btn-outline btn-sm btn-leave-game-host" onclick="closeHostMenu(); confirmLeaveGame();">
+              🚪 Partie verlassen (durch Bot ersetzen)
+            </button>
           </div>
         </div>
 
@@ -807,6 +827,6 @@
   <!-- Socket.io Script -->
   <script src="/socket.io/socket.io.js"></script>
   <!-- Client JavaScript -->
-  <script src="client.js?v=4.8"></script>
+  <script src="client.js?v=6.0"></script>
 </body>
 </html>

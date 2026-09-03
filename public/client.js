@@ -123,7 +123,7 @@ function playSound(type) {
   }
 }
 
-// SVG Sprite Loader
+// SVG Sprite Loader (WebKit/Safari kompatibel ohne display:none)
 async function initSvgSprite() {
   try {
     const res = await fetch('svg-cards.svg');
@@ -132,7 +132,8 @@ async function initSvgSprite() {
     if (!container) {
       container = document.createElement('div');
       container.id = 'svgSpriteContainer';
-      container.style.display = 'none';
+      container.setAttribute('aria-hidden', 'true');
+      container.style.cssText = 'position:absolute;width:0;height:0;overflow:hidden;pointer-events:none;opacity:0;z-index:-9999;';
       document.body.appendChild(container);
     }
     container.innerHTML = text;
@@ -450,6 +451,23 @@ function leaveLobby() {
   showToast('Du hast die Lobby verlassen.');
 }
 
+function confirmLeaveGame() {
+  const confirmLeave = confirm('Möchtest du das Spiel wirklich verlassen? Dein Platz wird sofort von einem Bot übernommen, damit die Partie weitergehen kann.');
+  if (confirmLeave) {
+    socket.emit('leave_game');
+    sessionStorage.removeItem('kujong_session');
+    currentRoomCode = null;
+    mySeatIndex = -1;
+    gameState = null;
+    document.getElementById('lobbyWaitingRoom').classList.add('hidden');
+    document.getElementById('lobbyInitialOptions').classList.remove('hidden');
+    document.getElementById('gameScreen').classList.remove('active');
+    document.getElementById('lobbyScreen').classList.add('active');
+    closeHostMenu();
+    showToast('Du hast das Spiel verlassen. Ein Bot hat übernommen.');
+  }
+}
+
 function returnToLobby() {
   if (!gameState || !gameState.you || !gameState.you.isHost) return;
   const confirmReturn = confirm('Möchtest du die laufende Partie wirklich beenden und mit allen Spielern zurück in die Lobby wechseln?');
@@ -620,6 +638,30 @@ socket.on('kicked_from_room', ({ message }) => {
   document.getElementById('lobbyScreen').classList.add('active');
   closeHostMenu();
   alert(message || 'Du wurdest vom Spielleiter aus der Partie entfernt.');
+});
+
+// Auffälliges Banner im Spielfeld, wenn jemand die Mit' ansagt
+let mitNotificationTimer = null;
+socket.on('mit_announced', ({ playerName, seatIndex }) => {
+  const banner = document.getElementById('mitFieldNotification');
+  const textEl = document.getElementById('mitPopText');
+  if (banner && textEl) {
+    const isMe = (seatIndex === mySeatIndex);
+    const displayName = isMe ? `${playerName} (Du)` : playerName;
+    textEl.textContent = `⭐ ${displayName} sagt die MIT' an! (+2 Pkt)`;
+    banner.classList.remove('hidden');
+    banner.classList.remove('fade-out');
+
+    if (mitNotificationTimer) clearTimeout(mitNotificationTimer);
+    mitNotificationTimer = setTimeout(() => {
+      banner.classList.add('fade-out');
+      setTimeout(() => {
+        banner.classList.add('hidden');
+        banner.classList.remove('fade-out');
+      }, 500);
+    }, 2800);
+  }
+  playSound('trump_fanfare');
 });
 
 socket.on('room_created', ({ roomCode, seatIndex }) => {
@@ -947,6 +989,16 @@ function renderTablePlayers() {
       }
     }
 
+    const mitPill = document.getElementById(`mitPill${key}`);
+    if (mitPill) {
+      if (player.isMitAnnouncer) {
+        mitPill.classList.remove('hidden');
+        mitPill.textContent = "⭐ Mit'";
+      } else {
+        mitPill.classList.add('hidden');
+      }
+    }
+
     // Team Tag (nur 'WIR' oder 'SIE')
     const tagEl = document.getElementById(`tag${key}`);
     if (tagEl) {
@@ -1044,14 +1096,18 @@ function renderMyHand() {
 
   const hand = gameState.you.hand || [];
   const total = hand.length;
+  fan.setAttribute('data-card-count', total);
   const isMyTurn = (gameState.currentTurn === mySeatIndex && gameState.phase === 'PLAY_TRICK');
+
+  // Bei 3 oder weniger Karten flacher Fächer mit extra Abstand
+  const useRotation = total > 3;
 
   hand.forEach((card, index) => {
     const isPlayable = isMyTurn ? !!gameState.you.playableMap[card.id] : true;
     const cardEl = document.createElement('div');
 
-    const rot = (total > 1) ? ((index - (total - 1) / 2) * 5) : 0;
-    const ty = Math.abs(index - (total - 1) / 2) * 3;
+    const rot = useRotation ? ((index - (total - 1) / 2) * 4) : 0;
+    const ty = useRotation ? (Math.abs(index - (total - 1) / 2) * 2) : 0;
 
     cardEl.innerHTML = createCardHTML(card, !isPlayable && isMyTurn, true);
     const cardChild = cardEl.firstElementChild;
@@ -1074,8 +1130,8 @@ function createCardHTML(card, isDisabled = false) {
 
   return `
     <div class="playing-card ${isDisabled ? 'disabled' : ''} ${isTrump ? 'is-trump' : ''}" data-id="${card.id}">
-      <svg class="card-svg-element" viewBox="0 0 169.075 244.640">
-        <use href="#${svgId}"></use>
+      <svg class="card-svg-element" viewBox="0 0 169.075 244.640" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+        <use href="#${svgId}" xlink:href="#${svgId}"></use>
       </svg>
     </div>
   `;

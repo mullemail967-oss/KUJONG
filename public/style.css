@@ -613,6 +613,19 @@ input[type="text"]:focus {
   color: #fff !important;
 }
 
+.btn-leave-game {
+  border-color: rgba(239, 68, 68, 0.45) !important;
+  color: #fca5a5 !important;
+  font-weight: 700 !important;
+  transition: all 0.2s ease;
+}
+
+.btn-leave-game:hover {
+  background: rgba(239, 68, 68, 0.22) !important;
+  border-color: #ef4444 !important;
+  color: #fff !important;
+}
+
 .btn-return-lobby {
   background: rgba(245, 158, 11, 0.15) !important;
   border: 1px solid rgba(245, 158, 11, 0.4) !important;
@@ -875,6 +888,22 @@ input[type="text"]:focus {
   margin-top: 1px;
 }
 
+.mit-pill {
+  background: linear-gradient(135deg, #fbbf24 0%, #b45309 100%);
+  color: #fff;
+  font-size: 0.62rem;
+  font-weight: 800;
+  padding: 1px 6px;
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(251, 191, 36, 0.6);
+  border: 1px solid #fef08a;
+  white-space: nowrap;
+  text-align: center;
+  display: inline-block;
+  margin-top: 1px;
+  animation: pulseGold 2.2s infinite ease-in-out;
+}
+
 .team-tag {
   font-size: 0.65rem;
   font-weight: 700;
@@ -978,7 +1007,7 @@ input[type="text"]:focus {
 .trick-slot.slot-left { left: 16px; }
 .trick-slot.slot-right { right: 16px; }
 
-/* 6P Trick Slots */
+/* 6P Trick Slots (Positionierung) */
 .felt-table.mode-6p .trick-slot.slot-top {
   top: 12px;
   left: 50%;
@@ -1015,6 +1044,50 @@ input[type="text"]:focus {
   transform: translateX(-50%);
 }
 
+/* 6P Kartenslot-Teamfarben (Nur zarte Markierung am leeren Platzhalter) */
+.felt-table.mode-6p .trick-slot.slot-bottom .card-placeholder,
+.felt-table.mode-6p .trick-slot.slot-top-left .card-placeholder,
+.felt-table.mode-6p .trick-slot.slot-top-right .card-placeholder {
+  border: 1.5px dashed rgba(59, 130, 246, 0.5);
+  background: rgba(59, 130, 246, 0.05);
+}
+
+.felt-table.mode-6p .trick-slot.slot-top .card-placeholder,
+.felt-table.mode-6p .trick-slot.slot-bottom-left .card-placeholder,
+.felt-table.mode-6p .trick-slot.slot-bottom-right .card-placeholder {
+  border: 1.5px dashed rgba(239, 68, 68, 0.5);
+  background: rgba(239, 68, 68, 0.05);
+}
+
+/* 6P Team-Tags & Piles (Harmonisierte Teamfarben Blau / Rot) */
+.felt-table.mode-6p .team-tag.tag-we {
+  background: rgba(59, 130, 246, 0.22);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.4);
+}
+
+.felt-table.mode-6p .team-tag.tag-they {
+  background: rgba(239, 68, 68, 0.22);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+}
+
+.felt-table.mode-6p .pile-we {
+  border-color: rgba(59, 130, 246, 0.5);
+}
+
+.felt-table.mode-6p .pile-we .pile-team {
+  color: #60a5fa;
+}
+
+.felt-table.mode-6p .pile-they {
+  border-color: rgba(239, 68, 68, 0.5);
+}
+
+.felt-table.mode-6p .pile-they .pile-team {
+  color: #f87171;
+}
+
 .trick-banner {
   position: absolute;
   top: 4px;
@@ -1042,6 +1115,48 @@ input[type="text"]:focus {
   100% { transform: translateX(-50%) scale(1); opacity: 1; }
 }
 
+/* Auffälliges Spielfeld-Popup bei Mit'-Ansage */
+.mit-field-notification {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: linear-gradient(135deg, rgba(28, 19, 4, 0.97) 0%, rgba(46, 28, 6, 0.98) 100%);
+  border: 2px solid var(--team-we-gold);
+  color: #fef08a;
+  font-weight: 800;
+  padding: 8px 18px;
+  border-radius: 20px;
+  font-size: 0.88rem;
+  white-space: nowrap;
+  max-width: 92%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  z-index: 50;
+  pointer-events: none;
+  box-shadow: 0 0 25px rgba(245, 158, 11, 0.85), 0 8px 30px rgba(0, 0, 0, 0.9);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  animation: mitNotificationPop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  transition: opacity 0.5s ease, transform 0.5s ease;
+}
+
+.mit-field-notification.fade-out {
+  opacity: 0;
+  transform: translate(-50%, -65%) scale(0.9);
+}
+
+@keyframes mitNotificationPop {
+  0% { transform: translate(-50%, -30%) scale(0.6); opacity: 0; }
+  100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+}
+
+.mit-pop-star {
+  font-size: 1.25rem;
+  animation: pulseGold 1.5s infinite ease-in-out;
+}
+
 /* --------------------------------------------------------------------------
    AUTHENTIC BELGIAN SVG PLAYING CARDS & TRUMPF GLOW
    -------------------------------------------------------------------------- */
@@ -1056,7 +1171,8 @@ input[type="text"]:focus {
 }
 
 .playing-card.is-trump {
-  box-shadow: 0 0 0 2px var(--team-we-gold), 0 0 14px rgba(245, 158, 11, 0.85);
+  box-shadow: 0 0 0 2px var(--team-we-gold), 0 0 16px rgba(245, 158, 11, 0.9) !important;
+  border: 1.5px solid var(--team-we-gold) !important;
 }
 
 .card-svg-element {
@@ -2379,11 +2495,26 @@ input:checked + .slider:before {
   }
 
   .my-hand-container {
-    height: 95px;
+    height: 108px;
   }
 
   .my-hand-fan .playing-card {
-    margin: 0 -8px;
+    width: 58px;
+    height: 84px;
+    margin: 0 -3px;
+    touch-action: manipulation;
+  }
+
+  .my-hand-fan[data-card-count="3"] .playing-card {
+    margin: 0 4px;
+  }
+
+  .my-hand-fan[data-card-count="2"] .playing-card {
+    margin: 0 8px;
+  }
+
+  .my-hand-fan[data-card-count="1"] .playing-card {
+    margin: 0;
   }
 
   .trick-banner {
@@ -2439,8 +2570,8 @@ input:checked + .slider:before {
   }
 
   .felt-table {
-    grid-template-rows: 42px 1fr 105px;
-    grid-template-columns: 60px 1fr 60px;
+    grid-template-rows: 40px 1fr 114px;
+    grid-template-columns: 56px 1fr 56px;
   }
 
   .player-meta .name {
@@ -2449,16 +2580,31 @@ input:checked + .slider:before {
   }
 
   .playing-card {
-    width: 45px;
-    height: 66px;
+    width: 46px;
+    height: 67px;
   }
 
   .my-hand-container {
-    height: 85px;
+    height: 102px;
   }
 
   .my-hand-fan .playing-card {
-    margin: 0 -10px;
+    width: 56px;
+    height: 81px;
+    margin: 0 -3px;
+    touch-action: manipulation;
+  }
+
+  .my-hand-fan[data-card-count="3"] .playing-card {
+    margin: 0 3px;
+  }
+
+  .my-hand-fan[data-card-count="2"] .playing-card {
+    margin: 0 6px;
+  }
+
+  .my-hand-fan[data-card-count="1"] .playing-card {
+    margin: 0;
   }
 
   .trick-banner {
