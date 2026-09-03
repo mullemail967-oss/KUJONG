@@ -175,9 +175,39 @@ function broadcastGameState(room) {
 }
 
 /**
+ * Ermittelt, ob ein Socket bzw. Spieler der aktuelle Spielleiter (Host) des Raums ist.
+ * Reagiert dynamisch und stellt sicher, dass immer ein echter menschlicher Spieler Host ist.
+ */
+function isPlayerHost(room, socket) {
+  if (!room || !socket) return false;
+  if (room.hostSocketId && socket.id === room.hostSocketId) {
+    return true;
+  }
+  // Falls die gespeicherte hostSocketId nicht mehr aktiv ist, nächsten menschlichen Spieler ernennen
+  const currentHost = room.seats.find(s => s && !s.isBot && s.socketId && s.socketId === room.hostSocketId && s.connected !== false);
+  if (!currentHost) {
+    const nextHuman = room.seats.find(s => s && !s.isBot && s.socketId && s.connected !== false);
+    if (nextHuman) {
+      room.hostSocketId = nextHuman.socketId;
+      return nextHuman.socketId === socket.id;
+    }
+  }
+  return false;
+}
+
+/**
  * Filtert sensible Kartendaten (Hände anderer Spieler & verdeckter Stock) heraus.
  */
 function sanitizeStateForPlayer(room, seatIndex) {
+  // Sicherstellen, dass hostSocketId auf einen existierenden aktiven Menschen verweist
+  let activeHost = room.seats.find(s => s && !s.isBot && s.socketId && s.socketId === room.hostSocketId && s.connected !== false);
+  if (!activeHost) {
+    const nextHuman = room.seats.find(s => s && !s.isBot && s.socketId && s.connected !== false);
+    if (nextHuman) {
+      room.hostSocketId = nextHuman.socketId;
+    }
+  }
+
   const playersInfo = room.seats.map((seat, idx) => {
     if (!seat) return null;
     return {
@@ -189,7 +219,9 @@ function sanitizeStateForPlayer(room, seatIndex) {
       cardCount: room.hands[idx] ? room.hands[idx].length : 0,
       isDealer: room.dealerIndex === idx,
       isDeclarer: room.declarerIndex === idx,
-      isTurn: room.currentTurn === idx
+      isTurn: room.currentTurn === idx,
+      isMitAnnouncer: room.isMitAnnounced && (room.mitAnnouncerIndex === idx),
+      isHost: (seat.socketId === room.hostSocketId)
     };
   });
 
@@ -230,6 +262,8 @@ function sanitizeStateForPlayer(room, seatIndex) {
     myTeam !== mitTeam
   );
 
+  const isMeHost = (room.seats[seatIndex] && room.seats[seatIndex].socketId === room.hostSocketId);
+
   return {
     roomCode: room.code,
     phase: room.phase,
@@ -242,6 +276,7 @@ function sanitizeStateForPlayer(room, seatIndex) {
     trumpSuit: room.trumpSuit,
     turnedCard: room.turnedCard,
     isMitAnnounced: room.isMitAnnounced,
+    mitAnnouncerIndex: room.isMitAnnounced ? room.mitAnnouncerIndex : -1,
     isContraAnnounced: room.isContraAnnounced,
     canAnnounceMit: canAnnounceMit,
     canAnnounceContra: canAnnounceContra,
@@ -261,7 +296,7 @@ function sanitizeStateForPlayer(room, seatIndex) {
     you: {
       seatIndex: seatIndex,
       team: myTeam,
-      isHost: (seatIndex === 0) || (room.seats[seatIndex] && room.seats[seatIndex].socketId === room.hostSocketId),
+      isHost: isMeHost,
       hand: myHand,
       playableMap: playableMap
     }
@@ -287,6 +322,7 @@ function startNewRound(room) {
   room.isMitAnnounced = false;
   room.isContraAnnounced = false;
   room.mitHolderIndex = -1;
+  room.mitAnnouncerIndex = -1;
   room.lastTrick = null;
   room.trickWinnerInfo = null;
   room.roundSummary = null;
@@ -478,13 +514,21 @@ function handleMitAnnouncement(room, playerIndex, announce) {
 
   if (announce && !room.isMitAnnounced) {
     room.isMitAnnounced = true;
+    room.mitAnnouncerIndex = playerIndex;
     const announcerName = room.seats[playerIndex].name;
     logAction(room, `⭐ ${announcerName} hat die MIT' ANGESAGT! Rundenwert: 2 Punkte. Pik-Dame ist 2. höchster Trumpf.`);
 
     // Handkarten aller Spieler mit aktualisierter Mit'-Rangfolge neu sortieren
-    for (let s = 0; s < 4; s++) {
+    const maxPlayers = room.settings.playerCount || 4;
+    for (let s = 0; s < maxPlayers; s++) {
       sortHand(room.hands[s], room.trumpSuit, true);
     }
+
+    // Event für auffällige Spielfeld-Benachrichtigung an alle Clients
+    io.to(room.code).emit('mit_announced', {
+      seatIndex: playerIndex,
+      playerName: announcerName
+    });
   }
 
   broadcastGameState(room);
@@ -1103,9 +1147,8 @@ io.on('connection', (socket) => {
       return socket.emit('error_message', 'Regeln können nur in der Lobby vor Spielstart angepasst werden.');
     }
 
-    const isHost = (currentSeatIndex === 0) || (room.seats[currentSeatIndex] && room.seats[currentSeatIndex].socketId === room.hostSocketId);
-    if (!isHost) {
-      return socket.emit('error_message', 'Nur der Raum-Ersteller kann die Spieleinstellungen ändern.');
+    if (!isPlayerHost(room, socket)) {
+      return socket.emit('error_message', 'Nur der Spielleiter kann die Spieleinstellungen ändern.');
     }
 
     if (settings) {
@@ -1161,6 +1204,10 @@ io.on('connection', (socket) => {
     if (!currentRoomCode) return;
     const room = rooms.get(currentRoomCode);
     if (!room || room.phase !== 'LOBBY') return;
+
+    if (!isPlayerHost(room, socket)) {
+      return socket.emit('error_message', 'Nur der Spielleiter kann das Spiel starten.');
+    }
 
     const maxPlayers = room.settings.playerCount || 4;
     const occupiedSeats = room.seats.slice(0, maxPlayers).filter(s => s !== null).length;
@@ -1230,8 +1277,7 @@ io.on('connection', (socket) => {
     const room = rooms.get(currentRoomCode);
     if (!room || room.phase !== 'ROUND_END') return;
 
-    const isHost = (currentSeatIndex === 0) || (room.seats[currentSeatIndex] && room.seats[currentSeatIndex].socketId === room.hostSocketId);
-    if (!isHost) {
+    if (!isPlayerHost(room, socket)) {
       return socket.emit('error_message', 'Nur der Spielleiter kann die nächste Runde starten.');
     }
 
@@ -1244,8 +1290,7 @@ io.on('connection', (socket) => {
     const room = rooms.get(currentRoomCode);
     if (!room || room.phase !== 'GAME_OVER') return;
 
-    const isHost = (currentSeatIndex === 0) || (room.seats[currentSeatIndex] && room.seats[currentSeatIndex].socketId === room.hostSocketId);
-    if (!isHost) {
+    if (!isPlayerHost(room, socket)) {
       return socket.emit('error_message', 'Nur der Spielleiter kann ein neues Spiel starten.');
     }
 
@@ -1258,30 +1303,79 @@ io.on('connection', (socket) => {
     startNewRound(room);
   });
 
-  // Lobby verlassen (nur in Phase LOBBY möglich)
-  socket.on('leave_room', () => {
-    if (!currentRoomCode) return;
+  // Lobby oder aktives Spiel verlassen (im Spiel nahtlos durch Bot ersetzt)
+  const handlePlayerLeave = () => {
+    if (!currentRoomCode || currentSeatIndex === -1) return;
     const room = rooms.get(currentRoomCode);
-    if (!room || room.phase !== 'LOBBY') return;
+    if (!room) return;
 
-    const isHost = (currentSeatIndex === 0) || (room.seats[currentSeatIndex] && room.seats[currentSeatIndex].socketId === room.hostSocketId);
+    const player = room.seats[currentSeatIndex];
+    const playerName = player ? player.name : 'Ein Spieler';
+    const leavingSeat = currentSeatIndex;
+    const isHost = isPlayerHost(room, socket);
 
-    if (isHost) {
-      logAction(room, `🚪 Spielleiter hat den Raum verlassen. Die Lobby wurde aufgelöst.`);
-      io.to(currentRoomCode).emit('room_disbanded', { message: 'Der Spielleiter hat die Lobby verlassen.' });
-      rooms.delete(currentRoomCode);
+    if (room.phase === 'LOBBY') {
+      if (isHost) {
+        // Prüfen, ob noch andere menschliche Spieler in der Lobby sind
+        const nextHuman = room.seats.find(s => s && !s.isBot && s.socketId && s.index !== leavingSeat);
+        if (nextHuman) {
+          room.seats[leavingSeat] = null;
+          room.hostSocketId = nextHuman.socketId;
+          logAction(room, `🚪 ${playerName} hat die Lobby verlassen. Neuer Spielleiter: ${nextHuman.name}`);
+          socket.leave(currentRoomCode);
+          socket.emit('left_room');
+          broadcastGameState(room);
+        } else {
+          logAction(room, `🚪 Spielleiter hat den Raum verlassen. Die Lobby wurde aufgelöst.`);
+          io.to(currentRoomCode).emit('room_disbanded', { message: 'Der Spielleiter hat die Lobby verlassen.' });
+          rooms.delete(currentRoomCode);
+          socket.leave(currentRoomCode);
+          socket.emit('left_room');
+        }
+      } else {
+        room.seats[leavingSeat] = null;
+        logAction(room, `🚪 ${playerName} hat die Lobby verlassen.`);
+        socket.leave(currentRoomCode);
+        socket.emit('left_room');
+        broadcastGameState(room);
+      }
     } else {
-      const playerName = room.seats[currentSeatIndex] ? room.seats[currentSeatIndex].name : 'Ein Spieler';
-      room.seats[currentSeatIndex] = null;
-      logAction(room, `🚪 ${playerName} hat die Lobby verlassen.`);
+      // Im aktiven Spiel: Spieler nahtlos durch Bot ersetzen!
+      const newBotName = getRandomBotName(room);
+      room.seats[leavingSeat] = {
+        index: leavingSeat,
+        name: newBotName,
+        socketId: null,
+        isBot: true,
+        connected: true,
+        team: leavingSeat % 2 === 0 ? 0 : 1
+      };
+
+      logAction(room, `🚪 ${playerName} hat das Spiel verlassen und wurde durch ${newBotName} ersetzt.`);
+
+      // Falls der Spieler Host war, Host-Rolle weitergeben an nächsten Menschen
+      if (isHost) {
+        const nextHuman = room.seats.find(s => s && !s.isBot && s.socketId && s.index !== leavingSeat);
+        if (nextHuman) {
+          room.hostSocketId = nextHuman.socketId;
+          logAction(room, `👑 ${nextHuman.name} ist nun der neue Spielleiter.`);
+        }
+      }
+
       socket.leave(currentRoomCode);
       socket.emit('left_room');
       broadcastGameState(room);
+
+      // Falls der gehende Spieler am Zug war: Bot zieht sofort
+      checkBotAction(room);
     }
 
     currentRoomCode = null;
     currentSeatIndex = -1;
-  });
+  };
+
+  socket.on('leave_room', handlePlayerLeave);
+  socket.on('leave_game', handlePlayerLeave);
 
   // Zurück zur Lobby (während des Spiels, nur für den Spielleiter)
   socket.on('return_to_lobby', () => {
@@ -1289,8 +1383,7 @@ io.on('connection', (socket) => {
     const room = rooms.get(currentRoomCode);
     if (!room) return;
 
-    const isHost = (currentSeatIndex === 0) || (room.seats[currentSeatIndex] && room.seats[currentSeatIndex].socketId === room.hostSocketId);
-    if (!isHost) {
+    if (!isPlayerHost(room, socket)) {
       return socket.emit('error_message', 'Nur der Spielleiter kann die Partie beenden und zur Lobby zurückkehren.');
     }
 
@@ -1330,8 +1423,7 @@ io.on('connection', (socket) => {
     const room = rooms.get(currentRoomCode);
     if (!room) return;
 
-    const isHost = (currentSeatIndex === 0) || (room.seats[currentSeatIndex] && room.seats[currentSeatIndex].socketId === room.hostSocketId);
-    if (!isHost) {
+    if (!isPlayerHost(room, socket)) {
       return socket.emit('error_message', 'Nur der Spielleiter kann Spieler kicken.');
     }
 
@@ -1393,7 +1485,18 @@ io.on('connection', (socket) => {
       const room = rooms.get(currentRoomCode);
       if (room && room.seats[currentSeatIndex]) {
         room.seats[currentSeatIndex].connected = false;
-        logAction(room, `${room.seats[currentSeatIndex].name} hat die Verbindung getrennt.`);
+        const playerName = room.seats[currentSeatIndex].name;
+        logAction(room, `${playerName} hat die Verbindung getrennt.`);
+
+        // Wenn der Spielleiter die Verbindung trennt, Host sofort an den nächsten aktiven Menschen übertragen!
+        if (room.hostSocketId === socket.id) {
+          const nextHuman = room.seats.find(s => s && !s.isBot && s.socketId && s.connected !== false && s.index !== currentSeatIndex);
+          if (nextHuman) {
+            room.hostSocketId = nextHuman.socketId;
+            logAction(room, `👑 ${nextHuman.name} übernimmt die Spielleitung.`);
+          }
+        }
+
         broadcastGameState(room);
       }
     }
