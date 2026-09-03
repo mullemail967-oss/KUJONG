@@ -648,7 +648,7 @@ socket.on('mit_announced', ({ playerName, seatIndex }) => {
   if (banner && textEl) {
     const isMe = (seatIndex === mySeatIndex);
     const displayName = isMe ? `${playerName} (Du)` : playerName;
-    textEl.textContent = `⭐ ${displayName} sagt die MIT' an! (+2 Pkt)`;
+    textEl.textContent = `${displayName} sagt die MIT' an! (+2 Pkt)`;
     banner.classList.remove('hidden');
     banner.classList.remove('fade-out');
 
@@ -823,9 +823,6 @@ function renderGameScreen() {
   document.getElementById('eyesWe').textContent = countEyesLive ? eyesWe : '-';
   document.getElementById('eyesThey').textContent = countEyesLive ? eyesThey : '-';
 
-  // Won Tricks Piles (Ecken)
-  renderWonTricksPile('We', tricksWe);
-  renderWonTricksPile('They', tricksThey);
 
   // Letzter Stich Button Sichtbarkeit
   const viewLastTrickBtn = document.getElementById('viewLastTrickBtn');
@@ -887,6 +884,7 @@ function renderGameScreen() {
 function renderWonTricksPile(teamKey, trickCount) {
   const stack = document.getElementById(`pileStack${teamKey}`);
   const count = document.getElementById(`pileCount${teamKey}`);
+  if (!stack || !count) return;
 
   count.textContent = `${trickCount} ${trickCount === 1 ? 'Stich' : 'Stiche'}`;
   stack.innerHTML = '';

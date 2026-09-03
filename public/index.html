@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=4.5">
+  <link rel="stylesheet" href="style.css?v=4.6">
 </head>
 <body>
 
@@ -217,22 +217,10 @@
       <main class="felt-table-wrapper">
         <div class="felt-table" id="feltTable">
 
-          <!-- GEWONNENE STICHE STAPEL (WIR - LINKS OBEN) -->
-          <div class="won-tricks-pile pile-we" id="tricksPileWe" onclick="openLastTrickModal()" title="Eigene gewonnene Stiche ansehen">
-            <div class="pile-card-stack" id="pileStackWe"></div>
-            <div class="pile-label">
-              <span class="pile-team">WIR</span>
-              <span class="pile-count" id="pileCountWe">0 Stiche</span>
-            </div>
-          </div>
-
-          <!-- GEWONNENE STICHE STAPEL (SIE - RECHTS OBEN) -->
-          <div class="won-tricks-pile pile-they" id="tricksPileThey" onclick="openLastTrickModal()" title="Gegnerische gewonnene Stiche ansehen">
-            <div class="pile-card-stack" id="pileStackThey"></div>
-            <div class="pile-label">
-              <span class="pile-team">SIE</span>
-              <span class="pile-count" id="pileCountThey">0 Stiche</span>
-            </div>
+          <!-- AUFFÄLLIGE MIT'-ANSAGE BENACHRICHTIGUNG IM FREIEN TISCHBEREICH -->
+          <div id="mitFieldNotification" class="mit-field-notification hidden">
+            <span class="mit-pop-star">⭐</span>
+            <span id="mitPopText" class="mit-pop-text">Max hat die MIT' angesagt! (+2 Pkt)</span>
           </div>
 
           <!-- SPIELER OBEN (Partner bei 4P / Gegner 2 bei 6P) -->
@@ -410,12 +398,6 @@
             
             <div id="trickBanner" class="trick-banner hidden">
               <span id="trickWinnerText">Stich an Spieler X</span>
-            </div>
-
-            <!-- AUFFÄLLIGE MIT'-ANSAGE BENACHRICHTIGUNG IM SPIELFELD -->
-            <div id="mitFieldNotification" class="mit-field-notification hidden">
-              <span class="mit-pop-star">⭐</span>
-              <span id="mitPopText" class="mit-pop-text">Max hat die MIT' angesagt! (+2 Pkt)</span>
             </div>
           </div>
 
@@ -827,6 +809,6 @@
   <!-- Socket.io Script -->
   <script src="/socket.io/socket.io.js"></script>
   <!-- Client JavaScript -->
-  <script src="client.js?v=6.0"></script>
+  <script src="client.js?v=6.1"></script>
 </body>
 </html>

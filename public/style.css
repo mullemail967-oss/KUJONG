@@ -678,7 +678,7 @@ input[type="text"]:focus {
   position: relative;
   display: grid;
   grid-template-rows: 52px 1fr 135px;
-  grid-template-columns: 95px 1fr 95px;
+  grid-template-columns: minmax(70px, 95px) minmax(0, 1fr) minmax(70px, 95px);
   grid-template-areas:
     ". top ."
     "left center right"
@@ -686,75 +686,10 @@ input[type="text"]:focus {
 }
 
 /* --------------------------------------------------------------------------
-   GEWONNENE STICHE STAPEL (IN DEN ECKEN)
+   GEWONNENE STICHE STAPEL (NICHT MEHR IM SPIELFELD BENÖTIGT)
    -------------------------------------------------------------------------- */
 .won-tricks-pile {
-  position: absolute;
-  z-index: 15;
-  background: rgba(15, 23, 42, 0.85);
-  border: 1px solid var(--panel-border);
-  border-radius: 12px;
-  padding: 4px 8px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
-}
-
-.won-tricks-pile:hover {
-  transform: scale(1.05);
-  border-color: var(--team-we-gold);
-}
-
-.won-tricks-pile.pile-we {
-  top: 10px;
-  left: 12px;
-  border-left: 3px solid var(--team-we-gold);
-}
-
-.won-tricks-pile.pile-they {
-  top: 10px;
-  right: 12px;
-  border-right: 3px solid var(--team-they-cyan);
-}
-
-.pile-card-stack {
-  display: flex;
-  position: relative;
-  width: 20px;
-  height: 26px;
-}
-
-.pile-mini-card {
-  position: absolute;
-  width: 17px;
-  height: 24px;
-  background: linear-gradient(135deg, #1e3a8a 0%, #0f172a 100%);
-  border: 1px solid #93c5fd;
-  border-radius: 3px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.6);
-}
-
-.pile-label {
-  display: flex;
-  flex-direction: column;
-}
-
-.pile-team {
-  font-size: 0.65rem;
-  font-weight: 800;
-  text-transform: uppercase;
-}
-
-.pile-we .pile-team { color: var(--team-we-gold); }
-.pile-they .pile-team { color: var(--team-they-cyan); }
-
-.pile-count {
-  font-size: 0.72rem;
-  font-weight: 700;
-  color: #fff;
+  display: none !important;
 }
 
 /* --------------------------------------------------------------------------
@@ -773,27 +708,34 @@ input[type="text"]:focus {
   flex-direction: row;
   justify-content: center;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   margin-top: 2px;
   height: 48px;
+  max-width: 100%;
 }
 
 .player-top .player-avatar-box {
   width: 32px;
   height: 32px;
   font-size: 0.95rem;
+  flex-shrink: 0;
 }
 
 .player-top .player-meta {
+  display: flex;
   flex-direction: row;
-  gap: 4px;
+  flex-wrap: wrap;
+  gap: 3px;
   align-items: center;
+  justify-content: center;
   margin-top: 0;
+  max-width: 220px;
 }
 
 .player-top .hand-card-backs {
   margin-top: 0;
   margin-left: 2px;
+  flex-shrink: 0;
 }
 
 .player-left {
@@ -1115,21 +1057,22 @@ input[type="text"]:focus {
   100% { transform: translateX(-50%) scale(1); opacity: 1; }
 }
 
-/* Auffälliges Spielfeld-Popup bei Mit'-Ansage */
+/* Auffälliges Spielfeld-Popup bei Mit'-Ansage im oberen freien Bereich */
 .mit-field-notification {
   position: absolute;
-  top: 50%;
+  top: 54px;
   left: 50%;
-  transform: translate(-50%, -50%);
+  transform: translateX(-50%);
   background: linear-gradient(135deg, rgba(28, 19, 4, 0.97) 0%, rgba(46, 28, 6, 0.98) 100%);
   border: 2px solid var(--team-we-gold);
   color: #fef08a;
   font-weight: 800;
-  padding: 8px 18px;
+  padding: 6px 16px;
   border-radius: 20px;
-  font-size: 0.88rem;
+  font-size: 0.84rem;
   white-space: nowrap;
-  max-width: 92%;
+  max-width: 90%;
+  box-sizing: border-box;
   overflow: hidden;
   text-overflow: ellipsis;
   z-index: 50;
@@ -1137,6 +1080,7 @@ input[type="text"]:focus {
   box-shadow: 0 0 25px rgba(245, 158, 11, 0.85), 0 8px 30px rgba(0, 0, 0, 0.9);
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
   animation: mitNotificationPop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
   transition: opacity 0.5s ease, transform 0.5s ease;
@@ -1144,16 +1088,16 @@ input[type="text"]:focus {
 
 .mit-field-notification.fade-out {
   opacity: 0;
-  transform: translate(-50%, -65%) scale(0.9);
+  transform: translate(-50%, -10px) scale(0.95);
 }
 
 @keyframes mitNotificationPop {
-  0% { transform: translate(-50%, -30%) scale(0.6); opacity: 0; }
-  100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+  0% { transform: translate(-50%, -15px) scale(0.7); opacity: 0; }
+  100% { transform: translateX(-50%) scale(1); opacity: 1; }
 }
 
 .mit-pop-star {
-  font-size: 1.25rem;
+  font-size: 1.15rem;
   animation: pulseGold 1.5s infinite ease-in-out;
 }
 
@@ -2468,9 +2412,19 @@ input:checked + .slider:before {
     bottom: 4px;
   }
 
+  .felt-table {
+    grid-template-rows: 50px 1fr 114px;
+    grid-template-columns: 62px minmax(0, 1fr) 62px;
+  }
+
   .player-top {
-    height: 42px;
-    gap: 6px;
+    height: 46px;
+    gap: 4px;
+  }
+
+  .player-top .player-meta {
+    max-width: 175px;
+    gap: 2px;
   }
 
   .player-left {
@@ -2524,6 +2478,13 @@ input:checked + .slider:before {
     max-width: 92%;
   }
 
+  .mit-field-notification {
+    top: 50px;
+    padding: 5px 14px;
+    font-size: 0.78rem;
+    max-width: 92%;
+  }
+
   .trick-slot {
     width: 54px;
     height: 78px;
@@ -2533,18 +2494,6 @@ input:checked + .slider:before {
   .trick-slot.slot-bottom { bottom: 8px; }
   .trick-slot.slot-left { left: 8px; }
   .trick-slot.slot-right { right: 8px; }
-
-  .won-tricks-pile {
-    padding: 2px 5px;
-    gap: 3px;
-    border-radius: 8px;
-  }
-
-  .won-tricks-pile .pile-team { font-size: 0.62rem; }
-  .won-tricks-pile .pile-count { font-size: 0.62rem; }
-
-  .won-tricks-pile.pile-we { top: 4px; left: 4px; }
-  .won-tricks-pile.pile-they { top: 4px; right: 4px; }
 
   .game-title {
     font-size: 1.9rem;
@@ -2570,8 +2519,19 @@ input:checked + .slider:before {
   }
 
   .felt-table {
-    grid-template-rows: 40px 1fr 114px;
-    grid-template-columns: 56px 1fr 56px;
+    grid-template-rows: 48px 1fr 114px;
+    grid-template-columns: 56px minmax(0, 1fr) 56px;
+  }
+
+  .player-top .player-meta {
+    max-width: 145px;
+  }
+
+  .mit-field-notification {
+    top: 48px;
+    padding: 4px 10px;
+    font-size: 0.74rem;
+    max-width: 95%;
   }
 
   .player-meta .name {
