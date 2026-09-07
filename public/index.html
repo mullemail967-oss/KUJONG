@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=4.9">
+  <link rel="stylesheet" href="style.css?v=5.2">
 </head>
 <body>
 
@@ -31,13 +31,27 @@
           </div>
 
           <div class="lobby-action-buttons">
-            <button id="createRoomBtn" class="btn btn-primary btn-large" onclick="handleCreateRoom()">
+            <button id="createRoomBtn" class="btn btn-primary btn-large">
               <span>🏰 Raum erstellen</span>
             </button>
             <div class="divider"><span>ODER</span></div>
             <div class="join-box">
               <input type="text" id="roomCodeInput" placeholder="Code (z.B. ABCD)" maxlength="4" autocomplete="off" autocapitalize="characters">
-              <button id="joinRoomBtn" class="btn btn-secondary" onclick="handleJoinRoom()">Beitreten</button>
+              <button id="joinRoomBtn" class="btn btn-secondary">Beitreten</button>
+            </div>
+          </div>
+
+          <!-- AKTIVE ÖFFENTLICHE RUNDEN & LOBBYS -->
+          <div id="activeRoomsSection" class="active-rooms-section">
+            <div class="active-rooms-header">
+              <div class="active-rooms-header-left">
+                <span class="active-rooms-dot"></span>
+                <span class="active-rooms-title">Offene Runden & Lobbys</span>
+              </div>
+              <button class="btn btn-sm btn-outline btn-refresh-rooms" onclick="refreshPublicRooms()" title="Liste aktualisieren">🔄 Neu laden</button>
+            </div>
+            <div id="activeRoomsList" class="active-rooms-list">
+              <div class="active-rooms-empty">Lade aktive Runden...</div>
             </div>
           </div>
         </div>
@@ -200,7 +214,7 @@
             🚪 Verlassen
           </button>
           <button id="hostMenuBtn" class="btn-tool btn-host-menu hidden" onclick="openHostMenu()" title="Spielleiter-Menü (Spieler kicken, Lobby, Link)">
-            👑 Menü
+            👑 Menü<span id="hostMenuReqBadge" class="host-req-badge hidden">0</span>
           </button>
           <button id="announceContraBtn" class="btn-tool btn-contra hidden" onclick="announceContra()" title="Kontra ansagen">
             ⚡ KONTRA GEBEN!
@@ -610,8 +624,20 @@
       <div class="modal-body settings-body">
         <p class="settings-subtitle">Passe die regionalen Kujong-Spielregeln für diese Partie an:</p>
 
+        <!-- Privatsphäre: Öffentlich / Privat -->
+        <div class="setting-item setting-item-toggle">
+          <div class="setting-info">
+            <span class="setting-title">🌐 Öffentliche Runde (Lobby-Liste & Nachjoinen)</span>
+            <span class="setting-desc">Wenn aktiv: Auf Startseite gelistet & Nachjoinen erlaubt. Wenn aus: Komplett privat & Beitritt gesperrt.</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="settingIsPublic" checked onchange="saveRuleSettings()">
+            <span class="slider"></span>
+          </label>
+        </div>
+
         <!-- 0. Spieleranzahl / Modus -->
-        <div class="setting-item">
+        <div class="setting-item setting-item-stacked">
           <div class="setting-info">
             <span class="setting-title">👥 Spieleranzahl & Spielmodus</span>
             <span class="setting-desc">4 Spieler (2 vs 2, 24 Karten) oder 6 Spieler (3 vs 3 im Kreis, 32 Karten inkl. 7 & 8)</span>
@@ -623,7 +649,7 @@
         </div>
 
         <!-- 1. Live-Augenzähler -->
-        <div class="setting-item">
+        <div class="setting-item setting-item-toggle">
           <div class="setting-info">
             <span class="setting-title">Live-Augenzähler</span>
             <span class="setting-desc">Augen während der Runde live oben anzeigen (wenn AUS: Augen müssen im Kopf mitgezählt werden)</span>
@@ -635,7 +661,7 @@
         </div>
 
         <!-- 2. Kreuz-Dame immer Trumpf -->
-        <div class="setting-item">
+        <div class="setting-item setting-item-toggle">
           <div class="setting-info">
             <span class="setting-title">Kreuz-Dame (♣Q) immer Trumpf</span>
             <span class="setting-desc">♣Q zählt permanent als zweiter Trumpf nach dem Ass (bzw. dritter bei Mit')</span>
@@ -647,7 +673,7 @@
         </div>
 
         <!-- 3. Mit' (Pik-Dame Ansage) -->
-        <div class="setting-item">
+        <div class="setting-item setting-item-toggle">
           <div class="setting-info">
             <span class="setting-title">Mit' (♠Q) Ansage</span>
             <span class="setting-desc">Inhaber der Pik-Dame darf in Stich 1 die Mit' ansagen (Rundenwert verdoppelt)</span>
@@ -659,7 +685,7 @@
         </div>
 
         <!-- 4. Kontra-Rundenwert -->
-        <div class="setting-item">
+        <div class="setting-item setting-item-stacked">
           <div class="setting-info">
             <span class="setting-title">Rundenwert bei Kontra</span>
             <span class="setting-desc">Wie viele Punkte werden bei einer Kontra-Runde abgezogen?</span>
@@ -671,7 +697,7 @@
         </div>
 
         <!-- 5. Ansager-Strafe bei 0 Stichen -->
-        <div class="setting-item">
+        <div class="setting-item setting-item-stacked">
           <div class="setting-info">
             <span class="setting-title">Ansager-Strafe bei 0 Stichen</span>
             <span class="setting-desc">Strafpunkte für das Ansager-Team, wenn es gar keinen Stich macht (Gegner-Durchmarsch)</span>
@@ -683,7 +709,7 @@
         </div>
 
         <!-- 6. Start-Punktestand festlegen -->
-        <div class="setting-item setting-scores-item">
+        <div class="setting-item setting-scores-item setting-item-stacked">
           <div class="setting-info">
             <span class="setting-title">Start-Punktestand (Handicap / Schnellspiel)</span>
             <span class="setting-desc">Standard ist 13 Punkte. Teams können auch mit unterschiedlichen Punkten starten (z. B. 10:8).</span>
@@ -714,7 +740,7 @@
         </div>
 
         <!-- 7. Trinkspiel-Modus -->
-        <div class="setting-item setting-drink-item">
+        <div class="setting-item setting-drink-item setting-item-stacked">
           <div class="setting-info">
             <span class="setting-title">🍻 Trinkspiel-Modus</span>
             <span class="setting-desc">Verteilt Schlucke an das Verlierer-Team bei Rundenverlust, verpatztem Trumpf, Mit', Kontra & Durchmarsch</span>
@@ -728,7 +754,7 @@
         </div>
 
         <!-- 8. Spieltempo & Wartezeiten -->
-        <div class="setting-item setting-speeds-item">
+        <div class="setting-item setting-speeds-item setting-item-stacked">
           <div class="setting-info">
             <span class="setting-title">⏱️ Spieltempo & Wartezeiten</span>
             <span class="setting-desc">Passe die Anzeigedauer der Stiche und die Zuggeschwindigkeit der Bots an (1 bis 7 Sek.)</span>
@@ -775,6 +801,35 @@
       </div>
 
       <div class="modal-body host-menu-body">
+        <!-- Raumcode ganz oben prominent anzeigen -->
+        <div class="host-room-code-banner">
+          <div class="host-code-display-group">
+            <span class="host-code-label">LOBBY-CODE:</span>
+            <span id="hostModalRoomCode" class="host-code-val">----</span>
+          </div>
+          <button class="btn btn-outline btn-sm btn-copy-host-code" onclick="copyInviteLink()">📋 Link kopieren</button>
+        </div>
+
+        <!-- Schneller Privatsphäre-Hebel im Menü -->
+        <div class="host-privacy-row">
+          <div class="host-privacy-info">
+            <span class="host-privacy-title" id="hostPrivacyTitle">🌐 Öffentliche Runde</span>
+            <span class="host-privacy-desc" id="hostPrivacyDesc">In aktiver Liste sichtbar & Nachjoinen aktiv</span>
+          </div>
+          <label class="switch switch-privacy">
+            <input type="checkbox" id="hostQuickPrivacyToggle" checked onchange="toggleQuickPrivacy()">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <!-- Dezenter Anfragen-Bereich im Spielleiter-Menü -->
+        <div id="hostPendingRequestsSection" class="host-section host-pending-section hidden">
+          <div class="host-section-title">🔔 Offene Beitrittsanfragen (<span id="pendingReqCount">0</span>)</div>
+          <div id="hostPendingRequestsList" class="host-pending-requests-list">
+            <!-- Dynamisch befüllt mit Bot-Buttons inkl. WIR / SIE -->
+          </div>
+        </div>
+
         <!-- Schnelle Raum-Aktionen -->
         <div class="host-section">
           <div class="host-section-title">⚡ Raum-Aktionen</div>
@@ -815,6 +870,6 @@
   <!-- Socket.io Script -->
   <script src="/socket.io/socket.io.js"></script>
   <!-- Client JavaScript -->
-  <script src="client.js?v=6.2"></script>
+  <script src="client.js?v=6.6"></script>
 </body>
 </html>

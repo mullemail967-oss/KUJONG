@@ -253,22 +253,30 @@ function showToast(message) {
 // --------------------------------------------------------------------------
 // LOBBY & RAUM-AKTIONEN
 // --------------------------------------------------------------------------
+let isCreatingRoom = false;
 function handleCreateRoom() {
+  if (isCreatingRoom) return;
   const codeInput = document.getElementById('roomCodeInput');
   if (codeInput && codeInput.value.trim().length > 0) {
     showToast('Du hast einen Raumcode eingegeben! Klicke auf Beitreten.');
     return;
   }
+  isCreatingRoom = true;
+  setTimeout(() => { isCreatingRoom = false; }, 2500);
   const playerName = getPlayerName();
   socket.emit('create_room', { playerName, settings: currentSettings });
 }
 
+let isJoiningRoom = false;
 function handleJoinRoom() {
+  if (isJoiningRoom) return;
   const codeInput = document.getElementById('roomCodeInput');
-  const code = codeInput.value.trim().toUpperCase();
+  const code = codeInput ? codeInput.value.trim().toUpperCase() : '';
   if (!code) {
     return showToast('Bitte gib einen Raumcode ein.');
   }
+  isJoiningRoom = true;
+  setTimeout(() => { isJoiningRoom = false; }, 2500);
   const playerName = getPlayerName();
   socket.emit('join_room', { roomCode: code, playerName });
 }
@@ -278,8 +286,11 @@ function copyInviteLink() {
   const inviteUrl = `${window.location.origin}${window.location.pathname}?room=${currentRoomCode}`;
   navigator.clipboard.writeText(inviteUrl).then(() => {
     const msg = document.getElementById('copySuccessMsg');
-    msg.classList.remove('hidden');
-    setTimeout(() => msg.classList.add('hidden'), 2500);
+    if (msg) {
+      msg.classList.remove('hidden');
+      setTimeout(() => msg.classList.add('hidden'), 2500);
+    }
+    showToast(`📋 Link kopiert! (Code: ${currentRoomCode})`);
   }).catch(() => {
     showToast(`Einladungslink: ${inviteUrl}`);
   });
@@ -495,6 +506,12 @@ function returnToLobby() {
 // --------------------------------------------------------------------------
 function openHostMenu() {
   if (!gameState || !gameState.you || !gameState.you.isHost) return;
+  const codeEl = document.getElementById('hostModalRoomCode');
+  if (codeEl) {
+    codeEl.textContent = currentRoomCode || '----';
+  }
+  syncSettingsUI();
+  renderHostPendingRequests();
   renderHostPlayerList();
   document.getElementById('hostControlModal').classList.remove('hidden');
 }
@@ -606,6 +623,7 @@ function closeLastTrickModal() {
 // --------------------------------------------------------------------------
 socket.on('connect', () => {
   console.log('Connected to Kujong Server.');
+  socket.emit('get_public_rooms');
   const savedSession = sessionStorage.getItem('kujong_session');
   if (savedSession) {
     try {
@@ -627,9 +645,12 @@ socket.on('room_disbanded', ({ message }) => {
   document.getElementById('gameScreen').classList.remove('active');
   document.getElementById('lobbyScreen').classList.add('active');
   alert(message || 'Die Lobby wurde aufgelöst.');
+  refreshPublicRooms();
 });
 
 socket.on('left_room', () => {
+  isCreatingRoom = false;
+  isJoiningRoom = false;
   sessionStorage.removeItem('kujong_session');
   currentRoomCode = null;
   mySeatIndex = -1;
@@ -638,6 +659,7 @@ socket.on('left_room', () => {
   document.getElementById('lobbyInitialOptions').classList.remove('hidden');
   document.getElementById('gameScreen').classList.remove('active');
   document.getElementById('lobbyScreen').classList.add('active');
+  refreshPublicRooms();
 });
 
 socket.on('kicked_from_room', ({ message }) => {
@@ -651,7 +673,238 @@ socket.on('kicked_from_room', ({ message }) => {
   document.getElementById('lobbyScreen').classList.add('active');
   closeHostMenu();
   alert(message || 'Du wurdest vom Spielleiter aus der Partie entfernt.');
+  refreshPublicRooms();
 });
+
+// Öffentliche Räume / Aktive Lobbys empfangen
+socket.on('public_rooms_update', (rooms) => {
+  renderPublicRooms(rooms);
+});
+
+// Beitrittsanfrage (Nachjoinen) Events auf Client-Seite
+socket.on('join_request_sent', ({ roomCode, hostName }) => {
+  showToast(`⏳ Anfrage an ${hostName} gesendet. Bitte warten...`);
+});
+
+socket.on('join_request_cooldown', ({ remainingSec }) => {
+  showToast(`⏳ Bitte warte noch ${remainingSec} Sekunden vor der nächsten Anfrage.`);
+});
+
+socket.on('join_request_rejected', ({ message }) => {
+  showToast(message || 'Der Spielleiter hat deine Anfrage abgelehnt.');
+});
+
+socket.on('join_request_accepted', ({ roomCode, seatIndex }) => {
+  currentRoomCode = roomCode;
+  mySeatIndex = seatIndex;
+  const nameInput = document.getElementById('playerNameInput');
+  const playerName = nameInput ? nameInput.value.trim() : 'Spieler';
+  sessionStorage.setItem('kujong_session', JSON.stringify({ roomCode, seatIndex, playerName }));
+  socket.emit('confirm_midgame_join', { roomCode, seatIndex });
+  document.getElementById('lobbyScreen').classList.remove('active');
+  document.getElementById('gameScreen').classList.add('active');
+  showToast('🎉 Du bist der Partie beigetreten!');
+});
+
+// Beim Spielleiter: Dezent registrierte Beitrittsanfragen (kein blockierendes Riesen-Popup)
+const pendingJoinRequests = new Map();
+
+socket.on('join_request_received', ({ requestId, playerName, availableBots }) => {
+  pendingJoinRequests.set(requestId, { requestId, playerName, availableBots });
+  playSound('trump_fanfare');
+  showToast(`🙋 ${playerName} möchte mitspielen (siehe 👑 Menü)`);
+  updateHostMenuBadge();
+  const hostModal = document.getElementById('hostControlModal');
+  if (hostModal && !hostModal.classList.contains('hidden')) {
+    renderHostPendingRequests();
+  }
+});
+
+socket.on('join_request_resolved', ({ requestId }) => {
+  pendingJoinRequests.delete(requestId);
+  updateHostMenuBadge();
+  const hostModal = document.getElementById('hostControlModal');
+  if (hostModal && !hostModal.classList.contains('hidden')) {
+    renderHostPendingRequests();
+  }
+});
+
+function refreshPublicRooms() {
+  socket.emit('get_public_rooms');
+}
+
+function renderPublicRooms(rooms) {
+  const list = document.getElementById('activeRoomsList');
+  if (!list) return;
+
+  if (!rooms || rooms.length === 0) {
+    list.innerHTML = `<div class="active-rooms-empty">Keine aktiven Runden. Erstelle die erste!</div>`;
+    return;
+  }
+
+  list.innerHTML = '';
+  rooms.forEach(r => {
+    const isLobby = (r.phase === 'LOBBY');
+    const item = document.createElement('div');
+    item.className = 'active-room-item';
+
+    let statusBadge = '';
+    let actionBtn = '';
+
+    if (isLobby) {
+      statusBadge = `<span class="room-status-badge badge-lobby">🟢 Lobby (${r.connectedHumans}/${r.playerCount})</span>`;
+      actionBtn = `<button class="btn btn-sm btn-primary" onclick="joinPublicRoom('${r.code}', false)">Beitreten</button>`;
+    } else {
+      if (r.hasBots) {
+        statusBadge = `<span class="room-status-badge badge-running">🟡 Im Spiel • ${r.botCount} Bot${r.botCount > 1 ? 's' : ''}</span>`;
+        actionBtn = `<button class="btn btn-sm btn-outline btn-join-request" onclick="joinPublicRoom('${r.code}', true)">🙋 Nachjoinen</button>`;
+      } else {
+        statusBadge = `<span class="room-status-badge badge-full">⚪ Voll (${r.playerCount}/${r.playerCount})</span>`;
+        actionBtn = `<button class="btn btn-sm btn-outline" disabled>Voll</button>`;
+      }
+    }
+
+    item.innerHTML = `
+      <div class="active-room-info">
+        <div class="active-room-main">
+          <span class="active-room-code">${r.code}</span>
+          <span class="active-room-host">Runde von <strong>${r.hostName}</strong></span>
+        </div>
+        <div class="active-room-meta">
+          ${statusBadge}
+        </div>
+      </div>
+      <div class="active-room-action">
+        ${actionBtn}
+      </div>
+    `;
+
+    list.appendChild(item);
+  });
+}
+
+function joinPublicRoom(code, isMidGame) {
+  const nameInput = document.getElementById('playerNameInput');
+  let name = nameInput ? nameInput.value.trim() : '';
+  if (!name) {
+    name = prompt('Bitte gib deinen Spielernamen ein:') || '';
+    name = name.trim();
+    if (!name) return;
+    if (nameInput) nameInput.value = name;
+  }
+  sessionStorage.setItem('kujong_name', name);
+
+  if (isMidGame) {
+    socket.emit('request_join_room', { roomCode: code, playerName: name });
+  } else {
+    const codeInput = document.getElementById('roomCodeInput');
+    if (codeInput) codeInput.value = code;
+    handleJoinRoom();
+  }
+}
+
+function updateHostMenuBadge() {
+  const count = pendingJoinRequests.size;
+  const badge = document.getElementById('hostMenuReqBadge');
+  const btn = document.getElementById('hostMenuBtn');
+  if (badge) {
+    badge.textContent = count;
+    if (count > 0) {
+      badge.classList.remove('hidden');
+    } else {
+      badge.classList.add('hidden');
+    }
+  }
+  if (btn) {
+    if (count > 0) {
+      btn.classList.add('has-requests');
+    } else {
+      btn.classList.remove('has-requests');
+    }
+  }
+  const modalCount = document.getElementById('pendingReqCount');
+  if (modalCount) modalCount.textContent = count;
+}
+
+function renderHostPendingRequests() {
+  const section = document.getElementById('hostPendingRequestsSection');
+  const listEl = document.getElementById('hostPendingRequestsList');
+  if (!section || !listEl) return;
+
+  const count = pendingJoinRequests.size;
+  const modalCount = document.getElementById('pendingReqCount');
+  if (modalCount) modalCount.textContent = count;
+
+  if (count === 0) {
+    section.classList.add('hidden');
+    listEl.innerHTML = '';
+    return;
+  }
+
+  section.classList.remove('hidden');
+  listEl.innerHTML = '';
+
+  const myTeam = gameState && gameState.you ? gameState.you.team : 0;
+
+  pendingJoinRequests.forEach(req => {
+    const card = document.createElement('div');
+    card.className = 'host-req-card';
+
+    const header = document.createElement('div');
+    header.className = 'host-req-card-header';
+    header.innerHTML = `<span class="host-req-card-title">🙋 <strong>${req.playerName}</strong> möchte beitreten:</span>`;
+    card.appendChild(header);
+
+    const botGrid = document.createElement('div');
+    botGrid.className = 'host-req-bots-grid';
+
+    (req.availableBots || []).forEach(bot => {
+      const isMyTeam = (bot.team === myTeam);
+      const teamText = isMyTeam ? 'WIR' : 'SIE';
+      const teamClass = isMyTeam ? 'team-we' : 'team-they';
+      const teamLetter = bot.team === 0 ? 'Team A' : 'Team B';
+
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = `btn btn-sm btn-bot-replace ${teamClass}`;
+      btn.innerHTML = `<span>🤖 <strong>${bot.name}</strong></span> <span class="badge-team-role">(${teamText} • ${teamLetter})</span> <small>ersetzen</small>`;
+      btn.onclick = () => resolveJoinRequest(req.requestId, true, bot.seatIndex);
+      botGrid.appendChild(btn);
+    });
+
+    card.appendChild(botGrid);
+
+    const rejectBtn = document.createElement('button');
+    rejectBtn.type = 'button';
+    rejectBtn.className = 'btn btn-xs btn-reject-req';
+    rejectBtn.innerHTML = '✕ Ablehnen';
+    rejectBtn.onclick = () => resolveJoinRequest(req.requestId, false);
+    card.appendChild(rejectBtn);
+
+    listEl.appendChild(card);
+  });
+}
+
+function resolveJoinRequest(requestId, accept, seatIndex) {
+  socket.emit('resolve_join_request', {
+    requestId,
+    accept: !!accept,
+    targetSeat: seatIndex
+  });
+  pendingJoinRequests.delete(requestId);
+  updateHostMenuBadge();
+  renderHostPendingRequests();
+}
+
+function toggleQuickPrivacy() {
+  const isHost = gameState && gameState.you ? gameState.you.isHost : true;
+  if (!isHost) return;
+  const toggle = document.getElementById('hostQuickPrivacyToggle');
+  const isPublic = toggle ? toggle.checked : true;
+  currentSettings.isPublic = isPublic;
+  socket.emit('toggle_room_privacy', { isPublic });
+  syncSettingsUI();
+}
 
 // Auffälliges Banner im Spielfeld, wenn jemand die Mit' ansagt
 let mitNotificationTimer = null;
@@ -702,6 +955,8 @@ socket.on('contra_announced', ({ playerName, seatIndex }) => {
 });
 
 socket.on('room_created', ({ roomCode, seatIndex }) => {
+  isCreatingRoom = false;
+  isJoiningRoom = false;
   currentRoomCode = roomCode;
   mySeatIndex = seatIndex;
   document.getElementById('lobbyInitialOptions').classList.add('hidden');
@@ -717,6 +972,8 @@ socket.on('room_created', ({ roomCode, seatIndex }) => {
 });
 
 socket.on('game_state', (state) => {
+  isCreatingRoom = false;
+  isJoiningRoom = false;
   const previousPhase = gameState ? gameState.phase : null;
   const previousTurn = gameState ? gameState.currentTurn : null;
   const previousTrickCount = gameState ? gameState.trickCount : 0;
@@ -747,6 +1004,8 @@ socket.on('game_state', (state) => {
 });
 
 socket.on('error_message', (msg) => {
+  isCreatingRoom = false;
+  isJoiningRoom = false;
   showToast(msg);
 });
 
@@ -1392,7 +1651,8 @@ let currentSettings = {
   startScoreB: 13,
   drinkingGameMode: 'none',
   trickDisplaySeconds: 2.5,
-  dealAndTurnDelaySeconds: 1.0
+  dealAndTurnDelaySeconds: 1.0,
+  isPublic: true
 };
 
 function openSettingsModal() {
@@ -1409,6 +1669,26 @@ function closeSettingsModal() {
 
 function syncSettingsUI() {
   const isHost = gameState && gameState.you ? gameState.you.isHost : true;
+
+  // Privatsphäre Hebel (Lobby-Einstellungen & In-Game Spielleiter-Menü)
+  const isPublicInput = document.getElementById('settingIsPublic');
+  if (isPublicInput) {
+    isPublicInput.checked = currentSettings.isPublic !== false;
+    isPublicInput.disabled = !isHost;
+  }
+  const hostQuickToggle = document.getElementById('hostQuickPrivacyToggle');
+  const hostPrivacyTitle = document.getElementById('hostPrivacyTitle');
+  const hostPrivacyDesc = document.getElementById('hostPrivacyDesc');
+  if (hostQuickToggle) {
+    hostQuickToggle.checked = currentSettings.isPublic !== false;
+    hostQuickToggle.disabled = !isHost;
+  }
+  if (hostPrivacyTitle) {
+    hostPrivacyTitle.textContent = (currentSettings.isPublic !== false) ? '🌐 Öffentliche Runde' : '🔒 Private Runde';
+  }
+  if (hostPrivacyDesc) {
+    hostPrivacyDesc.textContent = (currentSettings.isPublic !== false) ? 'In aktiver Liste sichtbar & Nachjoinen aktiv' : 'Aus Liste entfernt & Beitritt gesperrt';
+  }
 
   const segPC4 = document.getElementById('segPlayerCount4');
   const segPC6 = document.getElementById('segPlayerCount6');
@@ -1627,6 +1907,7 @@ function saveRuleSettings() {
   const allowMitInput = document.getElementById('settingAllowMit');
   const scoreAInput = document.getElementById('settingStartScoreA');
   const scoreBInput = document.getElementById('settingStartScoreB');
+  const isPublicInput = document.getElementById('settingIsPublic');
 
   const settingsPayload = {
     playerCount: currentSettings.playerCount || 4,
@@ -1639,7 +1920,8 @@ function saveRuleSettings() {
     startScoreB: scoreBInput ? (parseInt(scoreBInput.value) || 13) : (currentSettings.startScoreB || 13),
     drinkingGameMode: currentSettings.drinkingGameMode || 'none',
     trickDisplaySeconds: (typeof currentSettings.trickDisplaySeconds === 'number') ? currentSettings.trickDisplaySeconds : 2.5,
-    dealAndTurnDelaySeconds: (typeof currentSettings.dealAndTurnDelaySeconds === 'number') ? currentSettings.dealAndTurnDelaySeconds : 1.0
+    dealAndTurnDelaySeconds: (typeof currentSettings.dealAndTurnDelaySeconds === 'number') ? currentSettings.dealAndTurnDelaySeconds : 1.0,
+    isPublic: isPublicInput ? isPublicInput.checked : (currentSettings.isPublic !== undefined ? currentSettings.isPublic : true)
   };
 
   currentSettings = { ...settingsPayload };
