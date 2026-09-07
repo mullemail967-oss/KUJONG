@@ -474,6 +474,25 @@ input[type="text"]:focus {
   gap: 6px;
 }
 
+.btn-seat-kick {
+  background: rgba(239, 68, 68, 0.15) !important;
+  color: #fca5a5 !important;
+  border: 1px solid rgba(239, 68, 68, 0.4) !important;
+  padding: 3px 8px !important;
+  border-radius: 6px !important;
+  font-size: 0.72rem !important;
+  font-weight: 600 !important;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-seat-kick:hover {
+  background: rgba(239, 68, 68, 0.35) !important;
+  color: #fff !important;
+  border-color: #ef4444 !important;
+  transform: scale(1.03);
+}
+
 .vs-badge {
   text-align: center;
   font-family: var(--font-serif);
@@ -1049,6 +1068,22 @@ input[type="text"]:focus {
 }
 
 /* 6-Spieler Modus Spieler-Positionen */
+.felt-table.mode-6p .player-top {
+  display: flex;
+  flex-direction: row;
+  justify-content: center;
+  align-items: center;
+  gap: 4px;
+  height: 44px;
+  max-width: 175px;
+}
+
+.felt-table.mode-6p .player-top .player-meta {
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+}
+
 .player-top-left {
   position: absolute;
   top: 14px;
@@ -1060,7 +1095,8 @@ input[type="text"]:focus {
 
 .player-bottom-left {
   position: absolute;
-  bottom: 120px;
+  top: 48%;
+  transform: translateY(-50%);
   left: 16px;
   flex-direction: column;
   justify-content: center;
@@ -1078,11 +1114,27 @@ input[type="text"]:focus {
 
 .player-bottom-right {
   position: absolute;
-  bottom: 120px;
+  top: 48%;
+  transform: translateY(-50%);
   right: 16px;
   flex-direction: column;
   justify-content: center;
   align-items: center;
+}
+
+.felt-table.mode-6p .mini-card-back {
+  width: 12px;
+  height: 18px;
+  border-radius: 2px;
+}
+
+.felt-table.mode-6p .hand-card-backs {
+  display: flex;
+  flex-direction: row;
+  gap: 1.5px;
+  max-width: 65px;
+  justify-content: center;
+  overflow: hidden;
 }
 
 /* --------------------------------------------------------------------------
@@ -1123,19 +1175,19 @@ input[type="text"]:focus {
 }
 
 .felt-table.mode-6p .trick-slot.slot-top {
-  top: 12px;
+  top: 30px;
   left: 50%;
   transform: translateX(-50%);
 }
 
 .felt-table.mode-6p .trick-slot.slot-top-left {
-  top: 36px;
+  top: 38px;
   left: calc(50% - 92px);
   transform: translateX(-50%);
 }
 
 .felt-table.mode-6p .trick-slot.slot-top-right {
-  top: 36px;
+  top: 38px;
   left: calc(50% + 92px);
   transform: translateX(-50%);
 }
@@ -2865,12 +2917,16 @@ input:checked + .slider:before {
   }
 
   .felt-table.mode-6p .player-bottom-left {
-    bottom: 95px;
+    top: 48%;
+    transform: translateY(-50%);
+    bottom: auto;
     left: 6px;
   }
 
   .felt-table.mode-6p .player-bottom-right {
-    bottom: 95px;
+    top: 48%;
+    transform: translateY(-50%);
+    bottom: auto;
     right: 6px;
   }
 
@@ -2885,19 +2941,19 @@ input:checked + .slider:before {
   }
 
   .felt-table.mode-6p .trick-slot.slot-top {
-    top: 8px;
+    top: 28px;
     left: 50%;
     transform: translateX(-50%);
   }
 
   .felt-table.mode-6p .trick-slot.slot-top-left {
-    top: 24px;
+    top: 34px;
     left: calc(50% - 70px);
     transform: translateX(-50%);
   }
 
   .felt-table.mode-6p .trick-slot.slot-top-right {
-    top: 24px;
+    top: 34px;
     left: calc(50% + 70px);
     transform: translateX(-50%);
   }
@@ -3005,9 +3061,15 @@ input:checked + .slider:before {
   }
 
   .trick-slot.slot-top {
-    top: 18px;
+    top: 32px;
     left: 50%;
     transform: translateX(-50%);
+  }
+
+  .trick-banner {
+    top: 2px;
+    padding: 3px 10px;
+    font-size: 0.72rem;
   }
   .trick-slot.slot-bottom {
     bottom: 8px;
@@ -3185,7 +3247,7 @@ input:checked + .slider:before {
   }
 
   .trick-slot.slot-top {
-    top: 14px;
+    top: 28px;
     left: 50%;
     transform: translateX(-50%);
   }
@@ -3240,12 +3302,16 @@ input:checked + .slider:before {
   }
 
   .felt-table.mode-6p .player-bottom-left {
-    bottom: 85px;
+    top: 48%;
+    transform: translateY(-50%);
+    bottom: auto;
     left: 4px;
   }
 
   .felt-table.mode-6p .player-bottom-right {
-    bottom: 85px;
+    top: 48%;
+    transform: translateY(-50%);
+    bottom: auto;
     right: 4px;
   }
 
@@ -3260,19 +3326,19 @@ input:checked + .slider:before {
   }
 
   .felt-table.mode-6p .trick-slot.slot-top {
-    top: 6px;
+    top: 26px;
     left: 50%;
     transform: translateX(-50%);
   }
 
   .felt-table.mode-6p .trick-slot.slot-top-left {
-    top: 18px;
+    top: 32px;
     left: calc(50% - 62px);
     transform: translateX(-50%);
   }
 
   .felt-table.mode-6p .trick-slot.slot-top-right {
-    top: 18px;
+    top: 32px;
     left: calc(50% + 62px);
     transform: translateX(-50%);
   }

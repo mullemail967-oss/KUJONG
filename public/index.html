@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=5.2">
+  <link rel="stylesheet" href="style.css?v=5.3">
 </head>
 <body>
 
@@ -80,6 +80,7 @@
                 <div class="seat-controls">
                   <button class="btn btn-xs btn-seat-join" onclick="switchSeat(0)">Einnehmen</button>
                   <button class="btn btn-xs btn-seat-bot" onclick="toggleBot(0)">+ Bot</button>
+                  <button class="btn btn-xs btn-seat-kick btn-danger hidden" onclick="confirmKickLobby(0)">👢 Kicken</button>
                 </div>
               </div>
               <div class="seat-slot" data-seat="2" id="seatSlot2">
@@ -90,6 +91,7 @@
                 <div class="seat-controls">
                   <button class="btn btn-xs btn-seat-join" onclick="switchSeat(2)">Einnehmen</button>
                   <button class="btn btn-xs btn-seat-bot" onclick="toggleBot(2)">+ Bot</button>
+                  <button class="btn btn-xs btn-seat-kick btn-danger hidden" onclick="confirmKickLobby(2)">👢 Kicken</button>
                 </div>
               </div>
               <div class="seat-slot hidden" data-seat="4" id="seatSlot4">
@@ -100,6 +102,7 @@
                 <div class="seat-controls">
                   <button class="btn btn-xs btn-seat-join" onclick="switchSeat(4)">Einnehmen</button>
                   <button class="btn btn-xs btn-seat-bot" onclick="toggleBot(4)">+ Bot</button>
+                  <button class="btn btn-xs btn-seat-kick btn-danger hidden" onclick="confirmKickLobby(4)">👢 Kicken</button>
                 </div>
               </div>
             </div>
@@ -117,6 +120,7 @@
                 <div class="seat-controls">
                   <button class="btn btn-xs btn-seat-join" onclick="switchSeat(1)">Einnehmen</button>
                   <button class="btn btn-xs btn-seat-bot" onclick="toggleBot(1)">+ Bot</button>
+                  <button class="btn btn-xs btn-seat-kick btn-danger hidden" onclick="confirmKickLobby(1)">👢 Kicken</button>
                 </div>
               </div>
               <div class="seat-slot" data-seat="3" id="seatSlot3">
@@ -127,6 +131,7 @@
                 <div class="seat-controls">
                   <button class="btn btn-xs btn-seat-join" onclick="switchSeat(3)">Einnehmen</button>
                   <button class="btn btn-xs btn-seat-bot" onclick="toggleBot(3)">+ Bot</button>
+                  <button class="btn btn-xs btn-seat-kick btn-danger hidden" onclick="confirmKickLobby(3)">👢 Kicken</button>
                 </div>
               </div>
               <div class="seat-slot hidden" data-seat="5" id="seatSlot5">
@@ -137,6 +142,7 @@
                 <div class="seat-controls">
                   <button class="btn btn-xs btn-seat-join" onclick="switchSeat(5)">Einnehmen</button>
                   <button class="btn btn-xs btn-seat-bot" onclick="toggleBot(5)">+ Bot</button>
+                  <button class="btn btn-xs btn-seat-kick btn-danger hidden" onclick="confirmKickLobby(5)">👢 Kicken</button>
                 </div>
               </div>
             </div>
@@ -870,6 +876,6 @@
   <!-- Socket.io Script -->
   <script src="/socket.io/socket.io.js"></script>
   <!-- Client JavaScript -->
-  <script src="client.js?v=6.6"></script>
+  <script src="client.js?v=6.7"></script>
 </body>
 </html>

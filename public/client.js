@@ -310,6 +310,17 @@ function toggleBot(seatIndex) {
   }
 }
 
+function confirmKickLobby(seatIndex) {
+  if (!gameState || !gameState.players) return;
+  const seat = gameState.players[seatIndex];
+  if (!seat || seat.isBot) return;
+
+  const ok = confirm(`Möchtest du Spieler "${seat.name}" wirklich aus der Lobby kicken?`);
+  if (ok) {
+    socket.emit('kick_lobby_player', { targetSeat: seatIndex });
+  }
+}
+
 function handleFillBots() {
   if (!gameState) return;
   const maxPlayers = gameState.settings ? (gameState.settings.playerCount || 4) : 4;
@@ -1058,6 +1069,7 @@ function renderLobby() {
     const nameEl = slotEl.querySelector('.player-name');
     const joinBtn = slotEl.querySelector('.btn-seat-join');
     const botBtn = slotEl.querySelector('.btn-seat-bot');
+    const kickBtn = slotEl.querySelector('.btn-seat-kick');
 
     if (seat) {
       totalOccupied++;
@@ -1067,12 +1079,19 @@ function renderLobby() {
       joinBtn.classList.add('hidden');
       botBtn.textContent = seat.isBot ? '✕ Bot' : '';
       botBtn.classList.toggle('hidden', !seat.isBot);
+
+      if (kickBtn) {
+        // Spielleiter kann andere menschliche Spieler in der Lobby kicken
+        const canKick = Boolean(gameState.you && gameState.you.isHost && !seat.isBot && !isMe);
+        kickBtn.classList.toggle('hidden', !canKick);
+      }
     } else {
       nameEl.textContent = 'Frei';
       nameEl.style.color = 'var(--text-muted)';
       joinBtn.classList.remove('hidden');
       botBtn.textContent = '+ Bot';
       botBtn.classList.remove('hidden');
+      if (kickBtn) kickBtn.classList.add('hidden');
     }
   }
 
