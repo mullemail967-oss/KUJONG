@@ -1747,6 +1747,41 @@ io.on('connection', (socket) => {
     checkBotAction(room);
   });
 
+  // Spieler aus der Lobby kicken (Nur für den Spielleiter in der Lobby)
+  socket.on('kick_lobby_player', ({ targetSeat }) => {
+    if (!currentRoomCode) return;
+    const room = rooms.get(currentRoomCode);
+    if (!room || room.phase !== 'LOBBY') return;
+
+    if (!isPlayerHost(room, socket)) {
+      return socket.emit('error_message', 'Nur der Spielleiter kann Spieler aus der Lobby kicken.');
+    }
+
+    const maxPlayers = room.settings.playerCount || 4;
+    if (typeof targetSeat !== 'number' || targetSeat < 0 || targetSeat >= maxPlayers) {
+      return socket.emit('error_message', 'Ungültiger Spieler-Platz.');
+    }
+
+    const target = room.seats[targetSeat];
+    if (!target || target.isBot || target.socketId === socket.id) {
+      return socket.emit('error_message', 'Dieser Platz kann nicht gekickt werden.');
+    }
+
+    const kickedName = target.name;
+    const kickedSocket = io.sockets.sockets.get(target.socketId);
+
+    room.seats[targetSeat] = null;
+
+    if (kickedSocket) {
+      kickedSocket.leave(currentRoomCode);
+      kickedSocket.emit('kicked_from_room', { message: 'Du wurdest vom Spielleiter aus der Lobby gekickt.' });
+    }
+
+    logAction(room, `👢 ${kickedName} wurde vom Spielleiter aus der Lobby gekickt.`);
+    broadcastGameState(room);
+    broadcastPublicRooms();
+  });
+
   // Emotes senden
   socket.on('send_emote', ({ emote }) => {
     if (!currentRoomCode || currentSeatIndex === -1) return;
