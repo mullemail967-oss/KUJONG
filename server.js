@@ -45,13 +45,81 @@ app.use(express.static(path.join(__dirname, 'public'), {
   }
 }));
 
+// In-Memory Raum-Verwaltung & Cooldowns
+const rooms = new Map();
+const joinCooldowns = new Map(); // key: `${clientIp}_${roomCode}`, value: timestamp (expiry)
+
+function getPublicRoomsData() {
+  const list = [];
+  for (const [code, room] of rooms.entries()) {
+    const maxPlayers = room.settings.playerCount || 4;
+    const allSeats = room.seats.slice(0, maxPlayers);
+    const humanSeats = allSeats.filter(s => s && !s.isBot);
+    const connectedHumans = humanSeats.filter(s => s.connected).length;
+    // Nur listen, wenn mindestens ein menschlicher Spieler aktiv ist und der Raum öffentlich ist
+    if (connectedHumans === 0) continue;
+    if (room.settings && room.settings.isPublic === false) continue;
+
+    const hostPlayer = allSeats.find(s => s && !s.isBot && s.socketId === room.hostSocketId) || humanSeats[0];
+    const hostName = hostPlayer ? hostPlayer.name : 'Spielleiter';
+    const botSeats = allSeats.filter(s => s && s.isBot);
+    const openSeats = allSeats.filter(s => s === null).length;
+
+    list.push({
+      code,
+      hostName,
+      phase: room.phase,
+      playerCount: maxPlayers,
+      connectedHumans,
+      botCount: botSeats.length,
+      openSeats,
+      hasBots: botSeats.length > 0,
+      roundNumber: room.roundNumber || 1,
+      scores: room.scores
+    });
+  }
+  return list;
+}
+
+function broadcastPublicRooms() {
+  const data = getPublicRoomsData();
+  io.emit('public_rooms_update', data);
+}
+
+function getJoinCooldownRemaining(socket, roomCode, playerName) {
+  const now = Date.now();
+  if (socket.joinCooldownExpiry && socket.joinCooldownExpiry > now) {
+    return Math.ceil((socket.joinCooldownExpiry - now) / 1000);
+  }
+  if (playerName) {
+    const key = `${playerName.trim().toLowerCase()}_${roomCode}`;
+    const expiry = joinCooldowns.get(key);
+    if (expiry && expiry > now) {
+      return Math.ceil((expiry - now) / 1000);
+    }
+  }
+  return 0;
+}
+
+function setJoinCooldown(socket, roomCode, playerName, seconds = 45) {
+  const now = Date.now();
+  const expiry = now + (seconds * 1000);
+  socket.joinCooldownExpiry = expiry;
+  if (playerName) {
+    const key = `${playerName.trim().toLowerCase()}_${roomCode}`;
+    joinCooldowns.set(key, expiry);
+  }
+}
+
+// API-Endpunkt für aktive öffentliche Lobbys (für Render & Browser)
+app.get('/api/rooms', (req, res) => {
+  res.json(getPublicRoomsData());
+});
+
 // Fallback-Route für direkte Glitch-/Browser-Zugriffe
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
-
-// In-Memory Raum-Verwaltung
-const rooms = new Map();
 
 // Kurze, abwechslungsreiche Bot-Namen (kurz, prägnant, mobil-optimiert)
 const SHORT_BOT_NAMES = [
@@ -115,7 +183,8 @@ function createRoom(roomCode, hostName, hostSocketId) {
       startScoreB: 13,                // Startwert Team B (Standard: 13)
       drinkingGameMode: 'none',       // Trinkspiel-Modus: 'none', 'light', 'medium', 'heavy' (Standard: 'none')
       trickDisplaySeconds: 2.5,       // Anzeigedauer des fertigen Stichs (Standard: 2.5s)
-      dealAndTurnDelaySeconds: 1.0    // Pause bei Austeilen & Bot-Zügen (Standard: 1.0s)
+      dealAndTurnDelaySeconds: 1.0,   // Pause bei Austeilen & Bot-Zügen (Standard: 1.0s)
+      isPublic: true                  // In aktiver Liste sichtbar & Nachjoinen erlaubt (Standard: true)
     },
     scores: { teamA: 13, teamB: 13 },
     dealerIndex: 0,
@@ -937,6 +1006,11 @@ io.on('connection', (socket) => {
 
   // Raum erstellen
   socket.on('create_room', ({ playerName, settings }) => {
+    // Falls dieser Client bereits in einem Raum war: den alten Raum vorher sauber auflösen/verlassen!
+    if (currentRoomCode) {
+      handlePlayerLeave();
+    }
+
     const code = generateRoomCode();
     const room = createRoom(code, playerName || 'Spieler 1', socket.id);
     if (settings) {
@@ -968,6 +1042,9 @@ io.on('connection', (socket) => {
       if (typeof settings.dealAndTurnDelaySeconds === 'number' && settings.dealAndTurnDelaySeconds >= 0.3 && settings.dealAndTurnDelaySeconds <= 6) {
         room.settings.dealAndTurnDelaySeconds = Math.round(settings.dealAndTurnDelaySeconds * 10) / 10;
       }
+      if (typeof settings.isPublic === 'boolean') {
+        room.settings.isPublic = settings.isPublic;
+      }
     }
     rooms.set(code, room);
     currentRoomCode = code;
@@ -975,6 +1052,211 @@ io.on('connection', (socket) => {
     socket.join(code);
     socket.emit('room_created', { roomCode: code, seatIndex: 0 });
     broadcastGameState(room);
+    broadcastPublicRooms();
+  });
+
+  // Öffentliche Räume für Startseite anfordern
+  socket.on('get_public_rooms', () => {
+    socket.emit('public_rooms_update', getPublicRoomsData());
+  });
+
+  // Normaler Beitritt in der Lobby
+  const doNormalJoin = (sock, code, playerName, preferredSeat) => {
+    const room = rooms.get(code);
+    if (!room) return sock.emit('error_message', 'Raum nicht gefunden.');
+
+    // Prüfen, ob die Partie privat ist (Beitritt gesperrt)
+    if (room.settings && room.settings.isPublic === false) {
+      return sock.emit('error_message', 'Diese Partie ist privat. Der Spielleiter hat den Beitritt gesperrt.');
+    }
+
+    const maxPlayers = room.settings.playerCount || 4;
+    let targetSeat = -1;
+    if (typeof preferredSeat === 'number' && preferredSeat >= 0 && preferredSeat < maxPlayers && (!room.seats[preferredSeat] || room.seats[preferredSeat].isBot)) {
+      targetSeat = preferredSeat;
+    } else {
+      targetSeat = room.seats.findIndex((s, idx) => idx < maxPlayers && s === null);
+      if (targetSeat === -1) {
+        targetSeat = room.seats.findIndex((s, idx) => idx < maxPlayers && s && s.isBot);
+      }
+    }
+
+    if (targetSeat === -1) {
+      return sock.emit('error_message', `Dieser Raum ist bereits voll (${maxPlayers} echte Spieler).`);
+    }
+
+    const previousSeat = room.seats[targetSeat];
+    const isReplacingBot = previousSeat && previousSeat.isBot;
+    const oldBotName = isReplacingBot ? previousSeat.name : '';
+
+    const newSeat = {
+      index: targetSeat,
+      name: playerName || `Spieler ${targetSeat + 1}`,
+      socketId: sock.id,
+      isBot: false,
+      connected: true,
+      team: targetSeat % 2 === 0 ? 0 : 1
+    };
+
+    room.seats[targetSeat] = newSeat;
+    currentRoomCode = code;
+    currentSeatIndex = targetSeat;
+    sock.join(code);
+
+    logAction(room, `${newSeat.name} ist Platz ${targetSeat + 1} beigetreten.`);
+    broadcastGameState(room);
+    broadcastPublicRooms();
+    checkBotAction(room);
+  };
+
+  // Nachjoin-Anfrage für laufende Runden
+  const handleJoinRequest = (requesterSocket, code, pName) => {
+    const room = rooms.get(code);
+    if (!room) {
+      return requesterSocket.emit('error_message', 'Raum nicht gefunden. Bitte Code prüfen.');
+    }
+
+    if (room.phase === 'LOBBY') {
+      return doNormalJoin(requesterSocket, code, pName);
+    }
+
+    // Wenn Spielrunde privat ist: Nachjoinen ablehnen
+    if (room.settings && room.settings.isPublic === false) {
+      return requesterSocket.emit('error_message', 'Diese Partie ist privat. Der Spielleiter hat Nachjoinen deaktiviert.');
+    }
+
+    const maxPlayers = room.settings.playerCount || 4;
+    const botSeats = room.seats.slice(0, maxPlayers).filter(s => s && s.isBot);
+    if (botSeats.length === 0) {
+      return requesterSocket.emit('error_message', 'Diese Partie ist voll besetzt (keine Bots zum Ersetzen vorhanden).');
+    }
+
+    const reqName = (pName || 'Gast').trim().slice(0, 15);
+    const remainingSec = getJoinCooldownRemaining(requesterSocket, code, reqName);
+    if (remainingSec > 0) {
+      return requesterSocket.emit('join_request_cooldown', { remainingSec });
+    }
+
+    const hostSocket = io.sockets.sockets.get(room.hostSocketId);
+    if (!hostSocket) {
+      return requesterSocket.emit('error_message', 'Der Spielleiter ist im Moment nicht erreichbar.');
+    }
+
+    const requestId = 'req_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+
+    if (!room.pendingJoinRequests) room.pendingJoinRequests = new Map();
+    room.pendingJoinRequests.set(requestId, {
+      requestId,
+      playerName: reqName,
+      socketId: requesterSocket.id,
+      timestamp: Date.now()
+    });
+
+    const availableBots = botSeats.map(b => ({
+      seatIndex: b.index,
+      name: b.name,
+      team: b.team,
+      teamLabel: b.team === 0 ? 'Team A' : 'Team B'
+    }));
+
+    // Benachrichtigung an den Spielleiter senden
+    hostSocket.emit('join_request_received', {
+      requestId,
+      playerName: reqName,
+      availableBots
+    });
+
+    const hostSeat = room.seats.find(s => s && s.socketId === room.hostSocketId);
+    requesterSocket.emit('join_request_sent', {
+      roomCode: code,
+      hostName: hostSeat ? hostSeat.name : 'Spielleiter'
+    });
+  };
+
+  // Beitrittsanfrage von Startseite (Nachjoinen im laufenden Spiel)
+  socket.on('request_join_room', ({ roomCode, playerName }) => {
+    const code = (roomCode || '').toUpperCase().trim();
+    handleJoinRequest(socket, code, playerName);
+  });
+
+  // Spielleiter entscheidet über Beitrittsanfrage
+  socket.on('resolve_join_request', ({ requestId, accept, targetSeat }) => {
+    if (!currentRoomCode) return;
+    const room = rooms.get(currentRoomCode);
+    if (!room) return;
+
+    if (!isPlayerHost(room, socket)) {
+      return socket.emit('error_message', 'Nur der Spielleiter kann Beitrittsanfragen verwalten.');
+    }
+
+    if (!room.pendingJoinRequests || !room.pendingJoinRequests.has(requestId)) {
+      return socket.emit('error_message', 'Diese Beitrittsanfrage ist nicht mehr aktiv.');
+    }
+
+    const req = room.pendingJoinRequests.get(requestId);
+    room.pendingJoinRequests.delete(requestId);
+
+    const requesterSocket = io.sockets.sockets.get(req.socketId);
+
+    if (!accept) {
+      if (requesterSocket) {
+        setJoinCooldown(requesterSocket, room.code, req.playerName, 45);
+        requesterSocket.emit('join_request_rejected', {
+          message: 'Der Spielleiter hat deine Anfrage abgelehnt (45 Sek. Cooldown).'
+        });
+      }
+      return socket.emit('join_request_resolved', { requestId, status: 'rejected' });
+    }
+
+    // Bei Annahme: Ziel-Sitzplatz (Bot) validieren
+    const maxPlayers = room.settings.playerCount || 4;
+    if (typeof targetSeat !== 'number' || targetSeat < 0 || targetSeat >= maxPlayers) {
+      return socket.emit('error_message', 'Ungültiger Platz für Bot-Ersatz.');
+    }
+
+    const targetSeatObj = room.seats[targetSeat];
+    if (!targetSeatObj || !targetSeatObj.isBot) {
+      return socket.emit('error_message', 'Dieser Platz ist kein Bot und kann nicht ersetzt werden.');
+    }
+
+    if (!requesterSocket) {
+      return socket.emit('error_message', 'Der anfragende Spieler hat die Verbindung getrennt.');
+    }
+
+    const oldBotName = targetSeatObj.name;
+    room.seats[targetSeat] = {
+      index: targetSeat,
+      name: req.playerName,
+      socketId: requesterSocket.id,
+      isBot: false,
+      connected: true,
+      team: targetSeat % 2 === 0 ? 0 : 1,
+      isHost: false
+    };
+
+    requesterSocket.join(room.code);
+    requesterSocket.emit('join_request_accepted', {
+      roomCode: room.code,
+      seatIndex: targetSeat
+    });
+
+    logAction(room, `🎉 ${req.playerName} ist beigetreten und hat ${oldBotName} ersetzt!`);
+
+    if (room.currentTurn === targetSeat && room.botTimer) {
+      clearTimeout(room.botTimer);
+      room.botTimer = null;
+    }
+
+    socket.emit('join_request_resolved', { requestId, status: 'accepted', seatIndex: targetSeat, playerName: req.playerName });
+    broadcastGameState(room);
+    broadcastPublicRooms();
+    checkBotAction(room);
+  });
+
+  // Bestätigung vom beigetretenen Spieler für Room & Seat Variablen
+  socket.on('confirm_midgame_join', ({ roomCode, seatIndex }) => {
+    currentRoomCode = roomCode;
+    currentSeatIndex = seatIndex;
   });
 
   // Raum beitreten
@@ -1012,54 +1294,13 @@ io.on('connection', (socket) => {
       }
     }
 
-    // Freien Platz oder Bot-Platz suchen (auch im laufenden Spiel Hot-Swap!)
-    const maxPlayers = room.settings.playerCount || 4;
-    let targetSeat = -1;
-    if (typeof preferredSeat === 'number' && preferredSeat >= 0 && preferredSeat < maxPlayers && (!room.seats[preferredSeat] || room.seats[preferredSeat].isBot)) {
-      targetSeat = preferredSeat;
-    } else {
-      // 1. Zuerst komplett leere Plätze suchen
-      targetSeat = room.seats.findIndex((s, idx) => idx < maxPlayers && s === null);
-      // 2. Falls keine leeren Plätze: Bot-Plätze übernehmen (Hot-Swap)
-      if (targetSeat === -1) {
-        targetSeat = room.seats.findIndex((s, idx) => idx < maxPlayers && s && s.isBot);
-      }
+    // 3. Wenn Spiel bereits läuft: Beitrittsanfrage an den Spielleiter senden!
+    if (room.phase !== 'LOBBY') {
+      return handleJoinRequest(socket, code, playerName);
     }
 
-    if (targetSeat === -1) {
-      return socket.emit('error_message', `Dieser Raum ist bereits voll (${maxPlayers} echte Spieler).`);
-    }
-
-    const previousSeat = room.seats[targetSeat];
-    const isReplacingBot = previousSeat && previousSeat.isBot;
-    const oldBotName = isReplacingBot ? previousSeat.name : '';
-
-    const newSeat = {
-      index: targetSeat,
-      name: playerName || `Spieler ${targetSeat + 1}`,
-      socketId: socket.id,
-      isBot: false,
-      connected: true,
-      team: targetSeat % 2 === 0 ? 0 : 1
-    };
-
-    room.seats[targetSeat] = newSeat;
-    currentRoomCode = code;
-    currentSeatIndex = targetSeat;
-    socket.join(code);
-
-    if (isReplacingBot && room.phase !== 'LOBBY') {
-      logAction(room, `🎉 ${newSeat.name} ist dem laufenden Spiel beigetreten und hat ${oldBotName} ersetzt!`);
-      if (room.currentTurn === targetSeat && room.botTimer) {
-        clearTimeout(room.botTimer);
-        room.botTimer = null;
-      }
-    } else {
-      logAction(room, `${newSeat.name} ist Platz ${targetSeat + 1} beigetreten.`);
-    }
-
-    broadcastGameState(room);
-    checkBotAction(room);
+    // In der Lobby: Normal beitreten
+    doNormalJoin(socket, code, playerName, preferredSeat);
   });
 
   // Reconnect nach kurzem Browser-Refresh / Verbindungsabbruch
@@ -1199,10 +1440,30 @@ io.on('connection', (socket) => {
       if (typeof settings.dealAndTurnDelaySeconds === 'number' && settings.dealAndTurnDelaySeconds >= 0.3 && settings.dealAndTurnDelaySeconds <= 6) {
         room.settings.dealAndTurnDelaySeconds = Math.round(settings.dealAndTurnDelaySeconds * 10) / 10;
       }
+      if (typeof settings.isPublic === 'boolean') {
+        room.settings.isPublic = settings.isPublic;
+        broadcastPublicRooms();
+      }
     }
 
     logAction(room, `⚙️ Spieleinstellungen aktualisiert durch ${room.seats[currentSeatIndex] ? room.seats[currentSeatIndex].name : 'Host'}.`);
     broadcastGameState(room);
+  });
+
+  // Schneller Privatsphäre-Hebel durch den Spielleiter
+  socket.on('toggle_room_privacy', ({ isPublic }) => {
+    if (!currentRoomCode) return;
+    const room = rooms.get(currentRoomCode);
+    if (!room) return;
+    if (!isPlayerHost(room, socket)) {
+      return socket.emit('error_message', 'Nur der Spielleiter kann die Privatsphäre der Runde ändern.');
+    }
+
+    room.settings.isPublic = !!isPublic;
+    const statusText = room.settings.isPublic ? 'öffentlich (Beitritt & Nachjoinen aktiv)' : 'privat (Beitritt gesperrt)';
+    logAction(room, `🔒 Runde ist nun ${statusText}.`);
+    broadcastGameState(room);
+    broadcastPublicRooms();
   });
 
   // Spiel starten
@@ -1227,6 +1488,7 @@ io.on('connection', (socket) => {
     };
     room.dealerIndex = 0;
     startNewRound(room);
+    broadcastPublicRooms();
   });
 
   // Trumpf auswählen
@@ -1310,7 +1572,7 @@ io.on('connection', (socket) => {
   });
 
   // Lobby oder aktives Spiel verlassen (im Spiel nahtlos durch Bot ersetzt)
-  const handlePlayerLeave = () => {
+  function handlePlayerLeave() {
     if (!currentRoomCode || currentSeatIndex === -1) return;
     const room = rooms.get(currentRoomCode);
     if (!room) return;
@@ -1337,6 +1599,7 @@ io.on('connection', (socket) => {
           rooms.delete(currentRoomCode);
           socket.leave(currentRoomCode);
           socket.emit('left_room');
+          broadcastPublicRooms();
         }
       } else {
         room.seats[leavingSeat] = null;
@@ -1344,9 +1607,27 @@ io.on('connection', (socket) => {
         socket.leave(currentRoomCode);
         socket.emit('left_room');
         broadcastGameState(room);
+        broadcastPublicRooms();
       }
     } else {
-      // Im aktiven Spiel: Spieler nahtlos durch Bot ersetzen!
+      // Prüfen, ob nach dem Verlassen überhaupt noch menschliche Spieler im Raum sind:
+      const remainingHumans = room.seats.filter(s => s && !s.isBot && s.socketId && s.index !== leavingSeat);
+      if (remainingHumans.length === 0) {
+        if (room.botTimer) {
+          clearTimeout(room.botTimer);
+          room.botTimer = null;
+        }
+        logAction(room, `🚪 Letzter menschlicher Spieler hat das Spiel verlassen. Partie wurde beendet.`);
+        rooms.delete(currentRoomCode);
+        socket.leave(currentRoomCode);
+        socket.emit('left_room');
+        broadcastPublicRooms();
+        currentRoomCode = null;
+        currentSeatIndex = -1;
+        return;
+      }
+
+      // Im aktiven Spiel (wenn noch andere Menschen da sind): Spieler nahtlos durch Bot ersetzen!
       const newBotName = getRandomBotName(room);
       room.seats[leavingSeat] = {
         index: leavingSeat,
@@ -1361,16 +1642,14 @@ io.on('connection', (socket) => {
 
       // Falls der Spieler Host war, Host-Rolle weitergeben an nächsten Menschen
       if (isHost) {
-        const nextHuman = room.seats.find(s => s && !s.isBot && s.socketId && s.index !== leavingSeat);
-        if (nextHuman) {
-          room.hostSocketId = nextHuman.socketId;
-          logAction(room, `👑 ${nextHuman.name} ist nun der neue Spielleiter.`);
-        }
+        room.hostSocketId = remainingHumans[0].socketId;
+        logAction(room, `👑 ${remainingHumans[0].name} ist nun der neue Spielleiter.`);
       }
 
       socket.leave(currentRoomCode);
       socket.emit('left_room');
       broadcastGameState(room);
+      broadcastPublicRooms();
 
       // Falls der gehende Spieler am Zug war: Bot zieht sofort
       checkBotAction(room);
@@ -1421,6 +1700,7 @@ io.on('connection', (socket) => {
 
     logAction(room, `🏠 ${room.seats[currentSeatIndex] ? room.seats[currentSeatIndex].name : 'Spielleiter'} hat die Partie beendet. Alle Spieler sind zurück in der Lobby.`);
     broadcastGameState(room);
+    broadcastPublicRooms();
   });
 
   // Spieler durch den Spielleiter kicken (wird sofort durch Bot ersetzt)
@@ -1434,16 +1714,17 @@ io.on('connection', (socket) => {
     }
 
     const maxPlayers = room.settings.playerCount || 4;
-    if (typeof targetSeat !== 'number' || targetSeat < 0 || targetSeat >= maxPlayers) return;
-    if (targetSeat === currentSeatIndex) {
-      return socket.emit('error_message', 'Der Spielleiter kann sich nicht selbst kicken.');
+    if (typeof targetSeat !== 'number' || targetSeat < 0 || targetSeat >= maxPlayers) {
+      return socket.emit('error_message', 'Ungültiger Spieler-Platz.');
     }
 
-    const targetPlayer = room.seats[targetSeat];
-    if (!targetPlayer) return;
+    const target = room.seats[targetSeat];
+    if (!target || target.isBot || target.socketId === socket.id) {
+      return socket.emit('error_message', 'Dieser Platz kann nicht gekickt werden.');
+    }
 
-    const kickedName = targetPlayer.name;
-    const kickedSocketId = targetPlayer.socketId;
+    const kickedName = target.name;
+    const kickedSocket = io.sockets.sockets.get(target.socketId);
     const newBotName = getRandomBotName(room);
 
     room.seats[targetSeat] = {
@@ -1455,22 +1736,21 @@ io.on('connection', (socket) => {
       team: targetSeat % 2 === 0 ? 0 : 1
     };
 
-    logAction(room, `👢 ${kickedName} wurde vom Spielleiter entfernt und durch ${newBotName} ersetzt.`);
-
-    if (kickedSocketId) {
-      io.to(kickedSocketId).emit('kicked_from_room', { message: 'Du wurdest vom Spielleiter aus der Partie entfernt.' });
+    if (kickedSocket) {
+      kickedSocket.leave(currentRoomCode);
+      kickedSocket.emit('kicked_from_room', { message: 'Du wurdest vom Spielleiter aus dem Spiel entfernt.' });
     }
 
+    logAction(room, `👢 ${kickedName} wurde gekickt und durch ${newBotName} ersetzt.`);
     broadcastGameState(room);
+    broadcastPublicRooms();
     checkBotAction(room);
   });
 
-  // Clash Royale Ragebait Emotes senden
+  // Emotes senden
   socket.on('send_emote', ({ emote }) => {
-    if (!currentRoomCode) return;
-    const room = rooms.get(currentRoomCode);
-    if (!room) return;
-    if (typeof emote !== 'string') return;
+    if (!currentRoomCode || currentSeatIndex === -1) return;
+    if (!emote || typeof emote !== 'string') return;
 
     const now = Date.now();
     if (socket.lastEmoteTime && now - socket.lastEmoteTime < 700) {
@@ -1503,7 +1783,46 @@ io.on('connection', (socket) => {
           }
         }
 
+        // Prüfen, ob überhaupt noch ein menschlicher Spieler aktiv verbunden ist:
+        const anyConnectedHuman = room.seats.some(s => s && !s.isBot && s.connected !== false);
+        if (!anyConnectedHuman) {
+          if (room.botTimer) {
+            clearTimeout(room.botTimer);
+            room.botTimer = null;
+          }
+
+          // Automatische Bereinigung verlassener Lobbys / Spiele ohne menschliche Spieler:
+          if (room.phase === 'LOBBY') {
+            setTimeout(() => {
+              const checkRoom = rooms.get(room.code);
+              if (checkRoom && checkRoom.phase === 'LOBBY') {
+                const stillAnyHuman = checkRoom.seats.some(s => s && !s.isBot && s.connected !== false);
+                if (!stillAnyHuman) {
+                  rooms.delete(room.code);
+                  broadcastPublicRooms();
+                }
+              }
+            }, 8000);
+          } else {
+            setTimeout(() => {
+              const checkRoom = rooms.get(room.code);
+              if (checkRoom && checkRoom.phase !== 'LOBBY') {
+                const stillAnyHuman = checkRoom.seats.some(s => s && !s.isBot && s.connected !== false);
+                if (!stillAnyHuman) {
+                  if (checkRoom.botTimer) {
+                    clearTimeout(checkRoom.botTimer);
+                    checkRoom.botTimer = null;
+                  }
+                  rooms.delete(room.code);
+                  broadcastPublicRooms();
+                }
+              }
+            }, 15000);
+          }
+        }
+
         broadcastGameState(room);
+        broadcastPublicRooms();
       }
     }
   });
