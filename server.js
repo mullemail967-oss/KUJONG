@@ -178,6 +178,7 @@ function createRoom(roomCode, hostName, hostSocketId) {
       alwaysClubQueenTrump: true,     // Kreuz-Dame immer 2. bzw. 3. Trumpf (Standard: true)
       allowMit: true,                 // Pik-Dame Mit'-Ansage erlaubt (Standard: true)
       contraPoints: 4,                // Rundenwert bei Kontra: 4 Pkt (Standard: 4, alternativ: 3)
+      allowContraRe: false,           // Kontra-Re (Gegen-Kontra) erlaubt: verdoppelt auf 8 Pkt bzw. +1 auf 4 Pkt (Standard: false)
       ansagerZeroTricksPenalty: 2,    // Strafpunkte bei 0 Stichen für Ansager: 2 Pkt (Standard: 2, alternativ: 1)
       startScoreA: 13,                // Startwert Team A (Standard: 13)
       startScoreB: 13,                // Startwert Team B (Standard: 13)
@@ -196,9 +197,17 @@ function createRoom(roomCode, hostName, hostSocketId) {
     stock: [],
     trumpSuit: null,
     turnedCard: null, // Aufgedeckte Karte bei 'Trumpf drehen'
+    isTurnedTrump: false,
+    mitPreAnnounced: false,
     isMitAnnounced: false,
     isContraAnnounced: false,
+    isContraReAnnounced: false,
     mitHolderIndex: -1,
+    mitAnnouncerIndex: -1,
+    contraAnnouncerIndex: -1,
+    contraTeam: -1,
+    contraReAnnouncerIndex: -1,
+    contraReTeam: -1,
     declarerTeam: null,
     currentTrick: [], // [{ playerIndex, card, playerName }]
     currentTurn: 1,
@@ -212,6 +221,7 @@ function createRoom(roomCode, hostName, hostSocketId) {
     lastTrick: null,
     trickWinnerInfo: null,
     roundSummary: null,
+    hasThrownCards: {}, // { [playerIndex]: boolean }
     actionLog: [`Raum ${roomCode} erstellt durch ${hostName}.`],
     chatMessages: [],
     botTimer: null
@@ -265,6 +275,86 @@ function isPlayerHost(room, socket) {
 }
 
 /**
+ * Prüft, ob das Zeitfenster für Kontra / Kontra-Re offen ist:
+ * In Stich 1 (trickCount === 0) ODER in Stich 2, bevor die erste Karte gelegt wurde (trickCount === 1 && currentTrick.length === 0).
+ */
+function isContraWindowOpen(room) {
+  if (room.phase !== 'PLAY_TRICK') return false;
+  return room.trickCount === 0 || (room.trickCount === 1 && (!room.currentTrick || room.currentTrick.length === 0));
+}
+
+/**
+ * Prüft, ob ein Spieler seine Restkarten wegschmeißen darf.
+ * Bedingungen (müssen ALLE zutreffen):
+ * 1. Phase ist PLAY_TRICK und Spieler ist am Zug.
+ * 2. Spieler spielt NICHT auf (currentTrick.length > 0).
+ * 3. Mindestens 2 Handkarten.
+ * 4. Hält 0 Trumpfkarten (weder Trumpffarbe, noch ♣Q falls Trumpf, noch ♠Q falls Mit').
+ * 5. Alle Handkarten haben 0 Augen (nur 10, 9, bzw. 8, 7 in 6P - keine A, K, Q, J).
+ * 6. Im aktuellen Stich liegt bereits Trumpf ODER eine höhere Karte der angespielten Farbe
+ *    als jede Karte, die der Spieler in dieser Farbe besitzt (oder er hat die Farbe gar nicht).
+ *    -> Spieler kann zu 100% keinen Stich mehr machen.
+ */
+function canPlayerThrowCards(room, playerIndex) {
+  if (room.phase !== 'PLAY_TRICK') return false;
+  if (room.currentTurn !== playerIndex) return false;
+  if (!room.currentTrick || room.currentTrick.length === 0) return false;
+
+  const hand = room.hands[playerIndex];
+  if (!hand || hand.length < 2) return false;
+
+  // 1. Darf KEINEN Trumpf besitzen
+  for (const card of hand) {
+    if (isTrumpCard(card, room.trumpSuit, room.isMitAnnounced, room.settings)) {
+      return false;
+    }
+  }
+
+  // 2. Jede Handkarte muss 0 Augen haben (kein Ass, König, Dame, Bube)
+  for (const card of hand) {
+    if (POINT_VALUES[card.rank] !== 0) {
+      return false;
+    }
+  }
+
+  // 3. Im aktuellen Stich: Führt bereits ein Trumpf?
+  const hasTrumpInTrick = room.currentTrick.some(e => isTrumpCard(e.card, room.trumpSuit, room.isMitAnnounced, room.settings));
+  if (hasTrumpInTrick) {
+    return true; // Liegt bereits Trumpf -> Nicht-Trumpf-Karte kann den Stich niemals gewinnen
+  }
+
+  // 4. Angespielte Farbe des Stichs
+  const leadCard = room.currentTrick[0].card;
+  const leadEffectiveSuit = getEffectiveSuit(leadCard, room.trumpSuit, room.isMitAnnounced, room.settings);
+
+  // Karten des Spielers in der angespielten Farbe
+  const matchingCards = hand.filter(c => getEffectiveSuit(c, room.trumpSuit, room.isMitAnnounced, room.settings) === leadEffectiveSuit);
+  if (matchingCards.length === 0) {
+    // Hat die angespielte Farbe nicht und hat keinen Trumpf -> kann den Stich niemals gewinnen!
+    return true;
+  }
+
+  // Finde die aktuell stärkste Karte der angespielten Farbe im Stich
+  let highestOffSuitPowerInTrick = 0;
+  for (const entry of room.currentTrick) {
+    if (getEffectiveSuit(entry.card, room.trumpSuit, room.isMitAnnounced, room.settings) === leadEffectiveSuit) {
+      const p = getOffSuitPower(entry.card);
+      if (p > highestOffSuitPowerInTrick) {
+        highestOffSuitPowerInTrick = p;
+      }
+    }
+  }
+
+  // Kann irgendeine Karte des Spielers die bisherige Bestleistung übertreffen?
+  const maxPlayerPower = Math.max(...matchingCards.map(c => getOffSuitPower(c)));
+  if (maxPlayerPower > highestOffSuitPowerInTrick) {
+    return false; // Eine Karte des Spielers könnte aktuell noch führen/gewinnen!
+  }
+
+  return true;
+}
+
+/**
  * Filtert sensible Kartendaten (Hände anderer Spieler & verdeckter Stock) heraus.
  */
 function sanitizeStateForPlayer(room, seatIndex) {
@@ -290,7 +380,8 @@ function sanitizeStateForPlayer(room, seatIndex) {
       isDeclarer: room.declarerIndex === idx,
       isTurn: room.currentTurn === idx,
       isMitAnnouncer: room.isMitAnnounced && (room.mitAnnouncerIndex === idx),
-      isHost: (seat.socketId === room.hostSocketId)
+      isHost: (seat.socketId === room.hostSocketId),
+      hasThrownCards: Boolean(room.hasThrownCards && room.hasThrownCards[idx])
     };
   });
 
@@ -312,26 +403,49 @@ function sanitizeStateForPlayer(room, seatIndex) {
   }
 
   // canAnnounceMit: Mit' ist in Einstellungen erlaubt, Stich 1 läuft, Spieler besitzt ♠Q und Mit' wurde noch nicht angesagt
-  const canAnnounceMit = (
+  // Vorab-Ansage erlaubt, solange der Spieler seine eigene Karte noch nicht gespielt hat (bzw. beim Trumpf drehen bis max. 2 gelegte Karten)
+  const hasPlayedInTrick1 = room.currentTrick.some(e => e.playerIndex === seatIndex);
+  const isTurnedTrumpDeclarer = Boolean(room.isTurnedTrump && room.declarerIndex === seatIndex);
+  let canAnnounceMit = false;
+  if (
     room.settings.allowMit !== false &&
     room.phase === 'PLAY_TRICK' &&
     room.trickCount === 0 &&
-    room.mitHolderIndex === seatIndex &&
-    !room.isMitAnnounced
-  );
+    !room.isMitAnnounced &&
+    room.mitHolderIndex === seatIndex
+  ) {
+    if (isTurnedTrumpDeclarer) {
+      canAnnounceMit = room.currentTrick.length <= 2;
+    } else {
+      canAnnounceMit = !hasPlayedInTrick1;
+    }
+  }
 
-  // canAnnounceContra: Mit' ist aktiv, Kontra noch nicht gegeben, Stich 1 läuft, Spieler ist im GEGNER-Team der Mit'
+  // canAnnounceContra: Mit' ist aktiv, Kontra noch nicht gegeben, Zeitfenster offen (Stich 1 ODER vor 1. Karte von Stich 2)
   const mitTeam = room.mitHolderIndex !== -1 ? (room.mitHolderIndex % 2 === 0 ? 0 : 1) : -1;
   const myTeam = seatIndex % 2 === 0 ? 0 : 1;
-  const canAnnounceContra = (
-    room.phase === 'PLAY_TRICK' &&
-    room.trickCount === 0 &&
+  const contraWindow = isContraWindowOpen(room);
+  const canAnnounceContra = Boolean(
+    contraWindow &&
     room.isMitAnnounced &&
     !room.isContraAnnounced &&
     myTeam !== mitTeam
   );
 
+  // canAnnounceContraRe: Kontra-Re aktiv in Einstellungen, Kontra gegeben, Re noch nicht gegeben, Zeitfenster offen,
+  // Spieler ist im HERAUSGEFORDERTEN Team (Gegner des Kontra-Ansagers), und Spieler ist KEIN BOT!
+  const contraTeam = room.contraTeam !== -1 ? room.contraTeam : (1 - mitTeam);
+  const canAnnounceContraRe = Boolean(
+    room.settings.allowContraRe &&
+    contraWindow &&
+    room.isContraAnnounced &&
+    !room.isContraReAnnounced &&
+    myTeam !== contraTeam &&
+    (room.seats[seatIndex] && !room.seats[seatIndex].isBot)
+  );
+
   const isMeHost = (room.seats[seatIndex] && room.seats[seatIndex].socketId === room.hostSocketId);
+  const canThrowCards = canPlayerThrowCards(room, seatIndex);
 
   return {
     roomCode: room.code,
@@ -347,8 +461,11 @@ function sanitizeStateForPlayer(room, seatIndex) {
     isMitAnnounced: room.isMitAnnounced,
     mitAnnouncerIndex: room.isMitAnnounced ? room.mitAnnouncerIndex : -1,
     isContraAnnounced: room.isContraAnnounced,
+    isContraReAnnounced: Boolean(room.isContraReAnnounced),
     canAnnounceMit: canAnnounceMit,
     canAnnounceContra: canAnnounceContra,
+    canAnnounceContraRe: canAnnounceContraRe,
+    isMitPreAnnounced: (room.mitHolderIndex === seatIndex ? Boolean(room.mitPreAnnounced) : false),
     currentTrick: room.currentTrick,
     currentTurn: room.currentTurn,
     trickCount: room.trickCount,
@@ -367,7 +484,9 @@ function sanitizeStateForPlayer(room, seatIndex) {
       team: myTeam,
       isHost: isMeHost,
       hand: myHand,
-      playableMap: playableMap
+      playableMap: playableMap,
+      canThrowCards: canThrowCards,
+      hasThrownCards: Boolean(room.hasThrownCards && room.hasThrownCards[seatIndex])
     }
   };
 }
@@ -388,13 +507,21 @@ function startNewRound(room) {
   room.eyesTeamB = 0;
   room.trumpSuit = null;
   room.turnedCard = null;
+  room.isTurnedTrump = false;
+  room.mitPreAnnounced = false;
   room.isMitAnnounced = false;
   room.isContraAnnounced = false;
+  room.isContraReAnnounced = false;
   room.mitHolderIndex = -1;
   room.mitAnnouncerIndex = -1;
+  room.contraAnnouncerIndex = -1;
+  room.contraTeam = -1;
+  room.contraReAnnouncerIndex = -1;
+  room.contraReTeam = -1;
   room.lastTrick = null;
   room.trickWinnerInfo = null;
   room.roundSummary = null;
+  room.hasThrownCards = {};
 
   // Deck mischen (24 Karten bei 4p, 32 Karten bei 6p)
   const freshDeck = shuffleDeck(createDeck(maxPlayers));
@@ -449,6 +576,7 @@ function handleTurnTrump(room) {
 
   room.trumpSuit = chosenSuit;
   room.turnedCard = turnedCard;
+  room.isTurnedTrump = true;
   logAction(room, `🎲 ${declarerName} hat Trumpf gedreht! Aufgedeckt & direkt angespielt: ${suitSymbols[chosenSuit]} ${turnedCard.rank} ➔ Trumpf ist ${suitSymbols[chosenSuit]}!`);
 
   // Zweites Austeilen:
@@ -512,6 +640,7 @@ function handleTrumpSelection(room, chosenSuit) {
   const maxPlayers = room.settings.playerCount || 4;
   room.trumpSuit = chosenSuit;
   room.turnedCard = null;
+  room.isTurnedTrump = false;
   const suitSymbols = { clubs: '♣ Kreuz', spades: '♠ Pik', hearts: '♥ Herz', diamonds: '♦ Karo' };
   const declarerName = room.seats[room.declarerIndex] ? room.seats[room.declarerIndex].name : `Spieler ${room.declarerIndex + 1}`;
   logAction(room, `${declarerName} hat ${suitSymbols[chosenSuit]} als Trumpf gewählt!`);
@@ -583,6 +712,7 @@ function handleMitAnnouncement(room, playerIndex, announce) {
 
   if (announce && !room.isMitAnnounced) {
     room.isMitAnnounced = true;
+    room.mitPreAnnounced = false;
     room.mitAnnouncerIndex = playerIndex;
     const announcerName = room.seats[playerIndex].name;
     logAction(room, `⭐ ${announcerName} hat die MIT' ANGESAGT! Rundenwert: 2 Punkte. Pik-Dame ist 2. höchster Trumpf.`);
@@ -605,11 +735,10 @@ function handleMitAnnouncement(room, playerIndex, announce) {
 }
 
 /**
- * Verarbeitet die Kontra-Ansage des gegnerischen Teams in Stich 1 nach Mit'.
+ * Verarbeitet die Kontra-Ansage des gegnerischen Teams in Stich 1 oder vor 1. Karte von Stich 2.
  */
 function handleContraAnnouncement(room, playerIndex) {
-  if (room.phase !== 'PLAY_TRICK') return;
-  if (room.trickCount !== 0) return;
+  if (!isContraWindowOpen(room)) return;
   if (!room.isMitAnnounced) return;
   if (room.isContraAnnounced) return;
 
@@ -618,8 +747,11 @@ function handleContraAnnouncement(room, playerIndex) {
   if (playerTeam === mitTeam) return;
 
   room.isContraAnnounced = true;
+  room.contraAnnouncerIndex = playerIndex;
+  room.contraTeam = playerTeam;
   const announcerName = room.seats[playerIndex].name;
-  logAction(room, `⚡⚡ ${announcerName} hat KONTRA gegeben! Rundenwert verdoppelt auf 4 PUNKTE (5 bei Durchmarsch)!`);
+  const contraPts = room.settings.contraPoints === 3 ? 3 : 4;
+  logAction(room, `⚡⚡ ${announcerName} hat KONTRA gegeben! Rundenwert erhöht auf ${contraPts} PUNKTE (${contraPts + 1} bei Durchmarsch)!`);
 
   // Event für auffällige Spielfeld-Benachrichtigung an alle Clients
   io.to(room.code).emit('contra_announced', {
@@ -628,6 +760,165 @@ function handleContraAnnouncement(room, playerIndex) {
   });
 
   broadcastGameState(room);
+}
+
+/**
+ * Verarbeitet die Kontra-Re-Ansage (Gegen-Kontra) des herausgeforderten Teams.
+ * Bots dürfen niemals Kontra-Re geben.
+ */
+function handleContraReAnnouncement(room, playerIndex) {
+  if (!isContraWindowOpen(room)) return;
+  if (!room.isContraAnnounced) return;
+  if (room.isContraReAnnounced) return;
+  if (!room.settings.allowContraRe) return;
+
+  const seat = room.seats[playerIndex];
+  if (!seat || seat.isBot) return; // Bots sind strikt verboten!
+
+  const playerTeam = playerIndex % 2 === 0 ? 0 : 1;
+  const contraTeam = room.contraTeam !== -1 ? room.contraTeam : 0;
+  if (playerTeam === contraTeam) return;
+
+  room.isContraReAnnounced = true;
+  room.contraReAnnouncerIndex = playerIndex;
+  room.contraReTeam = playerTeam;
+
+  const contraPoints = room.settings.contraPoints === 3 ? 3 : 4;
+  const rePoints = (contraPoints === 4) ? 8 : 4;
+  const announcerName = seat.name;
+  logAction(room, `⚡⚡⚡ ${announcerName} hat KONTRA-RE gegeben! Rundenwert steigt auf ${rePoints} PUNKTE (${rePoints + 1} bei Durchmarsch)!`);
+
+  // Event für auffällige Spielfeld-Benachrichtigung an alle Clients
+  io.to(room.code).emit('contra_re_announced', {
+    seatIndex: playerIndex,
+    playerName: announcerName
+  });
+
+  broadcastGameState(room);
+}
+
+/**
+ * Ermittelt, wie viele Spieler an diesem Stich teilnehmen (noch Handkarten haben oder bereits gelegt haben).
+ */
+function getActiveTrickPlayerCount(room) {
+  const maxPlayers = room.settings.playerCount || 4;
+  let count = 0;
+  for (let s = 0; s < maxPlayers; s++) {
+    const hasCards = (room.hands[s] && room.hands[s].length > 0);
+    const hasPlayedInTrick = room.currentTrick && room.currentTrick.some(e => e.playerIndex === s);
+    if (hasCards || hasPlayedInTrick) {
+      count++;
+    }
+  }
+  return count;
+}
+
+/**
+ * Ermittelt den nächsten aktiven Spieler (mit Handkarten) im Uhrzeigersinn.
+ */
+function getNextTurnIndex(room, fromIndex) {
+  const maxPlayers = room.settings.playerCount || 4;
+  let next = (fromIndex + 1) % maxPlayers;
+  let attempts = 0;
+  while (attempts < maxPlayers) {
+    if (room.hands[next] && room.hands[next].length > 0) {
+      return next;
+    }
+    next = (next + 1) % maxPlayers;
+    attempts++;
+  }
+  return fromIndex;
+}
+
+/**
+ * Leitet die Auswertung eines vollständigen Stichs ein.
+ */
+function triggerTrickEvaluation(room) {
+  room.phase = 'EVALUATING_TRICK';
+
+  // Stich SOFORT auswerten, damit die Anzeige exakt den Sieger DIESES Stichs zeigt!
+  const result = evaluateTrick(room.currentTrick, room.trumpSuit, room.isMitAnnounced, room.settings);
+  const winnerIndex = result.winnerIndex;
+  const winnerName = room.seats[winnerIndex].name;
+  const winnerTeam = winnerIndex % 2 === 0 ? 0 : 1;
+
+  room.trickWinnerInfo = {
+    winnerIndex,
+    winnerName,
+    winnerTeam,
+    winningCard: result.winningCard,
+    points: result.points
+  };
+
+  // lastTrick sofort mit aktuellem Stich befüllen
+  room.lastTrick = {
+    trickNumber: room.trickCount + 1,
+    cards: [...room.currentTrick],
+    winnerIndex,
+    winnerName,
+    points: result.points
+  };
+
+  broadcastGameState(room);
+
+  // Pause, damit alle den Stich & Sieger in Ruhe sehen.
+  let trickDelay = (room.settings && typeof room.settings.trickDisplaySeconds === 'number')
+    ? room.settings.trickDisplaySeconds * 1000
+    : 2500;
+  
+  // Falls Live-Augen AUS sind und Standard (2.5s) aktiv ist: etwas mehr Zeit zum Mitdenken
+  if (room.settings && room.settings.countEyesLive === false && room.settings.trickDisplaySeconds === 2.5) {
+    trickDelay = (room.trickCount === 4) ? 5000 : 4000;
+  }
+
+  setTimeout(() => {
+    resolveTrick(room, result);
+  }, trickDelay);
+}
+
+/**
+ * Verarbeitet das Wegwerfen der Restkarten („Kein Stich mehr möglich, 0 Augen“).
+ * Die Karten werden direkt in den laufenden Stich geworfen und wandern mit diesem ab.
+ */
+function handleThrowCards(room, playerIndex) {
+  if (!canPlayerThrowCards(room, playerIndex)) return;
+
+  const thrown = [...room.hands[playerIndex]];
+  room.hands[playerIndex] = [];
+  room.hasThrownCards = room.hasThrownCards || {};
+  room.hasThrownCards[playerIndex] = true;
+
+  const playerName = room.seats[playerIndex].name;
+  logAction(room, `🗑️ ${playerName} hat die Karten weggeschmissen (${thrown.length} Karten in den Stich)!`);
+
+  // Alle Handkarten dieses Spielers wandern direkt in den aktuellen Stich!
+  thrown.forEach(card => {
+    room.currentTrick.push({
+      playerIndex,
+      card,
+      playerName,
+      isThrown: true
+    });
+  });
+
+  // Event für Benachrichtigung
+  io.to(room.code).emit('cards_thrown', {
+    seatIndex: playerIndex,
+    playerIndex,
+    playerName,
+    count: thrown.length
+  });
+
+  // Prüfen, ob alle aktiven Spieler in diesem Stich gelegt haben
+  const distinctPlayed = new Set(room.currentTrick.map(e => e.playerIndex)).size;
+  const activeCount = getActiveTrickPlayerCount(room);
+  if (distinctPlayed >= activeCount && activeCount > 0) {
+    triggerTrickEvaluation(room);
+  } else {
+    room.currentTurn = getNextTurnIndex(room, playerIndex);
+    broadcastGameState(room);
+    checkBotAction(room);
+  }
 }
 
 /**
@@ -660,55 +951,22 @@ function handleCardPlay(room, playerIndex, cardId) {
   const cardDisplay = `${suitIcons[card.suit]}${card.rank}`;
   logAction(room, `${playerName} spielt ${cardDisplay}`);
 
-  const maxPlayers = room.settings.playerCount || 4;
-
-  // Prüfen, ob der Stich vollständig ist (4 bzw. 6 Karten)
-  if (room.currentTrick.length === maxPlayers) {
-    room.phase = 'EVALUATING_TRICK';
-
-    // Stich SOFORT auswerten, damit die Anzeige exakt den Sieger DIESES Stichs zeigt!
-    const result = evaluateTrick(room.currentTrick, room.trumpSuit, room.isMitAnnounced, room.settings);
-    const winnerIndex = result.winnerIndex;
-    const winnerName = room.seats[winnerIndex].name;
-    const winnerTeam = winnerIndex % 2 === 0 ? 0 : 1;
-
-    room.trickWinnerInfo = {
-      winnerIndex,
-      winnerName,
-      winnerTeam,
-      winningCard: result.winningCard,
-      points: result.points
-    };
-
-    // lastTrick sofort mit aktuellem Stich befüllen
-    room.lastTrick = {
-      trickNumber: room.trickCount + 1,
-      cards: [...room.currentTrick],
-      winnerIndex,
-      winnerName,
-      points: result.points
-    };
-
-    broadcastGameState(room);
-
-    // Pause, damit alle den Stich & Sieger in Ruhe sehen.
-    let trickDelay = (room.settings && typeof room.settings.trickDisplaySeconds === 'number')
-      ? room.settings.trickDisplaySeconds * 1000
-      : 2500;
-    
-    // Falls Live-Augen AUS sind und Standard (2.5s) aktiv ist: etwas mehr Zeit zum Mitdenken
-    if (room.settings && room.settings.countEyesLive === false && room.settings.trickDisplaySeconds === 2.5) {
-      trickDelay = (room.trickCount === 4) ? 5000 : 4000;
-    }
-
-    setTimeout(() => {
-      resolveTrick(room, result);
-    }, trickDelay);
+  // Prüfen, ob der Stich vollständig ist (alle noch aktiven Spieler haben gelegt)
+  const distinctPlayed = new Set(room.currentTrick.map(e => e.playerIndex)).size;
+  const activeCount = getActiveTrickPlayerCount(room);
+  if (distinctPlayed >= activeCount && activeCount > 0) {
+    triggerTrickEvaluation(room);
   } else {
-    // Nächster Spieler im Uhrzeigersinn ist am Zug
-    room.currentTurn = (room.currentTurn + 1) % maxPlayers;
-    broadcastGameState(room);
-    checkBotAction(room);
+    // Nächster aktiver Spieler im Uhrzeigersinn ist am Zug
+    room.currentTurn = getNextTurnIndex(room, room.currentTurn);
+
+    // Falls der ♠Q-Besitzer die Mit' vorab gewählt hatte und nun am Zug ist: SOFORT FÜR ALLE ENTHÜLLEN!
+    if (room.trickCount === 0 && room.mitPreAnnounced && !room.isMitAnnounced && room.currentTurn === room.mitHolderIndex) {
+      handleMitAnnouncement(room, room.mitHolderIndex, true);
+    } else {
+      broadcastGameState(room);
+      checkBotAction(room);
+    }
   }
 }
 
@@ -738,12 +996,19 @@ function resolveTrick(room, result) {
   room.currentTrick = [];
   room.trickWinnerInfo = null;
 
-  // Wurden alle 5 Stiche gespielt?
-  if (room.trickCount === 5) {
+  const maxPlayers = room.settings.playerCount || 4;
+  const anyCardsLeft = room.hands.some((h, idx) => idx < maxPlayers && h && h.length > 0);
+
+  // Wurden alle 5 Stiche gespielt oder hat niemand mehr Karten?
+  if (room.trickCount === 5 || !anyCardsLeft) {
     resolveRound(room);
   } else {
-    // Stichgewinner spielt zum nächsten Stich aus
-    room.currentTurn = winnerIndex;
+    // Stichgewinner spielt zum nächsten Stich aus (falls er noch Karten hat, sonst nächster mit Karten)
+    let leadIndex = winnerIndex;
+    if (!room.hands[leadIndex] || room.hands[leadIndex].length === 0) {
+      leadIndex = getNextTurnIndex(room, winnerIndex);
+    }
+    room.currentTurn = leadIndex;
     room.phase = 'PLAY_TRICK';
     broadcastGameState(room);
     checkBotAction(room);
@@ -826,7 +1091,16 @@ function calculateDrinkingTask(room, evaluation) {
     return `🍻 DURCHMARSCH! ${loserTeamName} hat 0 Stiche geholt und trinkt ${sips} Schlucke!`;
   }
 
-  // 3. KONTRA VERLOREN
+  // 3. KONTRA-RE VERLOREN
+  if (room.isContraReAnnounced) {
+    const winningTeam = evaluation.winningTeam;
+    const loserTeamIndex = 1 - winningTeam;
+    const loserTeamName = loserTeamIndex === 0 ? 'Team A' : 'Team B';
+    const sips = sipsTable.contraLost * 2;
+    return `⚡⚡ KONTRA-RE VERLOREN! ${loserTeamName} zahlt die doppelte Zeche und trinkt ${sips} Schlucke!`;
+  }
+
+  // 3b. KONTRA VERLOREN
   if (room.isContraAnnounced) {
     const winningTeam = evaluation.winningTeam;
     const loserTeamIndex = 1 - winningTeam;
@@ -871,6 +1145,7 @@ function resolveRound(room) {
     tricksTeamB: room.tricksTeamB,
     isMitAnnounced: room.isMitAnnounced,
     isContraAnnounced: room.isContraAnnounced,
+    isContraReAnnounced: Boolean(room.isContraReAnnounced),
     options: room.settings
   });
 
@@ -951,8 +1226,8 @@ function checkBotAction(room) {
       }, turnDelay);
     }
   } else if (room.phase === 'PLAY_TRICK') {
-    // 1. Taktische Kontra-Prüfung für gegnerische Bots
-    if (room.trickCount === 0 && room.isMitAnnounced && !room.isContraAnnounced) {
+    // 1. Taktische Kontra-Prüfung für gegnerische Bots (in Stich 1 ODER in Stich 2 vor der 1. Karte)
+    if (isContraWindowOpen(room) && room.isMitAnnounced && !room.isContraAnnounced) {
       const mitTeam = room.mitHolderIndex !== -1 ? (room.mitHolderIndex % 2 === 0 ? 0 : 1) : -1;
       for (let s = 0; s < maxPlayers; s++) {
         const seat = room.seats[s];
@@ -969,6 +1244,13 @@ function checkBotAction(room) {
 
     const currentSeat = room.seats[room.currentTurn];
     if (currentSeat && currentSeat.isBot) {
+      // Wenn Stich 2 beginnt, Mit' aktiv ist und Kontra noch nicht gefallen ist,
+      // geben wir menschlichen Spielern etwas Bedenkzeit, bevor der Bot aufspielt!
+      let effectiveTurnDelay = turnDelay;
+      if (room.trickCount === 1 && (!room.currentTrick || room.currentTrick.length === 0) && room.isMitAnnounced && !room.isContraAnnounced) {
+        effectiveTurnDelay = Math.max(turnDelay, 1800);
+      }
+
       room.botTimer = setTimeout(() => {
         // 2. Taktische Mit'-Prüfung (in Stich 1, wenn Bot ♠Q hält)
         if (room.settings.allowMit !== false && room.trickCount === 0 && room.mitHolderIndex === room.currentTurn && !room.isMitAnnounced) {
@@ -978,7 +1260,13 @@ function checkBotAction(room) {
           }
         }
 
-        // 3. Taktische Kartenauswahl (Schmieren, gezielt Stechen, 0-Punkte Abwurf)
+        // 3. Karten wegschmeißen (Dead Hand Fold: 0 Augen, 0 Trümpfe, 0 Siegchancen)
+        if (canPlayerThrowCards(room, room.currentTurn)) {
+          handleThrowCards(room, room.currentTurn);
+          return;
+        }
+
+        // 4. Taktische Kartenauswahl (Schmieren, gezielt Stechen, 0-Punkte Abwurf)
         const hand = room.hands[room.currentTurn];
         if (!hand || hand.length === 0) return;
 
@@ -994,7 +1282,7 @@ function checkBotAction(room) {
         if (chosenCard) {
           handleCardPlay(room, room.currentTurn, chosenCard.id);
         }
-      }, turnDelay);
+      }, effectiveTurnDelay);
     }
   }
 }
@@ -1419,6 +1707,7 @@ io.on('connection', (socket) => {
       if (typeof settings.countEyesLive === 'boolean') room.settings.countEyesLive = settings.countEyesLive;
       if (typeof settings.alwaysClubQueenTrump === 'boolean') room.settings.alwaysClubQueenTrump = settings.alwaysClubQueenTrump;
       if (typeof settings.allowMit === 'boolean') room.settings.allowMit = settings.allowMit;
+      if (typeof settings.allowContraRe === 'boolean') room.settings.allowContraRe = settings.allowContraRe;
       if (settings.contraPoints === 3 || settings.contraPoints === 4) room.settings.contraPoints = settings.contraPoints;
       if (settings.ansagerZeroTricksPenalty === 1 || settings.ansagerZeroTricksPenalty === 2) room.settings.ansagerZeroTricksPenalty = settings.ansagerZeroTricksPenalty;
       if (typeof settings.startScoreA === 'number' && settings.startScoreA >= 1 && settings.startScoreA <= 30) {
@@ -1511,13 +1800,41 @@ io.on('connection', (socket) => {
     handleTurnTrump(room);
   });
 
-  // Mit' ansagen
+  // Mit' ansagen (auch als geheime Vorab-Wahl vor eigenem Zug)
   socket.on('announce_mit', ({ announce }) => {
     if (!currentRoomCode) return;
     const room = rooms.get(currentRoomCode);
     if (!room) return;
+    if (room.phase !== 'PLAY_TRICK' || room.trickCount !== 0) return;
+    if (room.settings.allowMit === false) return;
+    if (room.isMitAnnounced) return;
+    if (room.mitHolderIndex !== currentSeatIndex) return;
 
-    handleMitAnnouncement(room, currentSeatIndex, !!announce);
+    const hasPlayedInTrick1 = room.currentTrick.some(e => e.playerIndex === currentSeatIndex);
+    const isTurnedTrumpDeclarer = Boolean(room.isTurnedTrump && room.declarerIndex === currentSeatIndex);
+    let canAnnounceMit = false;
+    if (isTurnedTrumpDeclarer) {
+      canAnnounceMit = room.currentTrick.length <= 2;
+    } else {
+      canAnnounceMit = !hasPlayedInTrick1;
+    }
+
+    if (!canAnnounceMit) return;
+
+    if (!announce) {
+      room.mitPreAnnounced = false;
+      return broadcastGameState(room);
+    }
+
+    // Wenn der Spieler bereits am Zug ist ODER als Aufdecker im erweiterten Zeitfenster liegt: SOFORT ENTHÜLLEN!
+    const isMyTurn = (room.currentTurn === currentSeatIndex);
+    if (isMyTurn || isTurnedTrumpDeclarer) {
+      handleMitAnnouncement(room, currentSeatIndex, true);
+    } else {
+      // Vorab-Ansage: Nur für den Spieler selbst vormerken, für andere geheim halten!
+      room.mitPreAnnounced = true;
+      broadcastGameState(room);
+    }
   });
 
   // Kontra ansagen
@@ -1529,6 +1846,18 @@ io.on('connection', (socket) => {
     handleContraAnnouncement(room, currentSeatIndex);
   });
 
+  // Kontra-Re ansagen (Gegen-Kontra, Bots strikt verboten)
+  socket.on('announce_contra_re', () => {
+    if (!currentRoomCode) return;
+    const room = rooms.get(currentRoomCode);
+    if (!room) return;
+
+    const seat = room.seats[currentSeatIndex];
+    if (!seat || seat.isBot) return;
+
+    handleContraReAnnouncement(room, currentSeatIndex);
+  });
+
   // Karte spielen
   socket.on('play_card', ({ cardId }) => {
     if (!currentRoomCode) return;
@@ -1537,6 +1866,16 @@ io.on('connection', (socket) => {
     if (room.currentTurn !== currentSeatIndex) return;
 
     handleCardPlay(room, currentSeatIndex, cardId);
+  });
+
+  // Karten wegschmeißen (Dead Hand Fold bei 0 Augen & 0 Chancen)
+  socket.on('throw_cards', () => {
+    if (!currentRoomCode) return;
+    const room = rooms.get(currentRoomCode);
+    if (!room) return;
+    if (room.currentTurn !== currentSeatIndex) return;
+
+    handleThrowCards(room, currentSeatIndex);
   });
 
   // Nächste Runde starten (Nur Host / Spielleiter)
