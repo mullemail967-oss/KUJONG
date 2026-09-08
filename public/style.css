@@ -725,6 +725,18 @@ input[type="text"]:focus {
   animation: pulseContra 1.2s infinite alternate;
 }
 
+.contra-re-badge {
+  background: linear-gradient(135deg, #f43f5e 0%, #be123c 100%);
+  border: 1px solid #fda4af;
+  color: #fff;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 800;
+  box-shadow: 0 0 12px rgba(244, 63, 94, 0.7);
+  animation: pulseContra 0.9s infinite alternate;
+}
+
 @keyframes pulseContra {
   0% { transform: scale(0.96); box-shadow: 0 0 4px rgba(239, 68, 68, 0.4); }
   100% { transform: scale(1.04); box-shadow: 0 0 16px rgba(239, 68, 68, 0.9); }
@@ -737,6 +749,15 @@ input[type="text"]:focus {
   font-weight: 800 !important;
   box-shadow: 0 0 14px rgba(239, 68, 68, 0.7) !important;
   animation: pulseContra 1s infinite alternate;
+}
+
+.btn-contra-re {
+  background: linear-gradient(135deg, #f43f5e 0%, #be123c 100%) !important;
+  border: 1px solid #fecdd3 !important;
+  color: #fff !important;
+  font-weight: 800 !important;
+  box-shadow: 0 0 16px rgba(244, 63, 94, 0.8) !important;
+  animation: pulseContra 0.8s infinite alternate;
 }
 
 .status-ticker {
@@ -1025,6 +1046,20 @@ input[type="text"]:focus {
   display: inline-block;
   margin-top: 1px;
   animation: pulseGold 2.2s infinite ease-in-out;
+}
+
+.thrown-pill {
+  background: rgba(30, 41, 59, 0.9);
+  color: #cbd5e1;
+  font-size: 0.58rem;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 5px;
+  border: 1px solid #64748b;
+  white-space: nowrap;
+  text-align: center;
+  display: inline-block;
+  margin-top: 1px;
 }
 
 .team-tag {
@@ -1365,6 +1400,85 @@ input[type="text"]:focus {
   animation: pulseRed 1.2s infinite ease-in-out;
 }
 
+/* Auffälliges Spielfeld-Popup bei Kontra-Re im oberen freien Bereich */
+.contra-re-field-notification {
+  position: absolute;
+  top: 54px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: linear-gradient(135deg, rgba(55, 10, 40, 0.97) 0%, rgba(90, 15, 60, 0.98) 100%);
+  border: 2px solid #f43f5e;
+  color: #ffe4e6;
+  font-weight: 800;
+  padding: 6px 16px;
+  border-radius: 20px;
+  font-size: 0.84rem;
+  white-space: nowrap;
+  max-width: 90%;
+  box-sizing: border-box;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  z-index: 50;
+  pointer-events: none;
+  box-shadow: 0 0 25px rgba(244, 63, 94, 0.9), 0 8px 30px rgba(0, 0, 0, 0.95);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  animation: mitNotificationPop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  transition: opacity 0.5s ease, transform 0.5s ease;
+}
+
+.contra-re-field-notification.fade-out {
+  opacity: 0;
+  transform: translate(-50%, -10px) scale(0.95);
+}
+
+.contra-re-pop-icon {
+  font-size: 1.15rem;
+  filter: drop-shadow(0 0 6px #f43f5e);
+  animation: pulseRed 1.2s infinite ease-in-out;
+}
+
+/* Auffälliges Spielfeld-Popup beim Wegschmeißen der Karten */
+.cards-thrown-notification {
+  position: absolute;
+  top: 54px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: linear-gradient(135deg, rgba(30, 25, 20, 0.97) 0%, rgba(55, 40, 25, 0.98) 100%);
+  border: 2px solid #f59e0b;
+  color: #fef3c7;
+  font-weight: 800;
+  padding: 6px 16px;
+  border-radius: 20px;
+  font-size: 0.84rem;
+  white-space: nowrap;
+  max-width: 90%;
+  box-sizing: border-box;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  z-index: 50;
+  pointer-events: none;
+  box-shadow: 0 0 25px rgba(245, 158, 11, 0.6), 0 8px 30px rgba(0, 0, 0, 0.95);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  animation: mitNotificationPop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  transition: opacity 0.5s ease, transform 0.5s ease;
+}
+
+.cards-thrown-notification.fade-out {
+  opacity: 0;
+  transform: translate(-50%, -10px) scale(0.95);
+}
+
+.thrown-pop-icon {
+  font-size: 1.15rem;
+  filter: drop-shadow(0 0 6px #f59e0b);
+}
+
 /* --------------------------------------------------------------------------
    AUTHENTIC BELGIAN SVG PLAYING CARDS & TRUMPF GLOW
    -------------------------------------------------------------------------- */
@@ -1497,6 +1611,20 @@ input[type="text"]:focus {
   white-space: nowrap;
 }
 
+.mit-preannounced-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #fef08a;
+  font-size: 0.74rem;
+  font-weight: 700;
+  background: rgba(245, 158, 11, 0.18);
+  border: 1px dashed var(--team-we-gold);
+  border-radius: 8px;
+  padding: 3px 10px;
+  white-space: nowrap;
+}
+
 /* Kontra Action Banner in Player Area */
 .contra-action-banner {
   background: rgba(45, 10, 10, 0.96);
@@ -1527,6 +1655,74 @@ input[type="text"]:focus {
   display: flex;
   gap: 6px;
   align-items: center;
+}
+
+/* Karten wegschmeißen Banner (Dead Hand Fold) */
+.throw-cards-banner {
+  background: rgba(15, 23, 42, 0.96);
+  border: 1.5px solid #64748b;
+  border-radius: 12px;
+  padding: 4px 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
+  margin-bottom: 4px;
+  animation: bannerSlideUp 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+  z-index: 40;
+  max-width: 96%;
+  box-sizing: border-box;
+}
+
+.btn-throw-cards {
+  background: linear-gradient(135deg, #475569 0%, #334155 100%);
+  border: 1px solid #94a3b8;
+  color: #f1f5f9;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  transition: all 0.2s ease;
+}
+
+.btn-throw-cards:hover {
+  background: linear-gradient(135deg, #64748b 0%, #475569 100%);
+  border-color: #f59e0b;
+  color: #fff;
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.4);
+}
+
+/* Mehrere weggeworfene Karten im selben Stich-Slot */
+.trick-slot.has-multi-cards {
+  width: auto !important;
+  min-width: 70px;
+  z-index: 15;
+}
+
+.trick-multi-cards-group {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+}
+
+.trick-multi-cards-group .playing-card {
+  width: 44px !important;
+  height: 64px !important;
+  margin: 0 !important;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.6));
+}
+
+/* Dezenter Hinweis in der eigenen Hand nach Wegschmeißen */
+.my-hand-thrown-note {
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: #94a3b8;
+  background: rgba(15, 23, 42, 0.75);
+  border: 1px dashed #64748b;
+  padding: 4px 12px;
+  border-radius: 8px;
+  margin-bottom: 8px;
+  letter-spacing: 0.3px;
 }
 
 .my-hand-container {
@@ -2857,7 +3053,7 @@ input:checked + .slider:before {
     border-radius: 10px;
   }
 
-  .mit-badge, .contra-badge {
+  .mit-badge, .contra-badge, .contra-re-badge {
     font-size: 0.68rem;
     padding: 1px 5px;
   }
@@ -3043,11 +3239,29 @@ input:checked + .slider:before {
   }
 
   .mit-field-notification,
-  .contra-field-notification {
-    top: 50px;
-    padding: 5px 14px;
-    font-size: 0.78rem;
-    max-width: 92%;
+  .contra-field-notification,
+  .contra-re-field-notification,
+  .cards-thrown-notification {
+    top: 44px;
+    padding: 3px 12px;
+    font-size: 0.72rem;
+    line-height: 1.2;
+    border-radius: 12px;
+    max-width: 90%;
+  }
+
+  .player-left .thrown-pill,
+  .player-right .thrown-pill,
+  .player-top-left .thrown-pill,
+  .player-bottom-left .thrown-pill,
+  .player-top-right .thrown-pill,
+  .player-bottom-right .thrown-pill {
+    font-size: 0.48rem;
+    padding: 1px 3px;
+    max-width: 76px;
+    letter-spacing: -0.2px;
+    overflow: hidden;
+    white-space: nowrap;
   }
 
   .trick-slot {
@@ -3058,6 +3272,11 @@ input:checked + .slider:before {
   .trick-slot .playing-card {
     width: 62px;
     height: 90px;
+  }
+
+  .trick-multi-cards-group .playing-card {
+    width: 36px !important;
+    height: 52px !important;
   }
 
   .trick-slot.slot-top {
@@ -3077,12 +3296,12 @@ input:checked + .slider:before {
     transform: translateX(-50%);
   }
   .trick-slot.slot-left {
-    left: 14px;
+    left: 24px;
     top: 50%;
     transform: translateY(-50%);
   }
   .trick-slot.slot-right {
-    right: 14px;
+    right: 24px;
     top: 50%;
     transform: translateY(-50%);
   }
@@ -3190,11 +3409,15 @@ input:checked + .slider:before {
   }
 
   .mit-field-notification,
-  .contra-field-notification {
-    top: 48px;
-    padding: 4px 10px;
-    font-size: 0.74rem;
-    max-width: 95%;
+  .contra-field-notification,
+  .contra-re-field-notification,
+  .cards-thrown-notification {
+    top: 42px;
+    padding: 2px 10px;
+    font-size: 0.68rem;
+    line-height: 1.2;
+    border-radius: 10px;
+    max-width: 92%;
   }
 
   .player-meta .name {
@@ -3246,6 +3469,11 @@ input:checked + .slider:before {
     height: 79px;
   }
 
+  .trick-multi-cards-group .playing-card {
+    width: 30px !important;
+    height: 44px !important;
+  }
+
   .trick-slot.slot-top {
     top: 28px;
     left: 50%;
@@ -3257,12 +3485,12 @@ input:checked + .slider:before {
     transform: translateX(-50%);
   }
   .trick-slot.slot-left {
-    left: 8px;
+    left: 20px;
     top: 50%;
     transform: translateY(-50%);
   }
   .trick-slot.slot-right {
-    right: 8px;
+    right: 20px;
     top: 50%;
     transform: translateY(-50%);
   }

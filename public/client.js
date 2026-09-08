@@ -431,12 +431,20 @@ function showEmoteBubble(seatIndex, emote) {
 
 function announceMit(announce) {
   socket.emit('announce_mit', { announce });
-  const banner = document.getElementById('mitActionBanner');
-  if (banner) banner.classList.add('hidden');
-  if (announce) playSound('trump_fanfare');
+  if (announce) {
+    if (gameState && gameState.currentTurn === mySeatIndex) {
+      playSound('trump_fanfare');
+    } else {
+      showToast('⭐ Mit\' vorgemerkt! Wird automatisch bei deinem Zug enthüllt.');
+    }
+  } else {
+    const banner = document.getElementById('mitActionBanner');
+    if (banner) banner.classList.add('hidden');
+  }
 }
 
 function dismissMitBanner() {
+  announceMit(false);
   const banner = document.getElementById('mitActionBanner');
   if (banner) banner.classList.add('hidden');
 }
@@ -446,6 +454,21 @@ function announceContra() {
   const btn = document.getElementById('announceContraBtn');
   if (btn) btn.classList.add('hidden');
   playSound('trump_fanfare');
+}
+
+function announceContraRe() {
+  socket.emit('announce_contra_re');
+  const btn = document.getElementById('announceContraReBtn');
+  if (btn) btn.classList.add('hidden');
+  playSound('trump_fanfare');
+}
+
+function throwCards() {
+  if (!gameState || !gameState.you || !gameState.you.canThrowCards) return;
+  socket.emit('throw_cards');
+  playSound('card_play');
+  const banner = document.getElementById('throwCardsBanner');
+  if (banner) banner.classList.add('hidden');
 }
 
 function playCard(cardId) {
@@ -965,6 +988,54 @@ socket.on('contra_announced', ({ playerName, seatIndex }) => {
   playSound('contra_sound');
 });
 
+// Auffälliges Banner im Spielfeld, wenn jemand Kontra-Re (Re) gibt
+let contraReNotificationTimer = null;
+socket.on('contra_re_announced', ({ playerName, seatIndex }) => {
+  const banner = document.getElementById('contraReFieldNotification');
+  const textEl = document.getElementById('contraRePopText');
+  if (banner && textEl) {
+    const isMe = (seatIndex === mySeatIndex);
+    const displayName = isMe ? `${playerName} (Du)` : playerName;
+    textEl.textContent = `${displayName} gibt RE (KONTRA-RE)!`;
+    banner.classList.remove('hidden');
+    banner.classList.remove('fade-out');
+
+    if (contraReNotificationTimer) clearTimeout(contraReNotificationTimer);
+    contraReNotificationTimer = setTimeout(() => {
+      banner.classList.add('fade-out');
+      setTimeout(() => {
+        banner.classList.add('hidden');
+        banner.classList.remove('fade-out');
+      }, 500);
+    }, 2800);
+  }
+  playSound('contra_sound');
+});
+
+// Auffälliges Banner im Spielfeld, wenn jemand Karten wegschmeißt (Dead Hand Fold)
+let cardsThrownNotificationTimer = null;
+socket.on('cards_thrown', ({ playerIndex, playerName, count }) => {
+  const banner = document.getElementById('cardsThrownNotification');
+  const textEl = document.getElementById('cardsThrownPopText');
+  if (banner && textEl) {
+    const isMe = (playerIndex === mySeatIndex);
+    const displayName = isMe ? `${playerName} (Du)` : playerName;
+    textEl.textContent = `${displayName} hat die Karten weggeschmissen!`;
+    banner.classList.remove('hidden');
+    banner.classList.remove('fade-out');
+
+    if (cardsThrownNotificationTimer) clearTimeout(cardsThrownNotificationTimer);
+    cardsThrownNotificationTimer = setTimeout(() => {
+      banner.classList.add('fade-out');
+      setTimeout(() => {
+        banner.classList.add('hidden');
+        banner.classList.remove('fade-out');
+      }, 500);
+    }, 2800);
+  }
+  playSound('card_play');
+});
+
 socket.on('room_created', ({ roomCode, seatIndex }) => {
   isCreatingRoom = false;
   isJoiningRoom = false;
@@ -1169,8 +1240,14 @@ function renderGameScreen() {
   const contraBadge = document.getElementById('contraBadge');
   if (contraBadge) contraBadge.classList.toggle('hidden', !gameState.isContraAnnounced);
 
+  const contraReBadge = document.getElementById('contraReBadge');
+  if (contraReBadge) contraReBadge.classList.toggle('hidden', !gameState.isContraReAnnounced);
+
   const announceContraBtn = document.getElementById('announceContraBtn');
   if (announceContraBtn) announceContraBtn.classList.toggle('hidden', !gameState.canAnnounceContra);
+
+  const announceContraReBtn = document.getElementById('announceContraReBtn');
+  if (announceContraReBtn) announceContraReBtn.classList.toggle('hidden', !gameState.canAnnounceContraRe);
 
   const hostMenuBtn = document.getElementById('hostMenuBtn');
   const isHost = gameState.you ? gameState.you.isHost : false;
@@ -1312,6 +1389,16 @@ function renderTablePlayers() {
       }
     }
 
+    const thrownPill = document.getElementById(`thrownPill${key}`);
+    if (thrownPill) {
+      if (player.hasThrownCards) {
+        thrownPill.classList.remove('hidden');
+        thrownPill.textContent = "🗑️ Weggeschmissen";
+      } else {
+        thrownPill.classList.add('hidden');
+      }
+    }
+
     // Team Tag (nur 'WIR' oder 'SIE')
     const tagEl = document.getElementById(`tag${key}`);
     if (tagEl) {
@@ -1330,7 +1417,7 @@ function renderTablePlayers() {
       avatarBox.classList.toggle('player-turn-glow', player.isTurn);
     }
 
-    // Mini Card Backs für Gegner & Partner
+    // Mini Card Backs für Gegner & Partner (Karten liegen während des Spiels auf der Hand)
     if (key !== 'Bottom') {
       const cardsContainer = document.getElementById(`cards${key}`);
       if (cardsContainer) {
@@ -1345,7 +1432,7 @@ function renderTablePlayers() {
   });
 
   // Turn Indicator für Spieler unten
-  const isMyTurn = (gameState.currentTurn === mySeatIndex && gameState.phase === 'PLAY_TRICK');
+  const isMyTurn = (gameState.currentTurn === mySeatIndex && gameState.phase === 'PLAY_TRICK' && (!gameState.you || !gameState.you.hasThrownCards));
   document.getElementById('turnIndicator').classList.toggle('hidden', !isMyTurn);
 }
 
@@ -1371,16 +1458,29 @@ function renderTrickCenter() {
     ? ['Bottom', 'BottomLeft', 'TopLeft', 'Top', 'TopRight', 'BottomRight']
     : ['Bottom', 'Left', 'Top', 'Right'];
 
-  allPositions.forEach(pos => {
-    const slot = document.getElementById(`trickSlot${pos}`);
-    if (slot) slot.innerHTML = '<div class="card-placeholder"></div>';
-  });
-
+  // Group cards in trick by seat position
+  const cardsByPos = {};
   gameState.currentTrick.forEach(trickItem => {
     const pos = getRelativePosition(trickItem.playerIndex, mySeatIndex);
+    if (!cardsByPos[pos]) cardsByPos[pos] = [];
+    cardsByPos[pos].push(trickItem);
+  });
+
+  allPositions.forEach(pos => {
     const slot = document.getElementById(`trickSlot${pos}`);
-    if (slot) {
-      slot.innerHTML = createCardHTML(trickItem.card, false, true);
+    if (!slot) return;
+    const items = cardsByPos[pos] || [];
+    if (items.length === 0) {
+      slot.innerHTML = '<div class="card-placeholder"></div>';
+      slot.classList.remove('has-multi-cards');
+    } else if (items.length === 1) {
+      slot.innerHTML = createCardHTML(items[0].card, false, true);
+      slot.classList.remove('has-multi-cards');
+    } else {
+      // Mehrere weggeworfene Karten nebeneinander in den Stich geworfen!
+      slot.classList.add('has-multi-cards');
+      const cardsHtml = items.map(it => createCardHTML(it.card, false, true)).join('');
+      slot.innerHTML = `<div class="trick-multi-cards-group" data-count="${items.length}">${cardsHtml}</div>`;
     }
   });
 
@@ -1406,6 +1506,15 @@ function renderTrickCenter() {
 function renderMyHand() {
   const fan = document.getElementById('myHandFan');
   fan.innerHTML = '';
+
+  if (gameState.you && gameState.you.hasThrownCards) {
+    fan.setAttribute('data-card-count', 0);
+    const thrownNote = document.createElement('div');
+    thrownNote.className = 'my-hand-thrown-note';
+    thrownNote.innerHTML = `<span>🗑️ Karten in den Stich weggeschmissen</span>`;
+    fan.appendChild(thrownNote);
+    return;
+  }
 
   const hand = gameState.you.hand || [];
   const total = hand.length;
@@ -1507,9 +1616,39 @@ function handleModals() {
 
   // Mit'-Ansage Banner
   if (gameState.canAnnounceMit) {
-    if (mitBanner) mitBanner.classList.remove('hidden');
+    if (mitBanner) {
+      mitBanner.classList.remove('hidden');
+      if (gameState.you && gameState.you.isMitPreAnnounced) {
+        mitBanner.innerHTML = `
+          <div class="mit-preannounced-badge">
+            <span>⭐ Mit' vorgemerkt (wird bei deinem Zug enthüllt)</span>
+          </div>
+        `;
+      } else {
+        mitBanner.innerHTML = `
+          <div class="mit-banner-buttons">
+            <button class="btn btn-xs btn-primary btn-glow" onclick="announceMit(true)">
+              ⭐ Mit' ansagen
+            </button>
+            <button class="btn btn-xs btn-outline" onclick="dismissMitBanner()">
+              ✕ Nicht ansagen
+            </button>
+          </div>
+        `;
+      }
+    }
   } else {
     if (mitBanner) mitBanner.classList.add('hidden');
+  }
+
+  // Karten wegschmeißen Banner (Dead Hand Fold)
+  const throwCardsBanner = document.getElementById('throwCardsBanner');
+  if (throwCardsBanner) {
+    if (gameState.you && gameState.you.canThrowCards) {
+      throwCardsBanner.classList.remove('hidden');
+    } else {
+      throwCardsBanner.classList.add('hidden');
+    }
   }
 
   // Rundenabrechnungs-Modal
@@ -1755,6 +1894,12 @@ function syncSettingsUI() {
     seg3.disabled = !isHost;
   }
 
+  const allowContraReInput = document.getElementById('settingAllowContraRe');
+  if (allowContraReInput) {
+    allowContraReInput.checked = currentSettings.allowContraRe === true;
+    allowContraReInput.disabled = !isHost;
+  }
+
   const segPen2 = document.getElementById('segPenalty2');
   const segPen1 = document.getElementById('segPenalty1');
   if (segPen2 && segPen1) {
@@ -1927,6 +2072,7 @@ function saveRuleSettings() {
   const scoreAInput = document.getElementById('settingStartScoreA');
   const scoreBInput = document.getElementById('settingStartScoreB');
   const isPublicInput = document.getElementById('settingIsPublic');
+  const allowContraReInput = document.getElementById('settingAllowContraRe');
 
   const settingsPayload = {
     playerCount: currentSettings.playerCount || 4,
@@ -1934,6 +2080,7 @@ function saveRuleSettings() {
     alwaysClubQueenTrump: alwaysClubInput ? alwaysClubInput.checked : true,
     allowMit: allowMitInput ? allowMitInput.checked : true,
     contraPoints: currentSettings.contraPoints || 4,
+    allowContraRe: allowContraReInput ? allowContraReInput.checked : false,
     ansagerZeroTricksPenalty: currentSettings.ansagerZeroTricksPenalty || 2,
     startScoreA: scoreAInput ? (parseInt(scoreAInput.value) || 13) : (currentSettings.startScoreA || 13),
     startScoreB: scoreBInput ? (parseInt(scoreBInput.value) || 13) : (currentSettings.startScoreB || 13),

@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=5.3">
+  <link rel="stylesheet" href="style.css?v=5.7">
 </head>
 <body>
 
@@ -194,6 +194,9 @@
               <div id="contraBadge" class="contra-badge hidden">
                 <span>⚡ Kontra</span>
               </div>
+              <div id="contraReBadge" class="contra-re-badge hidden">
+                <span>⚡⚡ Re</span>
+              </div>
             </div>
             <div id="statusMessage" class="status-ticker">Spiel startet...</div>
           </div>
@@ -225,6 +228,9 @@
           <button id="announceContraBtn" class="btn-tool btn-contra hidden" onclick="announceContra()" title="Kontra ansagen">
             ⚡ KONTRA GEBEN!
           </button>
+          <button id="announceContraReBtn" class="btn-tool btn-contra-re hidden" onclick="announceContraRe()" title="Kontra-Re ansagen">
+            ⚡ RE GEBEN!
+          </button>
           <button id="viewLastTrickBtn" class="btn-tool hidden" onclick="openLastTrickModal()" title="Letzten Stich ansehen">
             👁️ Stich
           </button>
@@ -249,6 +255,18 @@
             <span id="contraPopText" class="contra-pop-text">Max gibt KONTRA!</span>
           </div>
 
+          <!-- AUFFÄLLIGE KONTRA-RE-BENACHRICHTIGUNG IM FREIEN TISCHBEREICH -->
+          <div id="contraReFieldNotification" class="contra-re-field-notification hidden">
+            <span class="contra-re-pop-icon">⚡⚡</span>
+            <span id="contraRePopText" class="contra-re-pop-text">Max gibt RE (KONTRA-RE)!</span>
+          </div>
+
+          <!-- AUFFÄLLIGE KARTEN-WEGGESCHMISSEN BENACHRICHTIGUNG IM FREIEN TISCHBEREICH -->
+          <div id="cardsThrownNotification" class="cards-thrown-notification hidden">
+            <span class="thrown-pop-icon">🗑️</span>
+            <span id="cardsThrownPopText" class="cards-thrown-pop-text">Max hat die Karten weggeschmissen!</span>
+          </div>
+
           <!-- SPIELER OBEN (Partner bei 4P / Gegner 2 bei 6P) -->
           <div class="table-player player-top" id="playerTop">
             <div class="player-avatar-box">
@@ -264,6 +282,7 @@
               </div>
               <span class="declarer-pill hidden" id="declarerPillTop">👑 Ansager</span>
               <span class="mit-pill hidden" id="mitPillTop">⭐ Mit'</span>
+              <span class="thrown-pill hidden" id="thrownPillTop">🗑️ Weggeschmissen</span>
               <span class="team-tag tag-we" id="tagTop">WIR</span>
             </div>
             <div class="hand-card-backs" id="cardsTop">
@@ -286,6 +305,7 @@
               </div>
               <span class="declarer-pill hidden" id="declarerPillLeft">👑 Ansager</span>
               <span class="mit-pill hidden" id="mitPillLeft">⭐ Mit'</span>
+              <span class="thrown-pill hidden" id="thrownPillLeft">🗑️ Weggeschmissen</span>
               <span class="team-tag tag-they" id="tagLeft">SIE</span>
             </div>
             <div class="hand-card-backs vertical" id="cardsLeft">
@@ -308,6 +328,7 @@
               </div>
               <span class="declarer-pill hidden" id="declarerPillRight">👑 Ansager</span>
               <span class="mit-pill hidden" id="mitPillRight">⭐ Mit'</span>
+              <span class="thrown-pill hidden" id="thrownPillRight">🗑️ Weggeschmissen</span>
               <span class="team-tag tag-they" id="tagRight">SIE</span>
             </div>
             <div class="hand-card-backs vertical" id="cardsRight">
@@ -330,6 +351,7 @@
               </div>
               <span class="declarer-pill hidden" id="declarerPillTopLeft">👑 Ansager</span>
               <span class="mit-pill hidden" id="mitPillTopLeft">⭐ Mit'</span>
+              <span class="thrown-pill hidden" id="thrownPillTopLeft">🗑️ Weggeschmissen</span>
               <span class="team-tag tag-we" id="tagTopLeft">WIR</span>
             </div>
             <div class="hand-card-backs" id="cardsTopLeft"></div>
@@ -349,6 +371,7 @@
               </div>
               <span class="declarer-pill hidden" id="declarerPillBottomLeft">👑 Ansager</span>
               <span class="mit-pill hidden" id="mitPillBottomLeft">⭐ Mit'</span>
+              <span class="thrown-pill hidden" id="thrownPillBottomLeft">🗑️ Weggeschmissen</span>
               <span class="team-tag tag-they" id="tagBottomLeft">SIE</span>
             </div>
             <div class="hand-card-backs" id="cardsBottomLeft"></div>
@@ -368,6 +391,7 @@
               </div>
               <span class="declarer-pill hidden" id="declarerPillTopRight">👑 Ansager</span>
               <span class="mit-pill hidden" id="mitPillTopRight">⭐ Mit'</span>
+              <span class="thrown-pill hidden" id="thrownPillTopRight">🗑️ Weggeschmissen</span>
               <span class="team-tag tag-we" id="tagTopRight">WIR</span>
             </div>
             <div class="hand-card-backs" id="cardsTopRight"></div>
@@ -387,6 +411,7 @@
               </div>
               <span class="declarer-pill hidden" id="declarerPillBottomRight">👑 Ansager</span>
               <span class="mit-pill hidden" id="mitPillBottomRight">⭐ Mit'</span>
+              <span class="thrown-pill hidden" id="thrownPillBottomRight">🗑️ Weggeschmissen</span>
               <span class="team-tag tag-they" id="tagBottomRight">SIE</span>
             </div>
             <div class="hand-card-backs" id="cardsBottomRight"></div>
@@ -437,6 +462,7 @@
                 </div>
                 <span class="declarer-pill hidden" id="declarerPillBottom">👑 Ansager</span>
                 <span class="mit-pill hidden" id="mitPillBottom">⭐ Mit'</span>
+                <span class="thrown-pill hidden" id="thrownPillBottom">🗑️ Weggeschmissen</span>
                 <span class="team-tag tag-we" id="tagBottom">WIR</span>
                 <span class="badge badge-dealer hidden" id="dealerBottom">Geber</span>
               </div>
@@ -453,6 +479,13 @@
                   ✕ Nicht ansagen
                 </button>
               </div>
+            </div>
+
+            <!-- KARTEN WEGSCHMEISSEN BANNER (KOMPAKT & DEZENT) -->
+            <div id="throwCardsBanner" class="throw-cards-banner hidden">
+              <button id="throwCardsBtn" class="btn btn-xs btn-throw-cards" onclick="throwCards()">
+                🗑️ Karten wegschmeißen
+              </button>
             </div>
 
             <!-- EIGENER KARTENFÄCHER -->
@@ -702,6 +735,18 @@
           </div>
         </div>
 
+        <!-- 4b. Kontra-Re (Gegen-Kontra) erlauben -->
+        <div class="setting-item setting-item-toggle">
+          <div class="setting-info">
+            <span class="setting-title">Kontra-Re (Gegen-Kontra)</span>
+            <span class="setting-desc">Gegner des Kontra-Gebers können mit "Re" kontern (erhöht Rundenwert auf 8 bzw. 4 Punkte)</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="settingAllowContraRe" onchange="saveRuleSettings()">
+            <span class="slider"></span>
+          </label>
+        </div>
+
         <!-- 5. Ansager-Strafe bei 0 Stichen -->
         <div class="setting-item setting-item-stacked">
           <div class="setting-info">
@@ -876,6 +921,6 @@
   <!-- Socket.io Script -->
   <script src="/socket.io/socket.io.js"></script>
   <!-- Client JavaScript -->
-  <script src="client.js?v=6.7"></script>
+  <script src="client.js?v=7.1"></script>
 </body>
 </html>
