@@ -331,16 +331,21 @@ function evaluateTrick(trick, trumpSuit, isMitAnnounced, options = {}) {
  * @param {number} tricksTeamB - Anzahl gewonnener Stiche von Team B (0..5)
  * @param {boolean} isMitAnnounced - Ob Mit' angesagt wurde
  * @param {boolean} isContraAnnounced - Ob Kontra angesagt wurde
+ * @param {boolean} isContraReAnnounced - Ob Kontra-Re angesagt wurde
  * @param {object} options - Regel-Optionen
  * @returns {object} Details der Rundenabrechnung (Punkteabzüge/Strafen, Textbegründung)
  */
-function evaluateRound({ declarerTeam, eyesTeamA, eyesTeamB, tricksTeamA, tricksTeamB, isMitAnnounced, isContraAnnounced, options = {} }) {
+function evaluateRound({ declarerTeam, eyesTeamA, eyesTeamB, tricksTeamA, tricksTeamB, isMitAnnounced, isContraAnnounced, isContraReAnnounced, options = {} }) {
   const contraPoints = (options.contraPoints === 3) ? 3 : 4;
   const ansagerZeroTricksPenalty = (options.ansagerZeroTricksPenalty === 1) ? 1 : 2;
 
-  // P-Wert: Normal 1, Mit' 2, Kontra 3 oder 4
+  // P-Wert: Normal 1, Mit' 2, Kontra 3 oder 4, Kontra-Re 4 oder 8
   let P = 1;
-  if (isContraAnnounced) {
+  if (isContraReAnnounced) {
+    // Wenn Standard 4 Pkt -> Kontra-Re verdoppelt auf 8 Pkt.
+    // Wenn 3 Pkt -> Kontra-Re erhöht schrittweise um 1 auf 4 Pkt.
+    P = (contraPoints === 4) ? 8 : 4;
+  } else if (isContraAnnounced) {
     P = contraPoints;
   } else if (isMitAnnounced) {
     P = 2;
@@ -358,7 +363,7 @@ function evaluateRound({ declarerTeam, eyesTeamA, eyesTeamB, tricksTeamA, tricks
   let winningTeam = null;
 
   // Fall 4: Match / Durchmarsch (Ein Team hat alle 5 Stiche gewonnen: Basis P + 1 Zusatzpunkt)
-  const sweepPoints = P + 1; // z.B. 2 (1+1), 3 (2+1), 4 (3+1) oder 5 (4+1 mit Kontra)
+  const sweepPoints = P + 1; // z.B. 2 (1+1), 3 (2+1), 4 (3+1), 5 (4+1) oder 9 (8+1 mit Kontra-Re)
   if (tricksDeclarer === 5) {
     winningTeam = declarerTeam;
     declarerDelta = -sweepPoints;
@@ -400,6 +405,7 @@ function evaluateRound({ declarerTeam, eyesTeamA, eyesTeamB, tricksTeamA, tricks
     P,
     isMitAnnounced: !!isMitAnnounced,
     isContraAnnounced: !!isContraAnnounced,
+    isContraReAnnounced: !!isContraReAnnounced,
     declarerTeam,
     winningTeam,
     eyesDeclarer,
