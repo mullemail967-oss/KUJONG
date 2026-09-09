@@ -200,6 +200,7 @@ function createRoom(roomCode, hostName, hostSocketId) {
     isTurnedTrump: false,
     mitPreAnnounced: false,
     isMitAnnounced: false,
+    mitAnnouncedByLastPlayerOfTrick1: false,
     isContraAnnounced: false,
     isContraReAnnounced: false,
     mitHolderIndex: -1,
@@ -276,11 +277,16 @@ function isPlayerHost(room, socket) {
 
 /**
  * Prüft, ob das Zeitfenster für Kontra / Kontra-Re offen ist:
- * In Stich 1 (trickCount === 0) ODER in Stich 2, bevor die erste Karte gelegt wurde (trickCount === 1 && currentTrick.length === 0).
+ * Im 1. Stich (trickCount === 0) ODER zu Beginn von Stich 2 vor der 1. Karte NUR DANN,
+ * wenn der letzte Spieler von Stich 1 die Mit' angesagt/gelegt hat.
  */
 function isContraWindowOpen(room) {
   if (room.phase !== 'PLAY_TRICK') return false;
-  return room.trickCount === 0 || (room.trickCount === 1 && (!room.currentTrick || room.currentTrick.length === 0));
+  if (room.trickCount === 0) return true;
+  if (room.trickCount === 1 && (!room.currentTrick || room.currentTrick.length === 0)) {
+    return Boolean(room.mitAnnouncedByLastPlayerOfTrick1);
+  }
+  return false;
 }
 
 /**
@@ -510,6 +516,7 @@ function startNewRound(room) {
   room.isTurnedTrump = false;
   room.mitPreAnnounced = false;
   room.isMitAnnounced = false;
+  room.mitAnnouncedByLastPlayerOfTrick1 = false;
   room.isContraAnnounced = false;
   room.isContraReAnnounced = false;
   room.mitHolderIndex = -1;
@@ -714,6 +721,12 @@ function handleMitAnnouncement(room, playerIndex, announce) {
     room.isMitAnnounced = true;
     room.mitPreAnnounced = false;
     room.mitAnnouncerIndex = playerIndex;
+
+    // Prüfen, ob Mit' vom allerletzten Spieler des 1. Stichs angesagt wurde
+    const activeCount = getActiveTrickPlayerCount(room);
+    const cardsPlayedBeforeMit = (room.currentTrick ? room.currentTrick.length : 0);
+    room.mitAnnouncedByLastPlayerOfTrick1 = (cardsPlayedBeforeMit >= activeCount - 1 && activeCount > 1);
+
     const announcerName = room.seats[playerIndex].name;
     logAction(room, `⭐ ${announcerName} hat die MIT' ANGESAGT! Rundenwert: 2 Punkte. Pik-Dame ist 2. höchster Trumpf.`);
 
@@ -1244,10 +1257,10 @@ function checkBotAction(room) {
 
     const currentSeat = room.seats[room.currentTurn];
     if (currentSeat && currentSeat.isBot) {
-      // Wenn Stich 2 beginnt, Mit' aktiv ist und Kontra noch nicht gefallen ist,
+      // Wenn Stich 2 beginnt, Mit' vom letzten Spieler gesagt wurde und Kontra noch offen ist,
       // geben wir menschlichen Spielern etwas Bedenkzeit, bevor der Bot aufspielt!
       let effectiveTurnDelay = turnDelay;
-      if (room.trickCount === 1 && (!room.currentTrick || room.currentTrick.length === 0) && room.isMitAnnounced && !room.isContraAnnounced) {
+      if (room.trickCount === 1 && (!room.currentTrick || room.currentTrick.length === 0) && room.isMitAnnounced && !room.isContraAnnounced && room.mitAnnouncedByLastPlayerOfTrick1) {
         effectiveTurnDelay = Math.max(turnDelay, 1800);
       }
 
@@ -1820,6 +1833,7 @@ io.on('connection', (socket) => {
     }
 
     if (!canAnnounceMit) return;
+    if (announce && room.mitPreAnnounced) return; // Bereits vorgemerkt, Duplikate ignorieren!
 
     if (!announce) {
       room.mitPreAnnounced = false;
@@ -2025,6 +2039,7 @@ io.on('connection', (socket) => {
     room.turnedCard = null;
     room.trumpSuit = null;
     room.isMitAnnounced = false;
+    room.mitAnnouncedByLastPlayerOfTrick1 = false;
     room.isContraAnnounced = false;
     room.mitHolderIndex = -1;
     room.lastTrick = null;
