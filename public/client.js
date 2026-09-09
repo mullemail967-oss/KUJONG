@@ -430,16 +430,16 @@ function showEmoteBubble(seatIndex, emote) {
 }
 
 function announceMit(announce) {
+  const banner = document.getElementById('mitActionBanner');
+  if (banner) banner.classList.add('hidden');
+
   socket.emit('announce_mit', { announce });
   if (announce) {
     if (gameState && gameState.currentTurn === mySeatIndex) {
       playSound('trump_fanfare');
     } else {
-      showToast('⭐ Mit\' vorgemerkt! Wird automatisch bei deinem Zug enthüllt.');
+      showToast("⭐ Mit' vorgemerkt! (Wird bei deinem Zug enthüllt)");
     }
-  } else {
-    const banner = document.getElementById('mitActionBanner');
-    if (banner) banner.classList.add('hidden');
   }
 }
 
@@ -1614,28 +1614,20 @@ function handleModals() {
     trumpModal.classList.add('hidden');
   }
 
-  // Mit'-Ansage Banner
-  if (gameState.canAnnounceMit) {
+  // Mit'-Ansage Banner (sofort ausgeblendet, sobald vorgemerkt)
+  if (gameState.canAnnounceMit && (!gameState.you || !gameState.you.isMitPreAnnounced)) {
     if (mitBanner) {
       mitBanner.classList.remove('hidden');
-      if (gameState.you && gameState.you.isMitPreAnnounced) {
-        mitBanner.innerHTML = `
-          <div class="mit-preannounced-badge">
-            <span>⭐ Mit' vorgemerkt (wird bei deinem Zug enthüllt)</span>
-          </div>
-        `;
-      } else {
-        mitBanner.innerHTML = `
-          <div class="mit-banner-buttons">
-            <button class="btn btn-xs btn-primary btn-glow" onclick="announceMit(true)">
-              ⭐ Mit' ansagen
-            </button>
-            <button class="btn btn-xs btn-outline" onclick="dismissMitBanner()">
-              ✕ Nicht ansagen
-            </button>
-          </div>
-        `;
-      }
+      mitBanner.innerHTML = `
+        <div class="mit-banner-buttons">
+          <button class="btn btn-xs btn-primary btn-glow" onclick="announceMit(true)">
+            ⭐ Mit' ansagen
+          </button>
+          <button class="btn btn-xs btn-outline" onclick="dismissMitBanner()">
+            ✕ Nicht ansagen
+          </button>
+        </div>
+      `;
     }
   } else {
     if (mitBanner) mitBanner.classList.add('hidden');
