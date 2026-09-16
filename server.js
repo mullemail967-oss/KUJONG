@@ -220,6 +220,7 @@ function createRoom(roomCode, hostName, hostSocketId) {
     eyesTeamA: 0,
     eyesTeamB: 0,
     lastTrick: null,
+    trickHistory: [],
     trickWinnerInfo: null,
     roundSummary: null,
     hasThrownCards: {}, // { [playerIndex]: boolean }
@@ -526,6 +527,7 @@ function startNewRound(room) {
   room.contraReAnnouncerIndex = -1;
   room.contraReTeam = -1;
   room.lastTrick = null;
+  room.trickHistory = [];
   room.trickWinnerInfo = null;
   room.roundSummary = null;
   room.hasThrownCards = {};
@@ -1006,6 +1008,17 @@ function resolveTrick(room, result) {
   const suitIcons = { clubs: '♣', spades: '♠', hearts: '♥', diamonds: '♦' };
   const winningCardDisplay = `${suitIcons[result.winningCard.suit]}${result.winningCard.rank}`;
 
+  // Abgeschlossenen Stich in der Stich-Historie für das Bot-Gedächtnis archivieren
+  if (!room.trickHistory) room.trickHistory = [];
+  room.trickHistory.push({
+    trickNumber: room.trickCount,
+    cards: [...room.currentTrick],
+    winnerIndex,
+    winnerTeam,
+    winningCard: result.winningCard,
+    points: result.points
+  });
+
   room.currentTrick = [];
   room.trickWinnerInfo = null;
 
@@ -1289,7 +1302,15 @@ function checkBotAction(room) {
           room.trumpSuit,
           room.isMitAnnounced,
           room.currentTurn,
-          { ...room.settings, playerCount: maxPlayers }
+          {
+            ...room.settings,
+            playerCount: maxPlayers,
+            trickHistory: room.trickHistory || [],
+            declarerIndex: room.declarerIndex,
+            declarerTeam: room.declarerTeam,
+            trickCount: room.trickCount,
+            scores: room.scores
+          }
         );
 
         if (chosenCard) {
@@ -2043,6 +2064,7 @@ io.on('connection', (socket) => {
     room.isContraAnnounced = false;
     room.mitHolderIndex = -1;
     room.lastTrick = null;
+    room.trickHistory = [];
     room.trickWinnerInfo = null;
     room.roundSummary = null;
     room.roundNumber = 0;
