@@ -1036,6 +1036,34 @@ socket.on('cards_thrown', ({ playerIndex, playerName, count }) => {
   playSound('card_play');
 });
 
+// Auffälliges Banner im Spielfeld, wenn jemand Trumpf gedreht hat
+let trumpTurnedNotificationTimer = null;
+socket.on('trump_turned', ({ playerName, seatIndex, suit, rank }) => {
+  const banner = document.getElementById('trumpTurnedFieldNotification');
+  const textEl = document.getElementById('trumpTurnedPopText');
+  if (banner && textEl) {
+    const isMe = (seatIndex === mySeatIndex);
+    const displayName = isMe ? `${playerName} (Du)` : playerName;
+    const suitSymbols = { clubs: '♣', spades: '♠', hearts: '♥', diamonds: '♦' };
+    const suitNames = { clubs: 'Kreuz', spades: 'Pik', hearts: 'Herz', diamonds: 'Karo' };
+    const symbol = suitSymbols[suit] || '';
+    const suitName = suitNames[suit] || suit;
+    textEl.textContent = `${displayName} dreht Trumpf: ${symbol} ${rank}!`;
+    banner.classList.remove('hidden');
+    banner.classList.remove('fade-out');
+
+    if (trumpTurnedNotificationTimer) clearTimeout(trumpTurnedNotificationTimer);
+    trumpTurnedNotificationTimer = setTimeout(() => {
+      banner.classList.add('fade-out');
+      setTimeout(() => {
+        banner.classList.add('hidden');
+        banner.classList.remove('fade-out');
+      }, 500);
+    }, 2800);
+  }
+  playSound('trump_fanfare');
+});
+
 socket.on('room_created', ({ roomCode, seatIndex }) => {
   isCreatingRoom = false;
   isJoiningRoom = false;

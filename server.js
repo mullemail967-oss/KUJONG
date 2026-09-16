@@ -628,6 +628,15 @@ function handleTurnTrump(room) {
   room.currentTurn = (d + 1) % maxPlayers;
   room.phase = 'PLAY_TRICK';
 
+  // Event für auffällige Spielfeld-Benachrichtigung an alle Clients
+  io.to(room.code).emit('trump_turned', {
+    seatIndex: d,
+    playerName: declarerName,
+    suit: chosenSuit,
+    rank: turnedCard.rank,
+    card: turnedCard
+  });
+
   // Falls der Ansager ein Bot ist und ♠Q hält/gedreht hat: Mit'-Ansage direkt prüfen
   if (room.seats[d] && room.seats[d].isBot && room.mitHolderIndex === d && room.settings.allowMit !== false) {
     if (shouldAnnounceMit(room.hands[d], d, d, room.trumpSuit, room.settings)) {
