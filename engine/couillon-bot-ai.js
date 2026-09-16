@@ -350,25 +350,19 @@ function chooseLeadCard(playable, hand, trumpSuit, isMitAnnounced, botIndex, opt
   const trumpsInHand = hand.filter(c => isTrumpCard(c, trumpSuit, isMitAnnounced, options));
   const trumpsPlayable = playable.filter(c => isTrumpCard(c, trumpSuit, isMitAnnounced, options));
 
-  // 1. TRÜMPFE ZIEHEN (Draw Trumps)
-  // Wenn der Bot eine Boss-Trumpfkarte besitzt (z.B. Trumpf-Ass oder höchste verbleibende Trumpfkarte)
-  // und die Gegner noch Trümpfe halten können:
-  if (oppsHaveTrumps && trumpsPlayable.length > 0) {
-    const sortedTrumpsDesc = [...trumpsPlayable].sort((a, b) =>
-      getTrumpPower(b, trumpSuit, isMitAnnounced, options) - getTrumpPower(a, trumpSuit, isMitAnnounced, options)
-    );
-    const topTrump = sortedTrumpsDesc[0];
+  const hasTrumpAce = trumpsInHand.some(c => c.suit === trumpSuit && c.rank === 'A');
+  const highTrumps = trumpsInHand.filter(c => {
+    if (c.rank === 'A' || c.rank === 'K') return true;
+    if (c.suit === SUITS.CLUBS && c.rank === 'Q') return true; // ♣Q
+    if (isMitAnnounced && c.suit === SUITS.SPADES && c.rank === 'Q') return true; // ♠Q
+    if (c.rank === 'Q') return true;
+    return false;
+  });
+  const smallTrumpsPlayable = trumpsPlayable.filter(c =>
+    c.rank === '9' || c.rank === '10' || c.rank === '7' || c.rank === '8' || c.rank === 'J'
+  );
 
-    if (isSuitBoss(topTrump, unseenCards, trumpSuit, isMitAnnounced, options)) {
-      // Wenn wir mind. 2 Trümpfe haben ODER unser Team der Ansager ist:
-      const isDeclarerTeam = options.declarerIndex !== undefined && (options.declarerIndex % 2 === botIndex % 2);
-      if (trumpsInHand.length >= 2 || isDeclarerTeam) {
-        return topTrump;
-      }
-    }
-  }
-
-  // 2. SICHERE FEHLFARBEN-BOSSKARTEN AUSMÜNZEN (Cash safe boss cards)
+  // 1. SICHERE FEHLFARBEN-BOSSKARTEN AUSMÜNZEN (Cash safe boss cards)
   // Wenn Gegner keine Trümpfe mehr haben:
   // Jede Karte, die in ihrer Farbe die Höchste ist (z.B. Ass, oder König wenn Ass weg ist), gewinnt 100% sicher!
   if (!oppsHaveTrumps) {
@@ -383,8 +377,23 @@ function chooseLeadCard(playable, hand, trumpSuit, isMitAnnounced, botIndex, opt
     }
   }
 
-  // 3. FEHLFARBEN-ASSE AUSSPIELEN
-  // Bringen 4 Augen und gewinnen oft den Stich.
+  // 2. TRÜMPFE ZIEHEN NUR BEI SEHR VIELEN HOHEN TRÜMPFEN (Draw Trumps with massive hand)
+  // Wenn der Bot Trumpf-Ass/Boss hat UND mindestens 3 Trümpfe mit mindestens 2 hohen Trümpfen hält:
+  // Nur dann dominiert er die Trumpffarbe so stark, dass Trümpfeziehen von vorne Sinn macht.
+  const hasManyHighTrumps = trumpsInHand.length >= 3 && highTrumps.length >= 2;
+  if (oppsHaveTrumps && hasManyHighTrumps && trumpsPlayable.length > 0) {
+    const sortedTrumpsDesc = [...trumpsPlayable].sort((a, b) =>
+      getTrumpPower(b, trumpSuit, isMitAnnounced, options) - getTrumpPower(a, trumpSuit, isMitAnnounced, options)
+    );
+    const topTrump = sortedTrumpsDesc[0];
+
+    if (isSuitBoss(topTrump, unseenCards, trumpSuit, isMitAnnounced, options)) {
+      return topTrump;
+    }
+  }
+
+  // 3. SICHERE FEHLFARBEN-ASSE AUSSPIELEN
+  // Bringen 4 Augen und gewinnen fast immer in den ersten Runden.
   const offSuitAces = playable.filter(c => !isTrumpCard(c, trumpSuit, isMitAnnounced, options) && c.rank === 'A');
   if (offSuitAces.length > 0) {
     // Bevorzuge Farben, in denen noch kein Gegner bekannt void ist (um nicht abgestochen zu werden)
@@ -397,22 +406,28 @@ function chooseLeadCard(playable, hand, trumpSuit, isMitAnnounced, botIndex, opt
       return true;
     });
     if (safeAces.length > 0) return safeAces[0];
-    
-    // Wenn es KEINE sicheren Asse gibt, heben wir sie auf und spielen sie HIER NICHT aus, 
-    // um sie nicht sinnlos an einen abtrumpfenden Gegner zu verlieren.
   }
 
-  // 4. PARTNER FÜTTERN (Partner Feed)
-  // Wenn wir wissen, dass unser Partner in einer Farbe frei ist (void), 
+  // 4. GEGNERISCHES TRUMPF-ASS MIT KLEINEM TRUMPF HERAUSLOCKEN
+  // Wenn der Bot das Trumpf-Ass NICHT hat (Ass ist noch ungesehen draußen),
+  // aber mindestens 2 Trümpfe besitzt und eine kleine Lusche (9, 10, J) opfern kann:
+  // Spiele den kleinen Trumpf, um das gegnerische Ass herauszuholen!
+  // WICHTIG: Wenn man nur ungeschützte hohe Trümpfe hat (z.B. nur König oder König+Dame),
+  // spielt man KEINEN Trumpf auf, um den König nicht ins gegnerische Ass zu werfen!
+  const isTrumpAceUnseen = unseenCards.some(u => u.suit === trumpSuit && u.rank === 'A');
+  if (oppsHaveTrumps && !hasTrumpAce && isTrumpAceUnseen && trumpsInHand.length >= 2 && smallTrumpsPlayable.length > 0) {
+    return sortCardsByPowerAsc(smallTrumpsPlayable, trumpSuit, isMitAnnounced, options)[0];
+  }
+
+  // 5. PARTNER FÜTTERN (Partner Feed)
+  // Wenn wir wissen, dass unser Partner in einer Fehlfarbe frei ist (void), 
   // und ein Gegner vermutlich NICHT frei ist, spielen wir diese Farbe an, damit der Partner stechen kann!
   const offSuitZeroes = playable.filter(c => !isTrumpCard(c, trumpSuit, isMitAnnounced, options) && getCardPoints(c) === 0);
   if (offSuitZeroes.length > 0) {
     for (const zero of offSuitZeroes) {
       for (let i = 0; i < playerCount; i++) {
-        // Suche nach Partnern
         if (i % 2 === botIndex % 2 && i !== botIndex) {
           if (knownVoids[i] && knownVoids[i][zero.suit] && !knownVoids[i]['TRUMP']) {
-            // Partner ist void in dieser Fehlfarbe und hat evtl. noch Trümpfe -> Füttern!
             return zero;
           }
         }
@@ -420,7 +435,14 @@ function chooseLeadCard(playable, hand, trumpSuit, isMitAnnounced, botIndex, opt
     }
   }
 
-  // 5. VERMEIDE UNGESCHÜTZTES KÖNIG-/DAMEN-AUSSPIEL
+  // 6. SICHERE 0-AUGEN-LUSCHE ANSSPIELEN (Kleines Ausspiel in Fehlfarbe)
+  // Taktischer Standard: Wenn man das Trumpf-Ass hat (aber nicht übermäßig viele Trümpfe),
+  // behält man das Ass und spielt eine kleine andere Farbe an.
+  if (offSuitZeroes.length > 0) {
+    return offSuitZeroes[0];
+  }
+
+  // 7. VERMEIDE UNGESCHÜTZTES KÖNIG-/DAMEN-AUSSPIEL (Fehlfarbe)
   // Spiele niemals einen Fehlfarben-König oder eine Dame aus, wenn das Ass dieser Farbe noch draußen (ungesehen) ist!
   const offSuitSafeBossNonAce = playable.filter(c => {
     if (isTrumpCard(c, trumpSuit, isMitAnnounced, options)) return false;
@@ -432,17 +454,12 @@ function chooseLeadCard(playable, hand, trumpSuit, isMitAnnounced, botIndex, opt
     return offSuitSafeBossNonAce[0];
   }
 
-  // 6. SICHERE 0-AUGEN-LUSCHE ANSSPIELEN (Passives, risikoarmes Ausspiel)
-  if (offSuitZeroes.length > 0) {
-    return offSuitZeroes[0];
-  }
-
-  // 7. NOTFALL: Unsafe Asse spielen, wenn nichts anderes übrig bleibt
+  // 8. NOTFALL: Unsafe Asse spielen, wenn nichts anderes übrig bleibt
   if (offSuitAces.length > 0) {
     return offSuitAces[0];
   }
 
-  // 6. FALLBACK: Niedrigste spielbare Karte
+  // 9. FALLBACK: Niedrigste spielbare Karte
   return sortCardsByPowerAsc(playable, trumpSuit, isMitAnnounced, options)[0];
 }
 
