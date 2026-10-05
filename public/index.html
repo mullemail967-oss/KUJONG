@@ -5,6 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Kujong - Das traditionelle Eifeler Kartenspiel</title>
   <meta name="description" content="Kujong (Couillon) Multiplayer Kartenspiel (Eifel/Ostbelgien) für 4 Spieler in zwei Teams mit traditionellem belgischen Kartendeck.">
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#0f172a">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Kujong">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+  <link rel="icon" type="image/svg+xml" href="icon.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -22,6 +31,9 @@
           <div class="game-badge">Ostbelgien & Eifel Edition</div>
           <h1 class="game-title">KUJONG</h1>
           <p class="game-subtitle">Traditionelles 4-Spieler Team-Kartenspiel (13 Punkte Countdown)</p>
+          <div id="pwaInstallContainer" class="pwa-install-banner hidden">
+            <button id="pwaInstallBtn" class="btn btn-xs btn-pwa-install" onclick="triggerPwaInstall()">📲 Kujong als App installieren</button>
+          </div>
         </div>
 
         <div id="lobbyInitialOptions" class="lobby-section">
@@ -38,6 +50,7 @@
             <div class="join-box">
               <input type="text" id="roomCodeInput" placeholder="Code (z.B. ABCD)" maxlength="4" autocomplete="off" autocapitalize="characters">
               <button id="joinRoomBtn" class="btn btn-secondary">Beitreten</button>
+              <button id="spectateRoomBtn" class="btn btn-outline" onclick="handleSpectateRoom()" title="Als Zuschauer zuschauen (Kibitzen)">👀</button>
             </div>
           </div>
 
@@ -62,7 +75,8 @@
             <div class="room-code-display">
               <span class="label">Raumcode:</span>
               <span id="displayRoomCode" class="code-val">----</span>
-              <button id="copyInviteBtn" class="btn btn-sm btn-outline" title="Einladungslink kopieren">📋 Link kopieren</button>
+              <button id="shareInviteBtn" class="btn btn-sm btn-share" onclick="shareInviteLink()" title="Freunde einladen (WhatsApp / Teilen)">📲 Einladen</button>
+              <button id="copyInviteBtn" class="btn btn-sm btn-outline" title="Einladungslink kopieren">📋 Link</button>
               <button id="openSettingsBtn" class="btn btn-sm btn-outline btn-settings-gear" onclick="openSettingsModal()" title="Spieleinstellungen & Regeln anpassen">⚙️ Regeln</button>
             </div>
             <div id="copySuccessMsg" class="copy-success hidden">Link kopiert!</div>
@@ -235,13 +249,17 @@
             👁️ Stich
           </button>
           <button id="soundToggleBtn" class="btn-tool btn-tool-icon" title="Ton ein/ausschalten">🔊</button>
-          <button id="openEmoteBtn" class="btn-tool btn-tool-icon btn-emote-trigger" onclick="toggleEmotePicker()" title="Reaktionen & Ragebait">💬</button>
         </div>
       </header>
 
       <!-- VIRTUELLER FILZTISCH -->
       <main class="felt-table-wrapper">
         <div class="felt-table" id="feltTable">
+
+          <!-- ZUSCHAUER-MODUS BANNER -->
+          <div id="spectatorBanner" class="spectator-banner hidden">
+            <span>👀 Zuschauer-Modus</span>
+          </div>
 
           <!-- AUFFÄLLIGE MIT'-ANSAGE BENACHRICHTIGUNG IM FREIEN TISCHBEREICH -->
           <div id="mitFieldNotification" class="mit-field-notification hidden">
@@ -464,6 +482,7 @@
               <div class="my-info">
                 <div class="name-emote-wrap">
                   <span class="name" id="nameBottom">Du</span>
+                  <button id="openEmoteBtn" class="btn-tool btn-tool-icon btn-emote-trigger btn-emote-inline" onclick="toggleEmotePicker()" title="Reaktionen & Ragebait">💬</button>
                   <div class="emote-bubble-box" id="emoteBubbleBottom"></div>
                 </div>
                 <span class="declarer-pill hidden" id="declarerPillBottom">👑 Ansager</span>
@@ -748,7 +767,7 @@
             <span class="setting-desc">Gegner des Kontra-Gebers können mit "Re" kontern (erhöht Rundenwert auf 8 bzw. 4 Punkte)</span>
           </div>
           <label class="switch">
-            <input type="checkbox" id="settingAllowContraRe" onchange="saveRuleSettings()">
+            <input type="checkbox" id="settingAllowContraRe" checked onchange="saveRuleSettings()">
             <span class="slider"></span>
           </label>
         </div>
@@ -840,6 +859,18 @@
             <button type="button" class="btn-preset" onclick="setSpeedPreset(4.0, 1.5)">☕ Gemütlich (4.0s / 1.5s)</button>
           </div>
         </div>
+
+        <!-- 9. Persönliche Stich-Pause (Animation) -->
+        <div class="setting-item setting-item-stacked">
+          <div class="setting-info">
+            <span class="setting-title">🎬 Stich-Auflösung & Animation</span>
+            <span class="setting-desc">Dauer der Hervorhebung des Siegers vor dem Einsammeln (0 bis 2 Sek.)</span>
+          </div>
+          <div class="range-setting-row" style="display: flex; align-items: center; gap: 14px; margin-top: 8px;">
+            <input type="range" id="trickPauseSlider" min="0" max="2" step="0.5" value="1" style="flex: 1;" oninput="updateTrickPauseDisplay(this.value)" onchange="saveClientTrickPause(this.value)">
+            <span id="displayTrickPauseVal" style="font-weight: 700; color: var(--team-we-gold); min-width: 48px; text-align: right;">1.0 s</span>
+          </div>
+        </div>
       </div>
 
       <div class="modal-footer settings-footer">
@@ -864,7 +895,8 @@
             <span class="host-code-label">LOBBY-CODE:</span>
             <span id="hostModalRoomCode" class="host-code-val">----</span>
           </div>
-          <button class="btn btn-outline btn-sm btn-copy-host-code" onclick="copyInviteLink()">📋 Link kopieren</button>
+          <button class="btn btn-share btn-sm" onclick="shareInviteLink()" title="Freunde einladen (WhatsApp / Teilen)">📲 Einladen</button>
+          <button class="btn btn-outline btn-sm btn-copy-host-code" onclick="copyInviteLink()">📋 Link</button>
         </div>
 
         <!-- Schneller Privatsphäre-Hebel im Menü -->

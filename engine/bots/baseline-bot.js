@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Couillon / Kujong Bot AI Engine
  * 
  * Taktische Heuristiken für Bots ohne Schummeln (keine verdeckten Karten einsehen).
@@ -6,7 +6,7 @@
  * 0-Punkte-Abwurf (Schnorren), Mit'- und Kontra-Strategie.
  */
 
-const { SUITS, isTrumpCard, getEffectiveSuit, getTrumpPower, getOffSuitPower, isCardPlayable, evaluateTrick, POINT_VALUES, createDeck } = require('./couillon-rules');
+const { SUITS, isTrumpCard, getEffectiveSuit, getTrumpPower, getOffSuitPower, isCardPlayable, evaluateTrick, POINT_VALUES, createDeck } = require('../couillon-rules');
 
 const getCardPoints = (c) => (c && c.points !== undefined) ? c.points : (c ? (POINT_VALUES[c.rank] || 0) : 0);
 
@@ -246,6 +246,12 @@ function shouldAnnounceMit(hand, declarerIndex, botIndex, trumpSuit, options = {
   const trumpCount = hand.filter(c => isTrumpCard(c, trumpSuit, true, options)).length;
   const acesCount = hand.filter(c => c.rank === 'A').length;
 
+  // Qualitätstrümpfe für starke Ansagen
+  const hasTrumpAce = hand.some(c => isTrumpCard(c, trumpSuit, true, options) && c.rank === 'A');
+  const hasTrumpKing = hand.some(c => isTrumpCard(c, trumpSuit, true, options) && c.rank === 'K');
+  const hasClubQueen = hand.some(c => c.suit === SUITS.CLUBS && c.rank === 'Q');
+  const hasQualityTrump = hasTrumpAce || hasTrumpKing || hasClubQueen;
+
   // Fall A: Partner ist Ansager
   if (isPartnerDeclarer) {
     // Ansagen, außer bei völlig chancenloser Hand (0 Trümpfe, 0 Asse)
@@ -253,23 +259,47 @@ function shouldAnnounceMit(hand, declarerIndex, botIndex, trumpSuit, options = {
   }
 
   // Fall B: Gegner ist Ansager
-  // Bewährte Regel (oldMit): Trümpfe >= 2 ODER (Trümpfe >= 1 und Asse >= 1)
-  return (trumpCount >= 2 || (trumpCount >= 1 && acesCount >= 1));
+  // Gegner hat Trumpf gewählt -> wir müssen vorsichtig sein!
+  // Nur ansagen bei starker eigener Hand (mindestens 2 Trümpfe inkl. Qualitätstrumpf, oder Qualitätstrumpf + Ass).
+  if (trumpCount >= 2 && hasQualityTrump) {
+    return true;
+  }
+  if (trumpCount >= 1 && hasQualityTrump && acesCount >= 1) {
+    return true;
+  }
+
+  return false;
 }
 
 /**
  * Entscheidet, ob der Bot auf eine gegnerische Mit'-Ansage KONTRA geben soll.
- * Arena-optimierte Regel (contraAce3): Nur bei eigenem Trumpf-Ass und mindestens 3 Trümpfen insgesamt.
  */
 function shouldAnnounceContra(hand, mitHolderIndex, botIndex, trumpSuit, options = {}) {
   const mitTeam = mitHolderIndex % 2 === 0 ? 0 : 1;
   const botTeam = botIndex % 2 === 0 ? 0 : 1;
-  if (mitTeam === botTeam) return false; // Nicht gegen eigenes Team
+  if (mitTeam === botTeam) return false; // Nicht im selben Team
 
   const hasTrumpAce = hand.some(c => c.suit === trumpSuit && c.rank === 'A');
+  const hasClubQueen = hand.some(c => c.suit === SUITS.CLUBS && c.rank === 'Q');
+  const hasTrumpKing = hand.some(c => c.suit === trumpSuit && c.rank === 'K');
   const trumps = hand.filter(c => isTrumpCard(c, trumpSuit, true, options)).length;
+  const aces = hand.filter(c => c.rank === 'A').length;
 
-  return hasTrumpAce && trumps >= 3;
+  // Kontra-Bedingungen:
+  // 1. Bot hat das unschlagbare Trumpf-Ass + weitere Trümpfe oder Asse
+  if (hasTrumpAce && (trumps >= 2 || aces >= 1)) {
+    return true;
+  }
+  // 2. Bot hat Kreuz-Dame + Trumpf-König + Ass
+  if (hasClubQueen && hasTrumpKing && aces >= 1) {
+    return true;
+  }
+  // 3. Bot hat mind. 3 Trümpfe und 2 Asse
+  if (trumps >= 3 && aces >= 2) {
+    return true;
+  }
+
+  return false;
 }
 
 /**
@@ -303,17 +333,12 @@ function chooseCardToPlay(hand, currentTrick, trumpSuit, isMitAnnounced, botInde
     playerCount
   };
 
-  // 2. MCTS Rollout-Simulation (falls nicht explizit deaktiviert)
-  if (options.useMCTS !== false) {
-    const rollouts = typeof options.rollouts === 'number' ? options.rollouts : 30;
-    return chooseCardMCTS(playable, hand, currentTrick, trumpSuit, isMitAnnounced, botIndex, options, memory, rollouts);
-  }
-
-  // Fallback: Reine Heuristik
+  // 2. SITUATION A: Bot eröffnet den Stich (Ausspiel)
   if (!currentTrick || currentTrick.length === 0) {
     return chooseLeadCard(playable, hand, trumpSuit, isMitAnnounced, botIndex, options, memory);
   }
 
+  // 3. SITUATION B: Bot bedient oder sticht (2., 3. oder 4. Spieler im Stich)
   return chooseFollowCard(playable, hand, currentTrick, trumpSuit, isMitAnnounced, botIndex, options, memory);
 }
 
@@ -658,250 +683,6 @@ function sortCardsByPowerAsc(cards, trumpSuit, isMitAnnounced, options) {
   });
 }
 
-// ---------------------------------------------------------------------------
-// MONTE-CARLO ROLLOUT SEARCH (PIMC)
-// ---------------------------------------------------------------------------
-
-function hashState(botIndex, hand, currentTrick, trickHistory) {
-  let str = `${botIndex}_`;
-  for (const c of hand) str += `${c.suit}${c.rank}`;
-  str += '_';
-  for (const t of currentTrick) str += `${t.playerIndex}${t.card.suit}${t.card.rank}`;
-  str += `_${trickHistory ? trickHistory.length : 0}`;
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < str.length; i++) {
-    hash ^= str.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193);
-  }
-  return hash >>> 0;
-}
-
-function mulberry32(seed) {
-  let a = seed >>> 0;
-  return function () {
-    a = (a + 0x6D2B79F5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-function shuffle(arr, rng) {
-  const a = [...arr];
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(rng() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
-}
-
-function generateDeterminization(botIndex, hand, unseenCards, knownVoids, playerCount, currentTrick, trumpSuit, isMit, options, rng) {
-  const needed = {};
-  const playedInTrick = new Set(currentTrick.map(t => t.playerIndex));
-  for (let p = 0; p < playerCount; p++) {
-    if (p === botIndex) continue;
-    needed[p] = playedInTrick.has(p) ? hand.length - 1 : hand.length;
-  }
-
-  const stockSize = playerCount === 6 ? 2 : 4;
-
-  for (let attempt = 0; attempt < 15; attempt++) {
-    const shuffled = shuffle(unseenCards, rng);
-    const assigned = {};
-    for (let p = 0; p < playerCount; p++) assigned[p] = [];
-    const stock = [];
-
-    let valid = true;
-    for (const card of shuffled) {
-      const effSuit = getEffectiveSuit(card, trumpSuit, isMit, options);
-      const candidates = [];
-      for (let p = 0; p < playerCount; p++) {
-        if (p === botIndex) continue;
-        if (assigned[p].length < needed[p]) {
-          const isVoid = knownVoids[p] && knownVoids[p][effSuit];
-          if (!isVoid) candidates.push(p);
-        }
-      }
-
-      if (candidates.length > 0) {
-        const pick = candidates[Math.floor(rng() * candidates.length)];
-        assigned[pick].push(card);
-      } else if (stock.length < stockSize) {
-        stock.push(card);
-      } else {
-        const needy = [];
-        for (let p = 0; p < playerCount; p++) {
-          if (p !== botIndex && assigned[p].length < needed[p]) needy.push(p);
-        }
-        if (needy.length > 0) {
-          const pick = needy[Math.floor(rng() * needy.length)];
-          assigned[pick].push(card);
-        } else {
-          valid = false;
-          break;
-        }
-      }
-    }
-
-    if (valid) {
-      let countsMatch = true;
-      for (let p = 0; p < playerCount; p++) {
-        if (p !== botIndex && assigned[p].length !== needed[p]) {
-          countsMatch = false;
-          break;
-        }
-      }
-      if (countsMatch) {
-        return assigned;
-      }
-    }
-  }
-
-  const shuffled = shuffle(unseenCards, rng);
-  const assigned = {};
-  for (let p = 0; p < playerCount; p++) assigned[p] = [];
-  let ptr = 0;
-  for (let p = 0; p < playerCount; p++) {
-    if (p === botIndex) continue;
-    for (let c = 0; c < needed[p]; c++) {
-      if (ptr < shuffled.length) assigned[p].push(shuffled[ptr++]);
-    }
-  }
-  return assigned;
-}
-
-function pickRolloutCard(playerIndex, playerHand, trick, trumpSuit, isMit, options) {
-  const playable = playerHand.filter(c => isCardPlayable(c, playerHand, trick, trumpSuit, isMit, options));
-  if (playable.length === 0) return playerHand[0];
-  if (playable.length === 1) return playable[0];
-
-  if (!trick || trick.length === 0) {
-    const trumps = playable.filter(c => isTrumpCard(c, trumpSuit, isMit, options));
-    if (trumps.length >= 2) {
-      trumps.sort((a, b) => getTrumpPower(b, trumpSuit, isMit, options) - getTrumpPower(a, trumpSuit, isMit, options));
-      return trumps[0];
-    }
-    const aces = playable.filter(c => c.rank === 'A');
-    if (aces.length > 0) return aces[0];
-    playable.sort((a, b) => getCardPoints(a) - getCardPoints(b));
-    return playable[0];
-  }
-
-  const currentLeader = evaluateTrick(trick, trumpSuit, isMit, options);
-  const isPartnerWinning = (currentLeader.winnerIndex % 2 === playerIndex % 2);
-
-  if (isPartnerWinning) {
-    playable.sort((a, b) => getCardPoints(b) - getCardPoints(a));
-    return playable[0];
-  }
-
-  const winningCards = playable.filter(card => {
-    const testTrick = [...trick, { playerIndex, card }];
-    const res = evaluateTrick(testTrick, trumpSuit, isMit, options);
-    return res.winnerIndex === playerIndex;
-  });
-
-  if (winningCards.length > 0) {
-    winningCards.sort((a, b) => {
-      const aTr = isTrumpCard(a, trumpSuit, isMit, options);
-      const bTr = isTrumpCard(b, trumpSuit, isMit, options);
-      if (aTr && !bTr) return 1;
-      if (!aTr && bTr) return -1;
-      if (aTr && bTr) return getTrumpPower(a, trumpSuit, isMit, options) - getTrumpPower(b, trumpSuit, isMit, options);
-      return getOffSuitPower(a) - getOffSuitPower(b);
-    });
-    return winningCards[0];
-  }
-
-  playable.sort((a, b) => getCardPoints(a) - getCardPoints(b));
-  return playable[0];
-}
-
-function simulateRollout(candidateCard, botIndex, initialHands, currentTrick, trumpSuit, isMit, options, playerCount) {
-  const hands = {};
-  for (let p = 0; p < playerCount; p++) hands[p] = [...initialHands[p]];
-
-  const cIdx = hands[botIndex].findIndex(c => c.id === candidateCard.id);
-  if (cIdx !== -1) hands[botIndex].splice(cIdx, 1);
-
-  let trick = [...currentTrick, { playerIndex: botIndex, card: candidateCard }];
-  let leader = trick[0].playerIndex;
-  let myTeamEyes = 0;
-  const botTeam = botIndex % 2;
-
-  const playedPlayers = new Set(trick.map(t => t.playerIndex));
-  for (let step = 0; step < playerCount; step++) {
-    const p = (leader + step) % playerCount;
-    if (!playedPlayers.has(p)) {
-      const card = pickRolloutCard(p, hands[p], trick, trumpSuit, isMit, options);
-      const idx = hands[p].findIndex(c => c.id === card.id);
-      if (idx !== -1) hands[p].splice(idx, 1);
-      trick.push({ playerIndex: p, card });
-      playedPlayers.add(p);
-    }
-  }
-
-  let evalRes = evaluateTrick(trick, trumpSuit, isMit, options);
-  if (evalRes.winnerIndex % 2 === botTeam) {
-    myTeamEyes += evalRes.points;
-  }
-  leader = evalRes.winnerIndex;
-
-  const remainingTricks = hands[botIndex].length;
-  for (let t = 0; t < remainingTricks; t++) {
-    trick = [];
-    for (let step = 0; step < playerCount; step++) {
-      const player = (leader + step) % playerCount;
-      const card = pickRolloutCard(player, hands[player], trick, trumpSuit, isMit, options);
-      const idx = hands[player].findIndex(c => c.id === card.id);
-      if (idx !== -1) hands[player].splice(idx, 1);
-      trick.push({ playerIndex: player, card });
-    }
-    evalRes = evaluateTrick(trick, trumpSuit, isMit, options);
-    if (evalRes.winnerIndex % 2 === botTeam) {
-      myTeamEyes += evalRes.points;
-    }
-    leader = evalRes.winnerIndex;
-  }
-
-  return myTeamEyes;
-}
-
-function chooseCardMCTS(playable, hand, currentTrick, trumpSuit, isMitAnnounced, botIndex, options, memory, numRollouts = 30) {
-  const { unseenCards = [], knownVoids = [], playerCount = 4 } = memory;
-  const trickHistory = options.trickHistory || [];
-  const seed = hashState(botIndex, hand, currentTrick, trickHistory);
-  const rng = mulberry32(seed);
-
-  const scores = {};
-  for (const c of playable) scores[c.id] = 0;
-
-  for (let r = 0; r < numRollouts; r++) {
-    const world = generateDeterminization(botIndex, hand, unseenCards, knownVoids, playerCount, currentTrick, trumpSuit, isMitAnnounced, options, rng);
-    world[botIndex] = [...hand];
-
-    for (const c of playable) {
-      const eyes = simulateRollout(c, botIndex, world, currentTrick, trumpSuit, isMitAnnounced, options, playerCount);
-      scores[c.id] += eyes;
-    }
-  }
-
-  let maxScore = -1;
-  for (const c of playable) {
-    if (scores[c.id] > maxScore) maxScore = scores[c.id];
-  }
-
-  const bestCards = playable.filter(c => scores[c.id] === maxScore);
-  if (bestCards.length === 1) return bestCards[0];
-
-  // Tie-breaker: heursitische Bewertung der Gleichstand-Kandidaten
-  if (!currentTrick || currentTrick.length === 0) {
-    return chooseLeadCard(bestCards, hand, trumpSuit, isMitAnnounced, botIndex, options, memory);
-  }
-  return chooseFollowCard(bestCards, hand, currentTrick, trumpSuit, isMitAnnounced, botIndex, options, memory);
-}
-
 module.exports = {
   chooseTrumpSuit,
   shouldBotTurnTrump,
@@ -913,6 +694,6 @@ module.exports = {
   getKnownVoids,
   doOpponentsHaveTrumps,
   isBossCard,
-  isSuitBoss,
-  chooseCardMCTS
+  isSuitBoss
 };
+

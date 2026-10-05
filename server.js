@@ -172,13 +172,14 @@ function createRoom(roomCode, hostName, hostSocketId) {
       null,
       null
     ],
+    spectators: [],
     settings: {
       playerCount: 4,                 // 4 oder 6 Spieler (Standard: 4)
       countEyesLive: true,            // Live-Augenzähler im Header (Standard: true)
       alwaysClubQueenTrump: true,     // Kreuz-Dame immer 2. bzw. 3. Trumpf (Standard: true)
       allowMit: true,                 // Pik-Dame Mit'-Ansage erlaubt (Standard: true)
       contraPoints: 4,                // Rundenwert bei Kontra: 4 Pkt (Standard: 4, alternativ: 3)
-      allowContraRe: false,           // Kontra-Re (Gegen-Kontra) erlaubt: verdoppelt auf 8 Pkt bzw. +1 auf 4 Pkt (Standard: false)
+      allowContraRe: true,            // Kontra-Re (Gegen-Kontra) erlaubt: verdoppelt auf 8 Pkt bzw. +1 auf 4 Pkt (Standard: false)
       ansagerZeroTricksPenalty: 2,    // Strafpunkte bei 0 Stichen für Ansager: 2 Pkt (Standard: 2, alternativ: 1)
       startScoreA: 13,                // Startwert Team A (Standard: 13)
       startScoreB: 13,                // Startwert Team B (Standard: 13)
@@ -251,6 +252,16 @@ function broadcastGameState(room) {
     if (seat && !seat.isBot && seat.socketId) {
       const clientPayload = sanitizeStateForPlayer(room, i);
       io.to(seat.socketId).emit('game_state', clientPayload);
+    }
+  }
+
+  // Zustand sicher an alle Zuschauer übertragen (strikt verdeckte Hände)
+  if (Array.isArray(room.spectators) && room.spectators.length > 0) {
+    const spectatorPayload = sanitizeStateForPlayer(room, -1);
+    for (const spec of room.spectators) {
+      if (spec && spec.socketId) {
+        io.to(spec.socketId).emit('game_state', spectatorPayload);
+      }
     }
   }
 }
@@ -639,7 +650,7 @@ function handleTurnTrump(room) {
 
   // Falls der Ansager ein Bot ist und ♠Q hält/gedreht hat: Mit'-Ansage direkt prüfen
   if (room.seats[d] && room.seats[d].isBot && room.mitHolderIndex === d && room.settings.allowMit !== false) {
-    if (shouldAnnounceMit(room.hands[d], d, d, room.trumpSuit, room.settings)) {
+    if (shouldAnnounceMit(room.hands[d], d, d, room.trumpSuit, { ...room.settings, scores: room.scores, declarerIndex: d, declarerTeam: d % 2 })) {
       handleMitAnnouncement(room, d, true);
     }
   }
@@ -1252,10 +1263,11 @@ function checkBotAction(room) {
     if (declarer && declarer.isBot) {
       room.botTimer = setTimeout(() => {
         const hand = room.hands[room.declarerIndex];
-        if (shouldBotTurnTrump(hand, { ...room.settings, playerCount: maxPlayers })) {
+        const botOpts = { ...room.settings, playerCount: maxPlayers, scores: room.scores, declarerIndex: room.declarerIndex, declarerTeam: room.declarerTeam };
+        if (shouldBotTurnTrump(hand, botOpts)) {
           handleTurnTrump(room);
         } else {
-          const bestSuit = chooseTrumpSuit(hand, { ...room.settings, playerCount: maxPlayers });
+          const bestSuit = chooseTrumpSuit(hand, botOpts);
           handleTrumpSelection(room, bestSuit);
         }
       }, turnDelay);
@@ -1269,7 +1281,7 @@ function checkBotAction(room) {
         const sTeam = s % 2 === 0 ? 0 : 1;
         if (seat && seat.isBot && sTeam !== mitTeam) {
           const hand = room.hands[s];
-          if (shouldAnnounceContra(hand, room.mitHolderIndex, s, room.trumpSuit, { ...room.settings, playerCount: maxPlayers })) {
+          if (shouldAnnounceContra(hand, room.mitHolderIndex, s, room.trumpSuit, { ...room.settings, playerCount: maxPlayers, scores: room.scores, declarerIndex: room.declarerIndex, declarerTeam: room.declarerTeam })) {
             handleContraAnnouncement(room, s);
             break;
           }
@@ -1290,7 +1302,7 @@ function checkBotAction(room) {
         // 2. Taktische Mit'-Prüfung (in Stich 1, wenn Bot ♠Q hält)
         if (room.settings.allowMit !== false && room.trickCount === 0 && room.mitHolderIndex === room.currentTurn && !room.isMitAnnounced) {
           const botHand = room.hands[room.currentTurn];
-          if (shouldAnnounceMit(botHand, room.declarerIndex, room.currentTurn, room.trumpSuit, { ...room.settings, playerCount: maxPlayers })) {
+          if (shouldAnnounceMit(botHand, room.declarerIndex, room.currentTurn, room.trumpSuit, { ...room.settings, playerCount: maxPlayers, scores: room.scores, declarerIndex: room.declarerIndex, declarerTeam: room.declarerTeam })) {
             handleMitAnnouncement(room, room.currentTurn, true);
           }
         }
@@ -1391,6 +1403,29 @@ io.on('connection', (socket) => {
     socket.emit('public_rooms_update', getPublicRoomsData());
   });
 
+  // Zuschauer-Beitritt (Kibitzing)
+  const doJoinAsSpectator = (sock, code, playerName) => {
+    const room = rooms.get(code);
+    if (!room) return sock.emit('error_message', 'Raum nicht gefunden.');
+    if (!Array.isArray(room.spectators)) room.spectators = [];
+
+    const existing = room.spectators.find(s => s && s.socketId === sock.id);
+    if (!existing) {
+      room.spectators.push({
+        socketId: sock.id,
+        name: playerName || 'Zuschauer',
+        connected: true
+      });
+    }
+    currentRoomCode = code;
+    currentSeatIndex = -1;
+    sock.join(code);
+    sock.emit('joined_spectator', { roomCode: code });
+    const spectatorPayload = sanitizeStateForPlayer(room, -1);
+    sock.emit('game_state', spectatorPayload);
+    logAction(room, `👀 ${playerName || 'Ein Zuschauer'} schaut dem Spiel zu.`);
+  };
+
   // Normaler Beitritt in der Lobby
   const doNormalJoin = (sock, code, playerName, preferredSeat) => {
     const room = rooms.get(code);
@@ -1413,7 +1448,8 @@ io.on('connection', (socket) => {
     }
 
     if (targetSeat === -1) {
-      return sock.emit('error_message', `Dieser Raum ist bereits voll (${maxPlayers} echte Spieler).`);
+      // Wenn der Tisch voll ist, automatisch als Zuschauer beitreten!
+      return doJoinAsSpectator(sock, code, playerName);
     }
 
     const previousSeat = room.seats[targetSeat];
@@ -1632,6 +1668,12 @@ io.on('connection', (socket) => {
 
     // In der Lobby: Normal beitreten
     doNormalJoin(socket, code, playerName, preferredSeat);
+  });
+
+  // Explizit als Zuschauer beitreten (Kibitzen)
+  socket.on('join_as_spectator', ({ roomCode, playerName }) => {
+    const code = (roomCode || '').toUpperCase().trim();
+    doJoinAsSpectator(socket, code, playerName);
   });
 
   // Reconnect nach kurzem Browser-Refresh / Verbindungsabbruch
@@ -1956,9 +1998,19 @@ io.on('connection', (socket) => {
 
   // Lobby oder aktives Spiel verlassen (im Spiel nahtlos durch Bot ersetzt)
   function handlePlayerLeave() {
-    if (!currentRoomCode || currentSeatIndex === -1) return;
+    if (!currentRoomCode) return;
     const room = rooms.get(currentRoomCode);
     if (!room) return;
+
+    if (currentSeatIndex === -1) {
+      if (Array.isArray(room.spectators)) {
+        room.spectators = room.spectators.filter(s => s && s.socketId !== socket.id);
+      }
+      socket.leave(currentRoomCode);
+      socket.emit('left_room');
+      currentRoomCode = null;
+      return;
+    }
 
     const player = room.seats[currentSeatIndex];
     const playerName = player ? player.name : 'Ein Spieler';
@@ -2187,6 +2239,13 @@ io.on('connection', (socket) => {
 
   // Trennung behandeln
   socket.on('disconnect', () => {
+    if (currentRoomCode && currentSeatIndex === -1) {
+      const room = rooms.get(currentRoomCode);
+      if (room && Array.isArray(room.spectators)) {
+        room.spectators = room.spectators.filter(s => s && s.socketId !== socket.id);
+      }
+    }
+
     if (currentRoomCode && currentSeatIndex !== -1) {
       const room = rooms.get(currentRoomCode);
       if (room && room.seats[currentSeatIndex]) {

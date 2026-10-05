@@ -13,7 +13,36 @@ const socket = io({
 let currentRoomCode = null;
 let mySeatIndex = -1;
 let gameState = null;
+let isSpectator = false;
 let soundEnabled = true;
+try {
+  const savedSound = localStorage.getItem('kujong_sound_enabled');
+  if (savedSound !== null) soundEnabled = savedSound === 'true';
+} catch (e) {}
+
+let clientTrickPauseDuration = 1000;
+try {
+  const savedPause = localStorage.getItem('kujong_trick_pause');
+  if (savedPause !== null) {
+    clientTrickPauseDuration = Math.max(0, Math.min(2000, parseFloat(savedPause) * 1000));
+  }
+} catch (e) {}
+window.trickPauseDuration = clientTrickPauseDuration;
+
+function updateTrickPauseDisplay(val) {
+  const disp = document.getElementById('displayTrickPauseVal');
+  if (disp) disp.textContent = parseFloat(val).toFixed(1) + ' s';
+}
+
+function saveClientTrickPause(val) {
+  const sec = parseFloat(val);
+  clientTrickPauseDuration = Math.max(0, Math.min(2000, sec * 1000));
+  window.trickPauseDuration = clientTrickPauseDuration;
+  try {
+    localStorage.setItem('kujong_trick_pause', sec);
+  } catch (e) {}
+}
+
 let svgSpriteLoaded = false;
 
 // Audio-Synthesizer via Web Audio API (Lazy Init on Mobile)
@@ -32,108 +61,274 @@ function getAudioContext() {
   return audioCtx;
 }
 
-function playSound(type) {
-  if (!soundEnabled) return;
-  const ctx = getAudioContext();
-  if (!ctx) return;
-  try {
-    if (ctx.state === 'suspended') {
-      ctx.resume();
-    }
-    const now = ctx.currentTime;
+// --------------------------------------------------------------------------
+// AUDIO ENGINE & SOUND MANAGER (Realistic Card Acoustics + Web Audio)
+// --------------------------------------------------------------------------
+const SoundManager = {
+  audioCache: {},
+  
+  preload(name, path) {
+    try {
+      const audio = new Audio(path);
+      audio.preload = 'auto';
+      this.audioCache[name] = audio;
+    } catch (e) {}
+  },
 
-    if (type === 'card_play') {
+  playAudioFile(name) {
+    if (!soundEnabled) return false;
+    const audio = this.audioCache[name];
+    if (audio) {
+      try {
+        const clone = audio.cloneNode();
+        clone.volume = 0.6;
+        clone.play().catch(() => {});
+        return true;
+      } catch (e) {}
+    }
+    return false;
+  },
+
+  playCard() {
+    if (this.playAudioFile('play')) return;
+    this.synthCardSnap();
+  },
+
+  dealCard() {
+    if (this.playAudioFile('deal')) return;
+    this.synthCardDeal();
+  },
+
+  shuffle() {
+    if (this.playAudioFile('shuffle')) return;
+    this.synthShuffle();
+  },
+
+  collectTrick() {
+    if (this.playAudioFile('collect')) return;
+    this.synthCollectTrick();
+  },
+
+  synthCardSnap() {
+    if (!soundEnabled) return;
+    const ctx = getAudioContext();
+    if (!ctx) return;
+    try {
+      if (ctx.state === 'suspended') ctx.resume();
+      const now = ctx.currentTime;
+      
+      // 1. Thud / Felt impact (triangle low pitch drop)
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = 'triangle';
-      osc.frequency.setValueAtTime(440, now);
-      osc.frequency.exponentialRampToValueAtTime(110, now + 0.08);
-      gain.gain.setValueAtTime(0.3, now);
-      gain.gain.linearRampToValueAtTime(0.01, now + 0.08);
+      osc.frequency.setValueAtTime(140, now);
+      osc.frequency.exponentialRampToValueAtTime(35, now + 0.07);
+      gain.gain.setValueAtTime(0.35, now);
+      gain.gain.linearRampToValueAtTime(0.001, now + 0.07);
       osc.connect(gain);
       gain.connect(ctx.destination);
       osc.start(now);
-      osc.stop(now + 0.08);
-    } else if (type === 'trick_won') {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(523.25, now);
-      osc.frequency.setValueAtTime(659.25, now + 0.08);
-      osc.frequency.setValueAtTime(783.99, now + 0.16);
-      gain.gain.setValueAtTime(0.2, now);
-      gain.gain.linearRampToValueAtTime(0.01, now + 0.28);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(now);
-      osc.stop(now + 0.28);
-    } else if (type === 'trump_fanfare') {
-      [587.33, 739.99, 880].forEach((freq, i) => {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'triangle';
-        osc.frequency.setValueAtTime(freq, now + i * 0.1);
-        gain.gain.setValueAtTime(0.25, now + i * 0.1);
-        gain.gain.linearRampToValueAtTime(0.01, now + i * 0.1 + 0.2);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start(now + i * 0.1);
-        osc.stop(now + i * 0.1 + 0.2);
-      });
-    } else if (type === 'contra_sound') {
-      [440, 330, 220, 165].forEach((freq, i) => {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(freq, now + i * 0.08);
-        gain.gain.setValueAtTime(0.2, now + i * 0.08);
-        gain.gain.linearRampToValueAtTime(0.01, now + i * 0.08 + 0.16);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start(now + i * 0.08);
-        osc.stop(now + i * 0.08 + 0.16);
-      });
-    } else if (type === 'turn') {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(880, now);
-      osc.frequency.exponentialRampToValueAtTime(440, now + 0.1);
-      gain.gain.setValueAtTime(0.15, now);
-      gain.gain.linearRampToValueAtTime(0.01, now + 0.1);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(now);
-      osc.stop(now + 0.1);
-    } else if (type === 'victory') {
-      [523.25, 659.25, 783.99, 1046.50].forEach((freq, i) => {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'triangle';
-        osc.frequency.setValueAtTime(freq, now + i * 0.15);
-        gain.gain.setValueAtTime(0.3, now + i * 0.15);
-        gain.gain.linearRampToValueAtTime(0.01, now + i * 0.15 + 0.4);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start(now + i * 0.15);
-        osc.stop(now + i * 0.15 + 0.4);
-      });
-    } else if (type === 'emote') {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(550, now);
-      osc.frequency.exponentialRampToValueAtTime(1100, now + 0.12);
-      gain.gain.setValueAtTime(0.25, now);
-      gain.gain.linearRampToValueAtTime(0.01, now + 0.12);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(now);
-      osc.stop(now + 0.12);
+      osc.stop(now + 0.07);
+
+      // 2. High-freq card flick/snap (filtered noise)
+      const bufferSize = Math.floor(ctx.sampleRate * 0.04);
+      const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+      const output = noiseBuffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) {
+        output[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.25));
+      }
+      const whiteNoise = ctx.createBufferSource();
+      whiteNoise.buffer = noiseBuffer;
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.frequency.setValueAtTime(1800, now);
+      filter.Q.setValueAtTime(2.5, now);
+      const noiseGain = ctx.createGain();
+      noiseGain.gain.setValueAtTime(0.25, now);
+      noiseGain.gain.linearRampToValueAtTime(0.001, now + 0.04);
+      whiteNoise.connect(filter);
+      filter.connect(noiseGain);
+      noiseGain.connect(ctx.destination);
+      whiteNoise.start(now);
+    } catch (e) {
+      console.warn('Audio playCard failed:', e);
     }
-  } catch (e) {
-    console.warn('Audio play error:', e);
+  },
+
+  synthCardDeal() {
+    if (!soundEnabled) return;
+    const ctx = getAudioContext();
+    if (!ctx) return;
+    try {
+      if (ctx.state === 'suspended') ctx.resume();
+      const now = ctx.currentTime;
+      const bufferSize = Math.floor(ctx.sampleRate * 0.06);
+      const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+      const output = noiseBuffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) {
+        output[i] = (Math.random() * 2 - 1) * (1 - i / bufferSize);
+      }
+      const whiteNoise = ctx.createBufferSource();
+      whiteNoise.buffer = noiseBuffer;
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'highpass';
+      filter.frequency.setValueAtTime(1200, now);
+      const noiseGain = ctx.createGain();
+      noiseGain.gain.setValueAtTime(0.18, now);
+      noiseGain.gain.linearRampToValueAtTime(0.001, now + 0.06);
+      whiteNoise.connect(filter);
+      filter.connect(noiseGain);
+      noiseGain.connect(ctx.destination);
+      whiteNoise.start(now);
+    } catch (e) {}
+  },
+
+  synthShuffle() {
+    if (!soundEnabled) return;
+    for (let i = 0; i < 7; i++) {
+      setTimeout(() => this.synthCardDeal(), i * 45);
+    }
+  },
+
+  synthCollectTrick() {
+    if (!soundEnabled) return;
+    const ctx = getAudioContext();
+    if (!ctx) return;
+    try {
+      if (ctx.state === 'suspended') ctx.resume();
+      const now = ctx.currentTime;
+
+      // Sliding / gathering whoosh
+      const bufferSize = Math.floor(ctx.sampleRate * 0.14);
+      const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+      const output = noiseBuffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) {
+        output[i] = (Math.random() * 2 - 1) * Math.sin((i / bufferSize) * Math.PI);
+      }
+      const noise = ctx.createBufferSource();
+      noise.buffer = noiseBuffer;
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.frequency.setValueAtTime(800, now);
+      filter.frequency.exponentialRampToValueAtTime(1600, now + 0.14);
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0.2, now);
+      gain.gain.linearRampToValueAtTime(0.001, now + 0.14);
+      noise.connect(filter);
+      filter.connect(gain);
+      gain.connect(ctx.destination);
+      noise.start(now);
+
+      // Card squaring click
+      setTimeout(() => this.synthCardSnap(), 120);
+    } catch (e) {}
+  },
+
+  play(type) {
+    if (!soundEnabled) return;
+    if (type === 'card_play') return this.playCard();
+    if (type === 'deal') return this.dealCard();
+    if (type === 'shuffle') return this.shuffle();
+    if (type === 'collect' || type === 'trick_collect') return this.collectTrick();
+
+    const ctx = getAudioContext();
+    if (!ctx) return;
+    try {
+      if (ctx.state === 'suspended') ctx.resume();
+      const now = ctx.currentTime;
+
+      if (type === 'trick_won') {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(523.25, now);
+        osc.frequency.setValueAtTime(659.25, now + 0.08);
+        osc.frequency.setValueAtTime(783.99, now + 0.16);
+        gain.gain.setValueAtTime(0.2, now);
+        gain.gain.linearRampToValueAtTime(0.01, now + 0.28);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.28);
+      } else if (type === 'trump_fanfare') {
+        [587.33, 739.99, 880].forEach((freq, i) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(freq, now + i * 0.1);
+          gain.gain.setValueAtTime(0.25, now + i * 0.1);
+          gain.gain.linearRampToValueAtTime(0.01, now + i * 0.1 + 0.2);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(now + i * 0.1);
+          osc.stop(now + i * 0.1 + 0.2);
+        });
+      } else if (type === 'contra_sound') {
+        [440, 330, 220, 165].forEach((freq, i) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(freq, now + i * 0.08);
+          gain.gain.setValueAtTime(0.2, now + i * 0.08);
+          gain.gain.linearRampToValueAtTime(0.01, now + i * 0.08 + 0.16);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(now + i * 0.08);
+          osc.stop(now + i * 0.08 + 0.16);
+        });
+      } else if (type === 'turn') {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(880, now);
+        osc.frequency.exponentialRampToValueAtTime(440, now + 0.1);
+        gain.gain.setValueAtTime(0.15, now);
+        gain.gain.linearRampToValueAtTime(0.01, now + 0.1);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.1);
+      } else if (type === 'victory') {
+        [523.25, 659.25, 783.99, 1046.50].forEach((freq, i) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(freq, now + i * 0.15);
+          gain.gain.setValueAtTime(0.3, now + i * 0.15);
+          gain.gain.linearRampToValueAtTime(0.01, now + i * 0.15 + 0.4);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(now + i * 0.15);
+          osc.stop(now + i * 0.15 + 0.4);
+        });
+      } else if (type === 'emote') {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(550, now);
+        osc.frequency.exponentialRampToValueAtTime(1100, now + 0.12);
+        gain.gain.setValueAtTime(0.25, now);
+        gain.gain.linearRampToValueAtTime(0.01, now + 0.12);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.12);
+      }
+    } catch (e) {
+      console.warn('Audio play error:', e);
+    }
   }
+};
+
+// Optional: Preload sound files if they exist in /sounds/
+SoundManager.preload('play', 'sounds/play.mp3');
+SoundManager.preload('deal', 'sounds/deal.mp3');
+SoundManager.preload('shuffle', 'sounds/shuffle.mp3');
+SoundManager.preload('collect', 'sounds/collect.mp3');
+
+// Abwärtskompatible Wrapper-Funktion
+function playSound(type) {
+  SoundManager.play(type);
 }
 
 // SVG Sprite Loader (WebKit/Safari kompatibel ohne display:none)
@@ -164,6 +359,15 @@ document.addEventListener('DOMContentLoaded', () => {
   initSvgSprite();
   setupEventListeners();
   checkUrlParams();
+
+  // PWA Service Worker für schnelles Laden & Homescreen-Installation
+  if ('serviceWorker' in navigator && (window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+    navigator.serviceWorker.register('sw.js').then((reg) => {
+      console.log('Kujong Service Worker registriert:', reg.scope);
+    }).catch((err) => {
+      console.warn('Service Worker Registrierung fehlgeschlagen:', err);
+    });
+  }
 });
 
 function setupEventListeners() {
@@ -172,12 +376,26 @@ function setupEventListeners() {
   document.getElementById('startGameBtn').addEventListener('click', handleStartGame);
   document.getElementById('fillBotsBtn').addEventListener('click', handleFillBots);
   document.getElementById('copyInviteBtn').addEventListener('click', copyInviteLink);
+  const shareBtn = document.getElementById('shareInviteBtn');
+  if (shareBtn) shareBtn.addEventListener('click', shareInviteLink);
 
-  document.getElementById('soundToggleBtn').addEventListener('click', () => {
-    soundEnabled = !soundEnabled;
-    document.getElementById('soundToggleBtn').textContent = soundEnabled ? '🔊' : '🔇';
-    showToast(soundEnabled ? 'Ton aktiviert' : 'Ton stummgeschaltet');
-  });
+  const soundBtn = document.getElementById('soundToggleBtn');
+  if (soundBtn) {
+    soundBtn.textContent = soundEnabled ? '🔊' : '🔇';
+    soundBtn.addEventListener('click', () => {
+      soundEnabled = !soundEnabled;
+      soundBtn.textContent = soundEnabled ? '🔊' : '🔇';
+      try { localStorage.setItem('kujong_sound_enabled', soundEnabled); } catch (e) {}
+      showToast(soundEnabled ? 'Ton aktiviert' : 'Ton stummgeschaltet');
+    });
+  }
+
+  const pauseSlider = document.getElementById('trickPauseSlider');
+  if (pauseSlider) {
+    const sec = (clientTrickPauseDuration / 1000).toFixed(1);
+    pauseSlider.value = sec;
+    updateTrickPauseDisplay(sec);
+  }
 
   // Klick außerhalb des Emote-Pickers schließt ihn
   document.addEventListener('click', (e) => {
@@ -296,6 +514,78 @@ function copyInviteLink() {
   });
 }
 
+function shareInviteLink() {
+  if (!currentRoomCode) return;
+  const inviteUrl = `${window.location.origin}${window.location.pathname}?room=${currentRoomCode}`;
+  const shareTitle = 'Kujong - Couillon Kartenspiel';
+  const shareText = `Komm zu Kujong! Raumcode: ${currentRoomCode}. Klicke zum Mitspielen:`;
+
+  if (navigator.share) {
+    navigator.share({
+      title: shareTitle,
+      text: shareText,
+      url: inviteUrl
+    }).then(() => {
+      showToast('📲 Einladung geteilt!');
+    }).catch((err) => {
+      if (err.name !== 'AbortError') {
+        openWhatsAppInvite(inviteUrl);
+      }
+    });
+  } else {
+    openWhatsAppInvite(inviteUrl);
+  }
+}
+window.shareInviteLink = shareInviteLink;
+
+function openWhatsAppInvite(url) {
+  if (!url && currentRoomCode) {
+    url = `${window.location.origin}${window.location.pathname}?room=${currentRoomCode}`;
+  }
+  const text = encodeURIComponent(`Komm zu Kujong! Raumcode: ${currentRoomCode || ''}\nMitspielen: ${url || ''}`);
+  const whatsappUrl = `https://api.whatsapp.com/send?text=${text}`;
+  window.open(whatsappUrl, '_blank');
+}
+window.openWhatsAppInvite = openWhatsAppInvite;
+
+// PWA Install Prompt Handling
+let deferredPwaPrompt = null;
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredPwaPrompt = e;
+  const pwaContainer = document.getElementById('pwaInstallContainer');
+  if (pwaContainer) pwaContainer.classList.remove('hidden');
+});
+
+window.addEventListener('appinstalled', () => {
+  deferredPwaPrompt = null;
+  const pwaContainer = document.getElementById('pwaInstallContainer');
+  if (pwaContainer) pwaContainer.classList.add('hidden');
+  showToast('🎉 Kujong wurde erfolgreich als App installiert!');
+});
+
+function triggerPwaInstall() {
+  if (deferredPwaPrompt) {
+    deferredPwaPrompt.prompt();
+    deferredPwaPrompt.userChoice.then((choiceResult) => {
+      if (choiceResult.outcome === 'accepted') {
+        showToast('App wird installiert...');
+      }
+      deferredPwaPrompt = null;
+      const pwaContainer = document.getElementById('pwaInstallContainer');
+      if (pwaContainer) pwaContainer.classList.add('hidden');
+    });
+  } else {
+    const isIos = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+    if (isIos) {
+      alert('Tippe im Safari-Browser unten auf das "Teilen"-Symbol (Viereck mit Pfeil nach oben) und wähle "Zum Home-Bildschirm", um Kujong als App hinzuzufügen.');
+    } else {
+      showToast('Tippe im Browser-Menü (⋮) auf "App installieren"');
+    }
+  }
+}
+window.triggerPwaInstall = triggerPwaInstall;
+
 function switchSeat(seatIndex) {
   socket.emit('switch_seat', { targetSeat: seatIndex });
 }
@@ -353,7 +643,7 @@ function turnTrump() {
 // Helper: Berechnet relative Sitzposition relativ zu Du (Bottom)
 function getRelativePosition(targetSeatIndex, mySeatIndex) {
   const t = typeof targetSeatIndex === 'number' ? targetSeatIndex : 0;
-  const m = typeof mySeatIndex === 'number' ? mySeatIndex : 0;
+  const m = (typeof mySeatIndex === 'number' && mySeatIndex >= 0 && !isSpectator) ? mySeatIndex : 0;
   const maxPlayers = gameState && gameState.settings ? (gameState.settings.playerCount || 4) : 4;
 
   if (maxPlayers === 6) {
@@ -469,6 +759,80 @@ function throwCards() {
   playSound('card_play');
   const banner = document.getElementById('throwCardsBanner');
   if (banner) banner.classList.add('hidden');
+}
+
+function animateCardFly(startEl, targetEl, card, onComplete) {
+  if (!startEl || !targetEl) {
+    if (onComplete) onComplete();
+    return;
+  }
+  const startRect = startEl.getBoundingClientRect();
+  const targetRect = targetEl.getBoundingClientRect();
+
+  const flyEl = document.createElement('div');
+  flyEl.className = 'playing-card flying-card';
+  flyEl.style.left = `${startRect.left + (startRect.width - 70) / 2}px`;
+  flyEl.style.top = `${startRect.top + (startRect.height - 101) / 2}px`;
+  flyEl.style.width = '70px';
+  flyEl.style.height = '101px';
+  flyEl.innerHTML = createCardHTML(card || { id: 'back', suit: 'HEARTS', rank: 'A' }, false);
+  document.body.appendChild(flyEl);
+
+  requestAnimationFrame(() => {
+    const dx = (targetRect.left + (targetRect.width - 70) / 2) - (startRect.left + (startRect.width - 70) / 2);
+    const dy = (targetRect.top + (targetRect.height - 101) / 2) - (startRect.top + (startRect.height - 101) / 2);
+    flyEl.style.transform = `translate(${dx}px, ${dy}px) rotate(0deg)`;
+  });
+
+  setTimeout(() => {
+    flyEl.remove();
+    if (onComplete) onComplete();
+  }, 380);
+}
+
+function playCardWithAnimation(cardId, cardEl) {
+  if (!gameState) return;
+  if (gameState.phase !== 'PLAY_TRICK') return;
+  if (gameState.currentTurn !== mySeatIndex) return;
+
+  const isPlayable = gameState.you ? gameState.you.playableMap[cardId] : false;
+  if (!isPlayable) {
+    showToast('Diese Karte darf gemäß Stichregeln nicht gespielt werden!');
+    return;
+  }
+
+  const slotBottom = document.getElementById('trickSlotBottom');
+  if (cardEl && slotBottom) {
+    const startRect = cardEl.getBoundingClientRect();
+    const targetRect = slotBottom.getBoundingClientRect();
+
+    const clone = cardEl.cloneNode(true);
+    clone.classList.add('flying-card');
+    clone.style.left = `${startRect.left}px`;
+    clone.style.top = `${startRect.top}px`;
+    clone.style.width = `${startRect.width}px`;
+    clone.style.height = `${startRect.height}px`;
+    document.body.appendChild(clone);
+
+    cardEl.style.opacity = '0';
+    cardEl.style.pointerEvents = 'none';
+
+    SoundManager.playCard();
+
+    requestAnimationFrame(() => {
+      const dx = targetRect.left - startRect.left;
+      const dy = targetRect.top - startRect.top;
+      clone.style.transform = `translate(${dx}px, ${dy}px) rotate(0deg)`;
+    });
+
+    setTimeout(() => {
+      clone.remove();
+    }, 380);
+  } else {
+    SoundManager.playCard();
+  }
+
+  socket.emit('play_card', { cardId });
 }
 
 function playCard(cardId) {
@@ -794,7 +1158,7 @@ function renderPublicRooms(rooms) {
         actionBtn = `<button class="btn btn-sm btn-outline btn-join-request" onclick="joinPublicRoom('${r.code}', true)">🙋 Nachjoinen</button>`;
       } else {
         statusBadge = `<span class="room-status-badge badge-full">⚪ Voll (${r.playerCount}/${r.playerCount})</span>`;
-        actionBtn = `<button class="btn btn-sm btn-outline" disabled>Voll</button>`;
+        actionBtn = `<button class="btn btn-sm btn-outline btn-spectate" onclick="spectatePublicRoom('${r.code}')">👀 Zuschauen</button>`;
       }
     }
 
@@ -815,6 +1179,23 @@ function renderPublicRooms(rooms) {
 
     list.appendChild(item);
   });
+}
+
+function spectatePublicRoom(code) {
+  const nameInput = document.getElementById('playerNameInput');
+  const name = (nameInput && nameInput.value.trim()) ? nameInput.value.trim() : 'Zuschauer';
+  socket.emit('join_as_spectator', { roomCode: code, playerName: name });
+}
+
+function handleSpectateRoom() {
+  const code = (document.getElementById('roomCodeInput').value || '').trim().toUpperCase();
+  if (!code) {
+    showToast('Bitte einen Raumcode eingeben.');
+    return;
+  }
+  const nameInput = document.getElementById('playerNameInput');
+  const name = (nameInput && nameInput.value.trim()) ? nameInput.value.trim() : 'Zuschauer';
+  socket.emit('join_as_spectator', { roomCode: code, playerName: name });
 }
 
 function joinPublicRoom(code, isMidGame) {
@@ -1081,7 +1462,46 @@ socket.on('room_created', ({ roomCode, seatIndex }) => {
   }));
 });
 
+// --------------------------------------------------------------------------
+// CLIENT EVENT QUEUE & ANIMATION COORDINATOR
+// --------------------------------------------------------------------------
+let socketEventQueue = [];
+let isAnimatingTrick = false;
+let displayedTrickCardIds = new Set();
+let currentEvaluatingTrickNumber = -1;
+
+function enqueueGameState(state) {
+  if (isAnimatingTrick) {
+    socketEventQueue.push(state);
+  } else {
+    handleGameState(state);
+  }
+}
+
+function processNextQueuedState() {
+  if (socketEventQueue.length > 0) {
+    const nextState = socketEventQueue.pop();
+    socketEventQueue = [];
+    handleGameState(nextState);
+  }
+}
+
+socket.on('joined_spectator', ({ roomCode }) => {
+  isSpectator = true;
+  mySeatIndex = -1;
+  currentRoomCode = roomCode;
+  document.getElementById('lobbyInitialOptions').classList.add('hidden');
+  document.getElementById('lobbyWaitingRoom').classList.add('hidden');
+  document.getElementById('lobbyScreen').classList.remove('active');
+  document.getElementById('gameScreen').classList.add('active');
+  showToast('Du schaust dem Spiel als Zuschauer zu!');
+});
+
 socket.on('game_state', (state) => {
+  enqueueGameState(state);
+});
+
+function handleGameState(state) {
   isCreatingRoom = false;
   isJoiningRoom = false;
   const previousPhase = gameState ? gameState.phase : null;
@@ -1089,12 +1509,22 @@ socket.on('game_state', (state) => {
   const previousTrickCount = gameState ? gameState.trickCount : 0;
 
   gameState = state;
-  mySeatIndex = state.you.seatIndex;
+  if (state.you && (state.you.isSpectator || state.you.seatIndex === -1)) {
+    isSpectator = true;
+    mySeatIndex = -1;
+  } else if (state.you) {
+    isSpectator = false;
+    mySeatIndex = state.you.seatIndex;
+  }
   currentRoomCode = state.roomCode;
 
-  // Sitzung für Reconnection bei Verbindungsabbrüchen speichern
-  const myPlayer = state.players[state.you.seatIndex];
-  if (myPlayer) {
+  if (state.phase !== 'EVALUATING_TRICK') {
+    currentEvaluatingTrickNumber = -1;
+  }
+
+  // Sitzung für Reconnection bei Verbindungsabbrüchen speichern (nur echte Spieler)
+  if (!isSpectator && state.you && state.players[state.you.seatIndex]) {
+    const myPlayer = state.players[state.you.seatIndex];
     sessionStorage.setItem('kujong_session', JSON.stringify({
       roomCode: state.roomCode,
       playerName: myPlayer.name,
@@ -1103,15 +1533,70 @@ socket.on('game_state', (state) => {
   }
 
   // Sound-Effekte bei Phasen-/Zugwechsel
-  if (state.phase === 'PLAY_TRICK' && state.currentTurn === mySeatIndex && previousTurn !== mySeatIndex) {
-    playSound('turn');
+  if (!isSpectator && state.phase === 'PLAY_TRICK' && state.currentTurn === mySeatIndex && previousTurn !== mySeatIndex) {
+    SoundManager.play('turn');
   }
-  if (state.trickCount > previousTrickCount) {
-    playSound('trick_won');
+
+  // Wurfanimation für neue gegnerische/Bot Karten im Stich
+  if (state.phase === 'PLAY_TRICK' && Array.isArray(state.currentTrick)) {
+    state.currentTrick.forEach(trickItem => {
+      if (trickItem.card && !displayedTrickCardIds.has(trickItem.card.id)) {
+        displayedTrickCardIds.add(trickItem.card.id);
+        if (trickItem.playerIndex !== mySeatIndex) {
+          const pos = getRelativePosition(trickItem.playerIndex, mySeatIndex);
+          const startPlayer = document.getElementById(`player${pos}`);
+          const targetSlot = document.getElementById(`trickSlot${pos}`);
+          if (startPlayer && targetSlot) {
+            animateCardFly(startPlayer, targetSlot, trickItem.card);
+            SoundManager.playCard();
+          }
+        }
+      }
+    });
+  }
+
+  if (state.currentTrick && state.currentTrick.length === 0) {
+    displayedTrickCardIds.clear();
   }
 
   renderUI();
-});
+
+  // Stich-Auflösung & Gewinner-Highlight mit konfigurierbarer Pause
+  if (state.phase === 'EVALUATING_TRICK' && currentEvaluatingTrickNumber !== state.trickCount) {
+    currentEvaluatingTrickNumber = state.trickCount;
+    const info = state.trickWinnerInfo || state.lastTrick;
+    if (info) {
+      const winnerPos = getRelativePosition(info.winnerIndex, mySeatIndex);
+      SoundManager.play('trick_won');
+
+      const pauseMs = (typeof clientTrickPauseDuration === 'number') ? clientTrickPauseDuration : 1000;
+      isAnimatingTrick = true;
+
+      setTimeout(() => {
+        // Karten zum Gewinner fliegen lassen
+        const winnerPlayerEl = document.getElementById(`player${winnerPos}`);
+        const trickCards = document.querySelectorAll('.felt-table .trick-slot .playing-card');
+        if (winnerPlayerEl && trickCards.length > 0) {
+          const targetRect = winnerPlayerEl.getBoundingClientRect();
+          trickCards.forEach(c => {
+            const startRect = c.getBoundingClientRect();
+            const dx = (targetRect.left + targetRect.width / 2) - (startRect.left + startRect.width / 2);
+            const dy = (targetRect.top + targetRect.height / 2) - (startRect.top + startRect.height / 2);
+            c.classList.add('trick-card-collecting');
+            c.style.transform = `translate(${dx}px, ${dy}px) scale(0.35)`;
+          });
+          SoundManager.collectTrick();
+        }
+
+        setTimeout(() => {
+          isAnimatingTrick = false;
+          displayedTrickCardIds.clear();
+          processNextQueuedState();
+        }, 460);
+      }, pauseMs);
+    }
+  }
+}
 
 socket.on('error_message', (msg) => {
   isCreatingRoom = false;
@@ -1288,6 +1773,16 @@ function renderGameScreen() {
     renderHostPlayerList();
   }
 
+  // Zuschauer-Banner & Kontrollen
+  const specBanner = document.getElementById('spectatorBanner');
+  if (specBanner) {
+    specBanner.classList.toggle('hidden', !isSpectator);
+  }
+  if (isSpectator) {
+    const turnInd = document.getElementById('turnIndicator');
+    if (turnInd) turnInd.classList.add('hidden');
+  }
+
   // Status Ticker
   renderStatusTicker();
 
@@ -1369,26 +1864,27 @@ function renderTablePlayers() {
   if (pTR) pTR.classList.toggle('hidden', !is6p);
   if (pBR) pBR.classList.toggle('hidden', !is6p);
 
+  const baseSeat = (isSpectator || mySeatIndex === -1) ? 0 : mySeatIndex;
   const positions = is6p ? [
-    { key: 'Bottom', seatIdx: mySeatIndex },
-    { key: 'BottomLeft', seatIdx: (mySeatIndex + 1) % 6 },
-    { key: 'TopLeft', seatIdx: (mySeatIndex + 2) % 6 },
-    { key: 'Top', seatIdx: (mySeatIndex + 3) % 6 },
-    { key: 'TopRight', seatIdx: (mySeatIndex + 4) % 6 },
-    { key: 'BottomRight', seatIdx: (mySeatIndex + 5) % 6 }
+    { key: 'Bottom', seatIdx: baseSeat },
+    { key: 'BottomLeft', seatIdx: (baseSeat + 1) % 6 },
+    { key: 'TopLeft', seatIdx: (baseSeat + 2) % 6 },
+    { key: 'Top', seatIdx: (baseSeat + 3) % 6 },
+    { key: 'TopRight', seatIdx: (baseSeat + 4) % 6 },
+    { key: 'BottomRight', seatIdx: (baseSeat + 5) % 6 }
   ] : [
-    { key: 'Bottom', seatIdx: mySeatIndex },
-    { key: 'Left', seatIdx: (mySeatIndex + 1) % 4 },
-    { key: 'Top', seatIdx: (mySeatIndex + 2) % 4 },
-    { key: 'Right', seatIdx: (mySeatIndex + 3) % 4 }
+    { key: 'Bottom', seatIdx: baseSeat },
+    { key: 'Left', seatIdx: (baseSeat + 1) % 4 },
+    { key: 'Top', seatIdx: (baseSeat + 2) % 4 },
+    { key: 'Right', seatIdx: (baseSeat + 3) % 4 }
   ];
 
   positions.forEach(({ key, seatIdx }) => {
     const player = gameState.players[seatIdx];
     if (!player) return;
 
-    const isMe = (seatIdx === mySeatIndex);
-    const isWe = (player.team === myTeam);
+    const isMe = (seatIdx === mySeatIndex && !isSpectator);
+    const isWe = isSpectator ? (player.team === 0) : (player.team === myTeam);
 
     // Name & Ansager-Pill
     const nameEl = document.getElementById(`name${key}`);
@@ -1516,6 +2012,7 @@ function renderTrickCenter() {
   const info = gameState.trickWinnerInfo || gameState.lastTrick;
   if (gameState.phase === 'EVALUATING_TRICK' && info) {
     banner.classList.remove('hidden');
+
     const myTeam = gameState.you ? gameState.you.team : 0;
     const winnerTeam = (typeof info.winnerTeam === 'number') ? info.winnerTeam : (info.winnerIndex % 2 === 0 ? 0 : 1);
     const isWe = (winnerTeam === myTeam);
@@ -1535,6 +2032,11 @@ function renderMyHand() {
   const fan = document.getElementById('myHandFan');
   fan.innerHTML = '';
 
+  if (isSpectator || (gameState.you && gameState.you.seatIndex === -1)) {
+    fan.setAttribute('data-card-count', 0);
+    return;
+  }
+
   if (gameState.you && gameState.you.hasThrownCards) {
     fan.setAttribute('data-card-count', 0);
     const thrownNote = document.createElement('div');
@@ -1544,7 +2046,7 @@ function renderMyHand() {
     return;
   }
 
-  const hand = gameState.you.hand || [];
+  const hand = (gameState.you && gameState.you.hand) ? gameState.you.hand : [];
   const total = hand.length;
   fan.setAttribute('data-card-count', total);
   const isMyTurn = (gameState.currentTurn === mySeatIndex && gameState.phase === 'PLAY_TRICK');
@@ -1553,7 +2055,7 @@ function renderMyHand() {
   const useRotation = total > 3;
 
   hand.forEach((card, index) => {
-    const isPlayable = isMyTurn ? !!gameState.you.playableMap[card.id] : true;
+    const isPlayable = isMyTurn ? !!(gameState.you.playableMap && gameState.you.playableMap[card.id]) : true;
     const cardEl = document.createElement('div');
 
     const rot = useRotation ? ((index - (total - 1) / 2) * 4) : 0;
@@ -1564,7 +2066,7 @@ function renderMyHand() {
     cardChild.style.transform = `rotate(${rot}deg) translateY(${ty}px)`;
 
     if (isPlayable && isMyTurn) {
-      cardChild.addEventListener('click', () => playCard(card.id));
+      cardChild.addEventListener('click', () => playCardWithAnimation(card.id, cardChild));
     }
 
     fan.appendChild(cardChild);
@@ -2100,7 +2602,7 @@ function saveRuleSettings() {
     alwaysClubQueenTrump: alwaysClubInput ? alwaysClubInput.checked : true,
     allowMit: allowMitInput ? allowMitInput.checked : true,
     contraPoints: currentSettings.contraPoints || 4,
-    allowContraRe: allowContraReInput ? allowContraReInput.checked : false,
+    allowContraRe: allowContraReInput ? allowContraReInput.checked : true,
     ansagerZeroTricksPenalty: currentSettings.ansagerZeroTricksPenalty || 2,
     startScoreA: scoreAInput ? (parseInt(scoreAInput.value) || 13) : (currentSettings.startScoreA || 13),
     startScoreB: scoreBInput ? (parseInt(scoreBInput.value) || 13) : (currentSettings.startScoreB || 13),

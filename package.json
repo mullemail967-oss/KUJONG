@@ -5,7 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node test-rules.js"
+    "test": "node tests/test-rules.js && node tests/test-bot-ai.js && node tests/test-bot-integrity.js"
   },
   "keywords": [
     "couillon",
