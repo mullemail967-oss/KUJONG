@@ -11,9 +11,12 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Kujong">
-  <link rel="apple-touch-icon" href="icon-192.png">
-  <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
-  <link rel="icon" type="image/svg+xml" href="icon.svg">
+  <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png?v=3">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png?v=3">
+  <link rel="apple-touch-icon-precomposed" href="apple-touch-icon-precomposed.png?v=3">
+  <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png?v=3">
+  <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png?v=3">
+  <link rel="icon" type="image/svg+xml" href="icon.svg?v=3">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -527,18 +530,35 @@
 
     <!-- CLASH ROYALE STYLE EMOTE PICKER POPUP -->
     <div id="emotePickerPopup" class="emote-picker-popup hidden">
-      <div class="emote-picker-title">Reaktionen</div>
+      <div class="emote-picker-title">Reaktionen & Provokation</div>
       <div class="emote-grid">
-        <button type="button" class="emote-btn" onclick="sendEmote('🤡')" title="Clown">🤡</button>
-        <button type="button" class="emote-btn" onclick="sendEmote('😂')" title="Lachen">😂</button>
-        <button type="button" class="emote-btn" onclick="sendEmote('💀')" title="Tot">💀</button>
-        <button type="button" class="emote-btn" onclick="sendEmote('🤫')" title="Shhh">🤫</button>
-        <button type="button" class="emote-btn" onclick="sendEmote('👑')" title="König">👑</button>
-        <button type="button" class="emote-btn" onclick="sendEmote('💩')" title="Kacke">💩</button>
-        <button type="button" class="emote-btn" onclick="sendEmote('🔥')" title="Feuer">🔥</button>
-        <button type="button" class="emote-btn" onclick="sendEmote('🍺')" title="Prost">🍺</button>
-        <button type="button" class="emote-btn" onclick="sendEmote('🤬')" title="Rage">🤬</button>
-        <button type="button" class="emote-btn" onclick="sendEmote('🥱')" title="Gähnen">🥱</button>
+        <!-- Reihe 1: Provokations-Klassiker -->
+        <button type="button" class="emote-btn" onclick="sendEmote('🤡')" title="Clown (Was für ein Move!)">🤡</button>
+        <button type="button" class="emote-btn" onclick="sendEmote('🥱')" title="Gähnen (Zu einfach / Langweilig)">🥱</button>
+        <button type="button" class="emote-btn" onclick="sendEmote('🤫')" title="Shhh (Sei leise!)">🤫</button>
+        <button type="button" class="emote-btn" onclick="sendEmote('🧂')" title="Salz (Bist du salzig?)">🧂</button>
+        <button type="button" class="emote-btn" onclick="sendEmote('💀')" title="Tot (Du bist erledigt)">💀</button>
+
+        <!-- Reihe 2: Hohn & Schadenfreude -->
+        <button type="button" class="emote-btn" onclick="sendEmote('🍼')" title="Babyflasche (Heul leiser!)">🍼</button>
+        <button type="button" class="emote-btn" onclick="sendEmote('🐔')" title="Huhn (Feigling / Kein Kontra?)">🐔</button>
+        <button type="button" class="emote-btn" onclick="sendEmote('🤏')" title="Winzig (Knapp daneben!)">🤏</button>
+        <button type="button" class="emote-btn" onclick="sendEmote('🎣')" title="Geangelt (Köder geschluckt!)">🎣</button>
+        <button type="button" class="emote-btn" onclick="sendEmote('😭')" title="Heulsuse (Mimimi)">😭</button>
+
+        <!-- Reihe 3: Flex & Dominanz -->
+        <button type="button" class="emote-btn" onclick="sendEmote('👑')" title="Krone (König am Tisch)">👑</button>
+        <button type="button" class="emote-btn" onclick="sendEmote('😎')" title="Sonnenbrille (EZ Game)">😎</button>
+        <button type="button" class="emote-btn" onclick="sendEmote('👋')" title="Winken (Ciao Kakao!)">👋</button>
+        <button type="button" class="emote-btn" onclick="sendEmote('🧹')" title="Besen (Durchmarsch / Rausgekehrt)">🧹</button>
+        <button type="button" class="emote-btn" onclick="sendEmote('💩')" title="Kackhaufen (Kackzug!)">💩</button>
+
+        <!-- Reihe 4: Kneipenkult & Emotionen -->
+        <button type="button" class="emote-btn" onclick="sendEmote('🍻')" title="Bier (Trink erstmal einen!)">🍻</button>
+        <button type="button" class="emote-btn" onclick="sendEmote('🤦‍♂️')" title="Facepalm (Wie kann man nur...)">🤦‍♂️</button>
+        <button type="button" class="emote-btn" onclick="sendEmote('🎯')" title="Volltreffer (Genau nach Plan)">🎯</button>
+        <button type="button" class="emote-btn" onclick="sendEmote('🥶')" title="Eiskalt (Eiskalt abgezogen)">🥶</button>
+        <button type="button" class="emote-btn" onclick="sendEmote('🤬')" title="Rage (Raste doch aus!)">🤬</button>
       </div>
     </div>
 

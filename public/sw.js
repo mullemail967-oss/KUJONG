@@ -1,7 +1,7 @@
 // ==========================================================================
 // KUJONG - SERVICE WORKER (PWA Offline Shell & Fast Assets)
 // ==========================================================================
-const CACHE_NAME = 'kujong-cache-v2';
+const CACHE_NAME = 'kujong-cache-v3';
 const STATIC_ASSETS = [
   '/',
   'index.html',
@@ -9,6 +9,8 @@ const STATIC_ASSETS = [
   'client.js',
   'svg-cards.svg',
   'manifest.json',
+  'apple-touch-icon.png',
+  'apple-touch-icon-precomposed.png',
   'icon-192.png',
   'icon-512.png',
   'icon.svg'

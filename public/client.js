@@ -714,6 +714,8 @@ function showEmoteBubble(seatIndex, emote) {
   bubble.textContent = emote;
   container.appendChild(bubble);
 
+  SoundManager.play('emote');
+
   setTimeout(() => {
     bubble.remove();
   }, 2200);
