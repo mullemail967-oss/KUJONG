@@ -1,56 +1,90 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
   <defs>
-    <radialGradient id="bgGrad" cx="50%" cy="40%" r="60%">
+    <!-- Hintergrund radialer Farbverlauf -->
+    <radialGradient id="bgGrad" cx="50%" cy="38%" r="65%">
       <stop offset="0%" stop-color="#1e293b"/>
-      <stop offset="100%" stop-color="#090d16"/>
+      <stop offset="60%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#050811"/>
     </radialGradient>
+
+    <!-- Edles Gold -->
     <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#fbbf24"/>
-      <stop offset="50%" stop-color="#f59e0b"/>
-      <stop offset="100%" stop-color="#b45309"/>
+      <stop offset="0%" stop-color="#fef08a"/>
+      <stop offset="30%" stop-color="#f59e0b"/>
+      <stop offset="70%" stop-color="#d97706"/>
+      <stop offset="100%" stop-color="#92400e"/>
     </linearGradient>
-    <linearGradient id="feltGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#047857"/>
+
+    <!-- Kartentisch-Grün (Filz) -->
+    <radialGradient id="feltGrad" cx="50%" cy="35%" r="65%">
+      <stop offset="0%" stop-color="#059669"/>
+      <stop offset="70%" stop-color="#047857"/>
       <stop offset="100%" stop-color="#064e3b"/>
-    </linearGradient>
-    <filter id="dropShadow" x="-20%" y="-20%" width="140%" height="140%">
-      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#000" flood-opacity="0.6"/>
+    </radialGradient>
+
+    <!-- Schatteneffekt -->
+    <filter id="shadowFilter" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#000000" flood-opacity="0.65"/>
+    </filter>
+    <filter id="cardShadow" x="-25%" y="-25%" width="150%" height="150%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#000000" flood-opacity="0.55"/>
     </filter>
   </defs>
 
-  <!-- Hintergrund-Abrundung -->
-  <rect width="512" height="512" rx="110" fill="url(#bgGrad)"/>
-  <rect x="16" y="16" width="480" height="480" rx="96" fill="none" stroke="url(#goldGrad)" stroke-width="8" opacity="0.85"/>
+  <!-- Vollflächiger Hintergrund (ohne Rundung für adaptive Android/iOS Icons) -->
+  <rect width="512" height="512" fill="url(#bgGrad)"/>
 
-  <!-- Filzkreis in der Mitte -->
-  <circle cx="256" cy="240" r="170" fill="url(#feltGrad)" filter="url(#dropShadow)"/>
-  <circle cx="256" cy="240" r="166" fill="none" stroke="url(#goldGrad)" stroke-width="4" stroke-dasharray="8 6" opacity="0.6"/>
-
-  <!-- Krone oben -->
-  <path d="M206 140 L226 175 L256 130 L286 175 L306 140 L300 195 L212 195 Z" fill="url(#goldGrad)" filter="url(#dropShadow)"/>
-  <circle cx="206" cy="138" r="6" fill="#fef08a"/>
-  <circle cx="256" cy="128" r="7" fill="#fef08a"/>
-  <circle cx="306" cy="138" r="6" fill="#fef08a"/>
-
-  <!-- Linke Karte (Pik-Dame Mit') -->
-  <g transform="translate(195, 255) rotate(-14)">
-    <rect x="-55" y="-80" width="110" height="160" rx="10" fill="#ffffff" filter="url(#dropShadow)"/>
-    <rect x="-51" y="-76" width="102" height="152" rx="8" fill="none" stroke="#e2e8f0" stroke-width="2"/>
-    <!-- Pik-Symbol & Q -->
-    <text x="-40" y="-50" font-family="system-ui, sans-serif" font-weight="900" font-size="28" fill="#0f172a">Q</text>
-    <path d="M-30 -42 C-38 -32 -42 -22 -30 -14 C-24 -9 -28 0 -30 4 L-26 4 C-28 0 -32 -9 -26 -14 C-14 -22 -18 -32 -26 -42 Z" transform="translate(26, 4) scale(1.6)" fill="#0f172a"/>
-    <text x="0" y="25" text-anchor="middle" font-size="54" fill="#0f172a">♠</text>
+  <!-- Dezente Ecken-Verzierungen (Kartensymbole in Gold) -->
+  <g fill="url(#goldGrad)" opacity="0.35" font-size="28" font-family="serif" text-anchor="middle">
+    <text x="56" y="66">♠</text>
+    <text x="456" y="66">♥</text>
+    <text x="56" y="470">♣</text>
+    <text x="456" y="470">♦</text>
   </g>
 
-  <!-- Rechte Karte (Herz-Ass) -->
-  <g transform="translate(315, 260) rotate(14)">
-    <rect x="-55" y="-80" width="110" height="160" rx="10" fill="#ffffff" filter="url(#dropShadow)"/>
-    <rect x="-51" y="-76" width="102" height="152" rx="8" fill="none" stroke="#e2e8f0" stroke-width="2"/>
-    <!-- Herz-Symbol & A -->
-    <text x="-40" y="-50" font-family="system-ui, sans-serif" font-weight="900" font-size="28" fill="#dc2626">A</text>
-    <text x="0" y="25" text-anchor="middle" font-size="54" fill="#dc2626">♥</text>
+  <!-- Runder Spieltisch (Filz) im sicheren Bereich -->
+  <circle cx="256" cy="224" r="162" fill="url(#feltGrad)" filter="url(#shadowFilter)"/>
+  <!-- Goldene Nahtlinie -->
+  <circle cx="256" cy="224" r="156" fill="none" stroke="url(#goldGrad)" stroke-width="3" stroke-dasharray="7 5" opacity="0.75"/>
+
+  <!-- Krone der Pik-Dame (Mit') -->
+  <g filter="url(#shadowFilter)">
+    <path d="M212 128 L230 162 L256 122 L282 162 L300 128 L296 178 L216 178 Z" fill="url(#goldGrad)"/>
+    <circle cx="212" cy="126" r="6" fill="#fef08a"/>
+    <circle cx="256" cy="120" r="7" fill="#fef08a"/>
+    <circle cx="300" cy="126" r="6" fill="#fef08a"/>
   </g>
 
-  <!-- Schriftzug KUJONG unten -->
-  <text x="256" y="445" text-anchor="middle" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-weight="900" font-size="44" letter-spacing="6" fill="url(#goldGrad)" filter="url(#dropShadow)">KUJONG</text>
+  <!-- Linke Karte: Pik-Dame (Mit') -->
+  <g transform="translate(202, 240) rotate(-12)" filter="url(#cardShadow)">
+    <rect x="-56" y="-82" width="112" height="164" rx="10" fill="#ffffff"/>
+    <rect x="-52" y="-78" width="104" height="156" rx="8" fill="none" stroke="#e2e8f0" stroke-width="2"/>
+    <!-- Rank Q & Suit Pik -->
+    <text x="-42" y="-52" font-family="'Cinzel', 'Outfit', system-ui, sans-serif" font-weight="900" font-size="26" fill="#0f172a" text-anchor="start">Q</text>
+    <text x="-42" y="-34" font-size="18" fill="#0f172a" text-anchor="start">♠</text>
+    <!-- Zentriertes großes Pik-Symbol -->
+    <text x="0" y="22" font-size="58" fill="#0f172a" text-anchor="middle">♠</text>
+    <!-- Unten rechts kopfüber -->
+    <text x="42" y="60" font-family="'Cinzel', 'Outfit', system-ui, sans-serif" font-weight="900" font-size="26" fill="#0f172a" text-anchor="end">Q</text>
+    <text x="42" y="42" font-size="18" fill="#0f172a" text-anchor="end">♠</text>
+  </g>
+
+  <!-- Rechte Karte: Herz-Ass (Trumpf) -->
+  <g transform="translate(310, 244) rotate(12)" filter="url(#cardShadow)">
+    <rect x="-56" y="-82" width="112" height="164" rx="10" fill="#ffffff"/>
+    <rect x="-52" y="-78" width="104" height="156" rx="8" fill="none" stroke="#e2e8f0" stroke-width="2"/>
+    <!-- Rank A & Suit Herz -->
+    <text x="-42" y="-52" font-family="'Cinzel', 'Outfit', system-ui, sans-serif" font-weight="900" font-size="26" fill="#dc2626" text-anchor="start">A</text>
+    <text x="-42" y="-34" font-size="18" fill="#dc2626" text-anchor="start">♥</text>
+    <!-- Zentriertes großes Herz-Symbol -->
+    <text x="0" y="22" font-size="58" fill="#dc2626" text-anchor="middle">♥</text>
+    <!-- Unten rechts kopfüber -->
+    <text x="42" y="60" font-family="'Cinzel', 'Outfit', system-ui, sans-serif" font-weight="900" font-size="26" fill="#dc2626" text-anchor="end">A</text>
+    <text x="42" y="42" font-size="18" fill="#dc2626" text-anchor="end">♥</text>
+  </g>
+
+  <!-- KUJONG Schriftzug unten (prägnant und im sicheren Android Maskable Kreis) -->
+  <g filter="url(#shadowFilter)">
+    <text x="256" y="432" text-anchor="middle" font-family="'Cinzel', 'Outfit', system-ui, sans-serif" font-weight="900" font-size="46" letter-spacing="8" fill="url(#goldGrad)">KUJONG</text>
+  </g>
 </svg>

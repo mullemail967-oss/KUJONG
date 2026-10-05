@@ -761,33 +761,58 @@ function throwCards() {
   if (banner) banner.classList.add('hidden');
 }
 
+const currentlyFlyingCardIds = new Set();
+
 function animateCardFly(startEl, targetEl, card, onComplete) {
-  if (!startEl || !targetEl) {
+  if (!startEl || !targetEl || !card) {
     if (onComplete) onComplete();
     return;
   }
+
+  const cardId = card.id || ('card_' + Math.random());
+  currentlyFlyingCardIds.add(cardId);
+
   const startRect = startEl.getBoundingClientRect();
   const targetRect = targetEl.getBoundingClientRect();
 
+  const w = targetRect.width > 20 ? targetRect.width : 54;
+  const h = targetRect.height > 20 ? targetRect.height : 78;
+
+  const startCenterX = startRect.left + startRect.width / 2;
+  const startCenterY = startRect.top + startRect.height / 2;
+
+  const startLeft = startCenterX - w / 2;
+  const startTop = startCenterY - h / 2;
+
   const flyEl = document.createElement('div');
   flyEl.className = 'playing-card flying-card';
-  flyEl.style.left = `${startRect.left + (startRect.width - 70) / 2}px`;
-  flyEl.style.top = `${startRect.top + (startRect.height - 101) / 2}px`;
-  flyEl.style.width = '70px';
-  flyEl.style.height = '101px';
-  flyEl.innerHTML = createCardHTML(card || { id: 'back', suit: 'HEARTS', rank: 'A' }, false);
+  flyEl.style.width = `${w}px`;
+  flyEl.style.height = `${h}px`;
+  flyEl.style.left = `${startLeft}px`;
+  flyEl.style.top = `${startTop}px`;
+  flyEl.style.transform = 'translate3d(0, 0, 0)';
+  flyEl.innerHTML = createCardHTML(card, false, true);
   document.body.appendChild(flyEl);
 
+  // Layout-Commit vor der Animation erzwingen
+  void flyEl.offsetHeight;
+
+  const dx = targetRect.left - startLeft;
+  const dy = targetRect.top - startTop;
+
   requestAnimationFrame(() => {
-    const dx = (targetRect.left + (targetRect.width - 70) / 2) - (startRect.left + (startRect.width - 70) / 2);
-    const dy = (targetRect.top + (targetRect.height - 101) / 2) - (startRect.top + (startRect.height - 101) / 2);
-    flyEl.style.transform = `translate(${dx}px, ${dy}px) rotate(0deg)`;
+    flyEl.style.transform = `translate3d(${dx}px, ${dy}px, 0)`;
   });
 
   setTimeout(() => {
     flyEl.remove();
+    currentlyFlyingCardIds.delete(cardId);
+    const slotCard = targetEl.querySelector('.playing-card');
+    if (slotCard) {
+      slotCard.style.opacity = '1';
+    }
     if (onComplete) onComplete();
-  }, 380);
+  }, 330);
 }
 
 function playCardWithAnimation(cardId, cardEl) {
@@ -803,31 +828,46 @@ function playCardWithAnimation(cardId, cardEl) {
 
   const slotBottom = document.getElementById('trickSlotBottom');
   if (cardEl && slotBottom) {
+    currentlyFlyingCardIds.add(cardId);
+
     const startRect = cardEl.getBoundingClientRect();
     const targetRect = slotBottom.getBoundingClientRect();
+
+    const w = targetRect.width > 20 ? targetRect.width : startRect.width;
+    const h = targetRect.height > 20 ? targetRect.height : startRect.height;
 
     const clone = cardEl.cloneNode(true);
     clone.classList.add('flying-card');
     clone.style.left = `${startRect.left}px`;
     clone.style.top = `${startRect.top}px`;
-    clone.style.width = `${startRect.width}px`;
-    clone.style.height = `${startRect.height}px`;
+    clone.style.width = `${w}px`;
+    clone.style.height = `${h}px`;
+    clone.style.transform = 'translate3d(0, 0, 0)';
     document.body.appendChild(clone);
+
+    // Layout-Commit erzwingen
+    void clone.offsetHeight;
 
     cardEl.style.opacity = '0';
     cardEl.style.pointerEvents = 'none';
 
     SoundManager.playCard();
 
+    const dx = targetRect.left - startRect.left;
+    const dy = targetRect.top - startRect.top;
+
     requestAnimationFrame(() => {
-      const dx = targetRect.left - startRect.left;
-      const dy = targetRect.top - startRect.top;
-      clone.style.transform = `translate(${dx}px, ${dy}px) rotate(0deg)`;
+      clone.style.transform = `translate3d(${dx}px, ${dy}px, 0)`;
     });
 
     setTimeout(() => {
       clone.remove();
-    }, 380);
+      currentlyFlyingCardIds.delete(cardId);
+      const slotCard = slotBottom.querySelector('.playing-card');
+      if (slotCard) {
+        slotCard.style.opacity = '1';
+      }
+    }, 330);
   } else {
     SoundManager.playCard();
   }
@@ -1583,7 +1623,7 @@ function handleGameState(state) {
             const dx = (targetRect.left + targetRect.width / 2) - (startRect.left + startRect.width / 2);
             const dy = (targetRect.top + targetRect.height / 2) - (startRect.top + startRect.height / 2);
             c.classList.add('trick-card-collecting');
-            c.style.transform = `translate(${dx}px, ${dy}px) scale(0.35)`;
+            c.style.transform = `translate3d(${dx}px, ${dy}px, 0) scale(0.35)`;
           });
           SoundManager.collectTrick();
         }
@@ -2000,6 +2040,10 @@ function renderTrickCenter() {
     } else if (items.length === 1) {
       slot.innerHTML = createCardHTML(items[0].card, false, true);
       slot.classList.remove('has-multi-cards');
+      if (currentlyFlyingCardIds.has(items[0].card.id)) {
+        const slotCard = slot.querySelector('.playing-card');
+        if (slotCard) slotCard.style.opacity = '0';
+      }
     } else {
       // Mehrere weggeworfene Karten nebeneinander in den Stich geworfen!
       slot.classList.add('has-multi-cards');
