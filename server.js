@@ -2,6 +2,7 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
+const fs = require('fs');
 const {
   SUITS,
   RANKS,
@@ -67,6 +68,49 @@ const joinCooldowns = new Map(); // key: `${clientIp}_${roomCode}`, value: times
 const activePlayerCodes = new Map();
 // Spam-Schutz für Web-Push (targetEndpoint -> timestamp)
 const pushRateLimits = new Map();
+
+// Dauerhaftes Freundes- und Push-Verzeichnis (friendCode -> { friendCode, playerName, pushSub, lastSeen })
+const friendRegistry = new Map();
+const REGISTRY_FILE = path.join(__dirname, 'data', 'friend_registry.json');
+
+function loadFriendRegistry() {
+  try {
+    if (fs.existsSync(REGISTRY_FILE)) {
+      const raw = fs.readFileSync(REGISTRY_FILE, 'utf8');
+      const data = JSON.parse(raw);
+      if (Array.isArray(data)) {
+        for (const item of data) {
+          if (item && item.friendCode) {
+            friendRegistry.set(item.friendCode, item);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Could not load friend registry:', err.message);
+  }
+}
+loadFriendRegistry();
+
+let saveRegistryTimer = null;
+function saveFriendRegistryDebounced() {
+  if (saveRegistryTimer) clearTimeout(saveRegistryTimer);
+  saveRegistryTimer = setTimeout(() => {
+    try {
+      const dir = path.dirname(REGISTRY_FILE);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      const data = Array.from(friendRegistry.values()).map(f => ({
+        friendCode: f.friendCode,
+        playerName: f.playerName,
+        pushSub: f.pushSub || null,
+        lastSeen: f.lastSeen || Date.now()
+      }));
+      fs.writeFileSync(REGISTRY_FILE, JSON.stringify(data, null, 2), 'utf8');
+    } catch (err) {
+      console.warn('Could not save friend registry:', err.message);
+    }
+  }, 1000);
+}
 
 function getPublicRoomsData() {
   const list = [];
@@ -2269,13 +2313,66 @@ io.on('connection', (socket) => {
   // ------------------------------------------------------------------------
   // FREUNDES- & PUSH-BENACHRICHTIGUNGSSYSTEM
   // ------------------------------------------------------------------------
-  socket.on('register_friend_code', ({ friendCode, playerName }) => {
+  socket.on('register_friend_code', ({ friendCode, playerName, pushSub }) => {
     if (!friendCode || typeof friendCode !== 'string') return;
     myFriendCode = friendCode.trim().toUpperCase().slice(0, 16);
+    const cleanName = (playerName || 'Spieler').trim().slice(0, 20);
+
     activePlayerCodes.set(myFriendCode, {
       socketId: socket.id,
-      playerName: (playerName || 'Spieler').trim().slice(0, 20),
+      playerName: cleanName,
       lastSeen: Date.now()
+    });
+
+    const existing = friendRegistry.get(myFriendCode) || {};
+    friendRegistry.set(myFriendCode, {
+      friendCode: myFriendCode,
+      playerName: cleanName,
+      pushSub: (pushSub && pushSub.endpoint) ? pushSub : (existing.pushSub || null),
+      lastSeen: Date.now()
+    });
+    saveFriendRegistryDebounced();
+  });
+
+  socket.on('save_push_subscription', ({ friendCode, pushSub, playerName }) => {
+    if (!friendCode || !pushSub || !pushSub.endpoint) return;
+    const code = friendCode.trim().toUpperCase().slice(0, 16);
+    const cleanName = (playerName || 'Spieler').trim().slice(0, 20);
+
+    const existing = friendRegistry.get(code) || {};
+    friendRegistry.set(code, {
+      friendCode: code,
+      playerName: cleanName || existing.playerName || 'Spieler',
+      pushSub: pushSub,
+      lastSeen: Date.now()
+    });
+    saveFriendRegistryDebounced();
+  });
+
+  socket.on('lookup_friend_code', ({ friendCode }, callback) => {
+    const cb = (typeof callback === 'function') ? callback : () => {};
+    if (!friendCode || typeof friendCode !== 'string') return cb({ found: false });
+    const code = friendCode.trim().toUpperCase();
+    const profile = friendRegistry.get(code);
+    const active = activePlayerCodes.get(code);
+
+    if (profile || active) {
+      const name = (profile && profile.playerName) || (active && active.playerName) || `Freund ${code.substring(4)}`;
+      const hasPush = !!(profile && profile.pushSub && profile.pushSub.endpoint);
+      const isOnline = !!(active && active.socketId);
+      return cb({
+        found: true,
+        friendCode: code,
+        name: name,
+        hasPush: hasPush,
+        isOnline: isOnline
+      });
+    }
+
+    return cb({
+      found: false,
+      friendCode: code,
+      name: `Freund ${code.substring(4)}`
     });
   });
 
@@ -2283,12 +2380,25 @@ io.on('connection', (socket) => {
     const cb = (typeof callback === 'function') ? callback : () => {};
     if (!Array.isArray(friendCodes)) return cb({});
     const result = {};
+    const statusMap = {};
     for (const code of friendCodes) {
       if (typeof code === 'string') {
         const c = code.trim().toUpperCase();
-        result[c] = activePlayerCodes.has(c);
+        const active = activePlayerCodes.get(c);
+        const profile = friendRegistry.get(c);
+        const isOnline = !!(active && active.socketId);
+        const name = (active && active.playerName) || (profile && profile.playerName) || null;
+        const hasPush = !!(profile && profile.pushSub && profile.pushSub.endpoint);
+
+        result[c] = isOnline;
+        statusMap[c] = {
+          online: isOnline,
+          name: name,
+          hasPush: hasPush
+        };
       }
     }
+    result.statusMap = statusMap;
     cb(result);
   });
 
@@ -2304,22 +2414,26 @@ io.on('connection', (socket) => {
     let sentOnline = false;
     let sentPush = false;
 
+    // Profil aus Server-Registry holen (enthält das dauerhaft gespeicherte pushSub)
+    const targetProfile = friendRegistry.get(code);
+    const targetSession = activePlayerCodes.get(code);
+    const pushSub = (targetProfile && targetProfile.pushSub && targetProfile.pushSub.endpoint)
+      ? targetProfile.pushSub
+      : targetPushSub;
+
     // 1. Live WebSocket Einladung falls Freund aktuell online ist
-    if (code && activePlayerCodes.has(code)) {
-      const targetSession = activePlayerCodes.get(code);
-      if (targetSession && targetSession.socketId && targetSession.socketId !== socket.id) {
-        io.to(targetSession.socketId).emit('incoming_game_invite', {
-          roomCode: cleanRoom,
-          fromName: hostName,
-          timestamp: Date.now()
-        });
-        sentOnline = true;
-      }
+    if (targetSession && targetSession.socketId && targetSession.socketId !== socket.id) {
+      io.to(targetSession.socketId).emit('incoming_game_invite', {
+        roomCode: cleanRoom,
+        fromName: hostName,
+        timestamp: Date.now()
+      });
+      sentOnline = true;
     }
 
     // 2. Web-Push Benachrichtigung senden (Handy im Sperrbildschirm / Offline)
-    if (targetPushSub && targetPushSub.endpoint) {
-      const rateLimitKey = targetPushSub.endpoint;
+    if (pushSub && pushSub.endpoint) {
+      const rateLimitKey = pushSub.endpoint;
       const now = Date.now();
       const lastPush = pushRateLimits.get(rateLimitKey) || 0;
 
@@ -2329,6 +2443,8 @@ io.on('connection', (socket) => {
           success: sentOnline,
           rateLimited: true,
           sentOnline,
+          friendName: targetProfile?.playerName || null,
+          hasPush: true,
           message: 'Vor Kurzem bereits angepingt. Bitte 2 Minuten warten.'
         });
       }
@@ -2349,17 +2465,27 @@ io.on('connection', (socket) => {
       });
 
       try {
-        await webpush.sendNotification(targetPushSub, payload);
+        await webpush.sendNotification(pushSub, payload);
         sentPush = true;
       } catch (pushErr) {
         console.warn('Web-Push Zustellungsfehler:', pushErr.statusCode || pushErr.message);
         if (pushErr.statusCode === 404 || pushErr.statusCode === 410) {
-          return cb({ success: sentOnline, expired: true, sentOnline });
+          if (targetProfile) {
+            targetProfile.pushSub = null;
+            saveFriendRegistryDebounced();
+          }
+          return cb({ success: sentOnline, expired: true, sentOnline, friendName: targetProfile?.playerName || null });
         }
       }
     }
 
-    cb({ success: sentOnline || sentPush, sentOnline, sentPush });
+    cb({
+      success: sentOnline || sentPush,
+      sentOnline,
+      sentPush,
+      hasPush: !!(pushSub && pushSub.endpoint),
+      friendName: targetProfile?.playerName || null
+    });
   });
 
   // Trennung behandeln

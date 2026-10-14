@@ -2873,13 +2873,20 @@ function initFriendSystem() {
   checkIosSafariPrompt();
 }
 
-// Socket mit meinem Code registrieren
+// Socket mit meinem Code und Push-Abo registrieren
 function registerFriendSocket() {
   if (!socket || !myFriendCode) return;
-  const playerName = (document.getElementById('playerNameInput')?.value || '').trim() || localStorage.getItem('kujong_player_name') || 'Spieler';
+  const playerName = getPlayerName() || 'Spieler';
+  let pushSub = null;
+  try {
+    const rawSub = localStorage.getItem('kujong_push_sub');
+    if (rawSub) pushSub = JSON.parse(rawSub);
+  } catch (e) {}
+
   socket.emit('register_friend_code', {
     friendCode: myFriendCode,
-    playerName: playerName
+    playerName: playerName,
+    pushSub: pushSub
   });
 }
 
@@ -2916,6 +2923,15 @@ async function checkExistingPushSubscription() {
       try {
         localStorage.setItem('kujong_push_sub', JSON.stringify(sub));
       } catch (e) {}
+
+      if (socket && socket.connected && myFriendCode) {
+        socket.emit('save_push_subscription', {
+          friendCode: myFriendCode,
+          pushSub: sub,
+          playerName: getPlayerName() || 'Spieler'
+        });
+      }
+
       if (statusBadge) {
         statusBadge.textContent = '🟢 Push aktiv';
         statusBadge.className = 'push-status-pill push-active';
@@ -2969,6 +2985,15 @@ async function requestPushPermission() {
     try {
       localStorage.setItem('kujong_push_sub', JSON.stringify(sub));
     } catch (e) {}
+
+    // Push-Abonnement sofort an den Server übermitteln!
+    if (socket && socket.connected && myFriendCode) {
+      socket.emit('save_push_subscription', {
+        friendCode: myFriendCode,
+        pushSub: sub,
+        playerName: getPlayerName() || 'Spieler'
+      });
+    }
 
     showToast('🔔 Benachrichtigungen erfolgreich aktiviert!');
     checkExistingPushSubscription();
@@ -3067,11 +3092,28 @@ function renderFriendsList(isFromWaitingRoom = false) {
   // Live-Online-Status beim Server anfragen
   const friendCodes = savedFriends.map(f => f.code);
   socket.emit('check_friends_status', { friendCodes }, (response) => {
+    let hasChanges = false;
     let html = '';
     savedFriends.forEach(friend => {
-      const isOnline = !!(response && (response[friend.code] === true || response.statusMap?.[friend.code]?.online));
-      const statusClass = isOnline ? 'online' : 'offline';
-      const statusText = isOnline ? 'Online in Kujong' : 'Offline (Push bereit)';
+      const details = response?.statusMap?.[friend.code];
+      const isOnline = !!(response && (response[friend.code] === true || details?.online));
+      const hasPush = !!(details?.hasPush);
+
+      // Falls der Server den echten Namen des Freundes kennt und wir bisher nur einen Platzhalter haben: aktualisieren!
+      if (details && details.name && details.name !== friend.name && !details.name.startsWith('Spieler ')) {
+        friend.name = details.name;
+        hasChanges = true;
+      }
+
+      const statusClass = isOnline ? 'online' : (hasPush ? 'offline' : 'no-push');
+      let statusText = '';
+      if (isOnline) {
+        statusText = 'Online in Kujong';
+      } else if (hasPush) {
+        statusText = 'Offline (Push aktiv)';
+      } else {
+        statusText = 'Offline (Push inaktiv)';
+      }
 
       html += `
         <div class="friend-item-card" data-code="${friend.code}">
@@ -3096,6 +3138,9 @@ function renderFriendsList(isFromWaitingRoom = false) {
         </div>`;
     });
 
+    if (hasChanges) {
+      saveFriendsToStorage();
+    }
     container.innerHTML = html;
   });
 }
@@ -3122,18 +3167,25 @@ function addFriendByCodeInput() {
     return;
   }
 
-  savedFriends.push({
-    code: code,
-    name: `Freund ${code.substring(4)}`,
-    pushSub: null,
-    addedAt: Date.now()
-  });
+  // Server nach dem echten Spielernamen und Push-Status fragen
+  socket.emit('lookup_friend_code', { friendCode: code }, (res) => {
+    const friendName = (res && res.found && res.name && !res.name.startsWith('Spieler ')) 
+      ? res.name 
+      : `Freund ${code.substring(4)}`;
+    
+    savedFriends.push({
+      code: code,
+      name: friendName,
+      pushSub: null,
+      addedAt: Date.now()
+    });
 
-  saveFriendsToStorage();
-  input.value = '';
-  showToast(`Freund ${code} hinzugefügt!`);
-  renderFriendsList();
-  updateFriendsCountBadge();
+    saveFriendsToStorage();
+    input.value = '';
+    showToast(`🎉 ${friendName} (${code}) als Freund hinzugefügt!`);
+    renderFriendsList();
+    updateFriendsCountBadge();
+  });
 }
 
 // Freund entfernen
@@ -3200,8 +3252,7 @@ function inviteFriend(friendCode) {
   const friend = savedFriends.find(f => f.code === friendCode);
   if (!friend) return;
 
-  const nameInput = document.getElementById('playerNameInput');
-  const myName = (nameInput?.value || '').trim() || localStorage.getItem('kujong_player_name') || 'Ein Freund';
+  const myName = getPlayerName() || 'Ein Freund';
 
   socket.emit('send_friend_invite', {
     targetFriendCode: friend.code,
@@ -3211,6 +3262,14 @@ function inviteFriend(friendCode) {
   }, (ack) => {
     if (ack && ack.rateLimited) {
       showToast(`⏳ ${ack.message || 'Bitte kurz warten vor dem nächsten Ping an diesen Freund.'}`);
+    } else if (ack && ack.sentOnline && ack.sentPush) {
+      showToast(`📣 Live-Einladung & Push an ${friend.name} gesendet!`);
+    } else if (ack && ack.sentPush) {
+      showToast(`📲 Push-Mitteilung direkt an ${friend.name} gesendet!`);
+    } else if (ack && ack.sentOnline) {
+      showToast(`📣 Live-Einladung an ${friend.name} gesendet!`);
+    } else if (ack && ack.hasPush === false && !ack.sentOnline) {
+      showToast(`ℹ️ ${friend.name} ist offline und hat Push-Benachrichtigungen noch nicht aktiviert.`);
     } else if (ack && ack.success) {
       showToast(`📣 Einladung an ${friend.name} gesendet!`);
     } else {
