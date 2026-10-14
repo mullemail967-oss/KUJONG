@@ -1890,11 +1890,11 @@ function renderLobby() {
         nameEl.onclick = null;
       } else {
         const isFriend = seat.friendCode && savedFriends.some(f => f.code === seat.friendCode);
-        const icon = isFriend ? ' ⭐' : ' ➕👥';
+        const icon = isFriend ? ' ✅' : ' ❌';
         nameEl.textContent = `${seat.name}${icon}`;
         nameEl.title = isFriend
-          ? `⭐ ${seat.name} ist bereits dein Freund`
-          : `👥 Klicke hier, um ${seat.name} als Freund hinzuzufügen`;
+          ? `✅ ${seat.name} ist bereits mit dir befreundet`
+          : `❌ Klicke hier, um ${seat.name} als Freund hinzuzufügen`;
         nameEl.classList.add('clickable-friend-name');
         nameEl.onclick = () => {
           if (seat.friendCode) {
@@ -2166,11 +2166,11 @@ function renderTablePlayers() {
         nameEl.onclick = null;
       } else {
         const isFriend = player.friendCode && savedFriends.some(f => f.code === player.friendCode);
-        const icon = isFriend ? ' ⭐' : ' ➕👥';
+        const icon = isFriend ? ' ✅' : ' ❌';
         nameEl.textContent = `${player.name}${icon}`;
         nameEl.title = isFriend
-          ? `⭐ ${player.name} ist bereits dein Freund`
-          : `👥 Klicke hier, um ${player.name} als Freund hinzuzufügen`;
+          ? `✅ ${player.name} ist bereits mit dir befreundet`
+          : `❌ Klicke hier, um ${player.name} als Freund hinzuzufügen`;
         nameEl.classList.add('clickable-friend-name');
         nameEl.onclick = () => {
           if (player.friendCode) {
@@ -3319,7 +3319,7 @@ function addFriendDirectly(friendCode, friendName) {
   const cleanName = (friendName || 'Spieler').trim();
   const exists = savedFriends.some(f => f.code === cleanCode);
   if (exists) {
-    showToast(`⭐ ${cleanName} ist bereits in deiner Freundesliste!`);
+    showToast(`✅ ${cleanName} ist bereits in deiner Freundesliste!`);
     return;
   }
 
