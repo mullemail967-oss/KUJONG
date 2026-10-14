@@ -20,7 +20,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=6.6">
+  <link rel="stylesheet" href="style.css?v=6.7">
 </head>
 <body>
 
@@ -221,6 +221,7 @@
           <!-- Runde & Trumpf & Info-Zentrum -->
           <div class="center-info-board">
             <div class="round-badge">Runde <span id="roundNumberDisplay">1</span></div>
+            <div class="match-wins-pill hidden" id="matchWinsPill" title="Insgesamt gewonnene Partien in diesem Raum">🏆 Siege: <span id="matchWinsWe">0</span> : <span id="matchWinsThey">0</span></div>
             <div class="trump-badge-container">
               <div id="trumpBadge" class="trump-badge suit-none">
                 <span class="trump-icon">?</span>
@@ -255,10 +256,13 @@
           </div>
         </div>
 
-        <!-- HEADER SUB-TOOLS (Verlassen, Spielleiter-Menü, Kontra-Knopf, Letzter Stich, Ton, Emotes) -->
+        <!-- HEADER SUB-TOOLS (Verlassen, Spielleiter-Menü, Kontra-Knopf, Letzter Stich, Ton, Freunde, Emotes) -->
         <div class="header-tools">
           <button id="leaveGameBtn" class="btn-tool btn-leave-game" onclick="confirmLeaveGame()" title="Partie verlassen (wird durch Bot ersetzt)">
             🚪 Verlassen
+          </button>
+          <button id="gameFriendsBtn" class="btn-tool btn-friends-tool" onclick="openFriendsModal(true)" title="Freunde per Push in diese Runde einladen">
+            👥 Freunde<span id="gameFriendsCountBadge" class="friends-counter-badge hidden">0</span>
           </button>
           <button id="hostMenuBtn" class="btn-tool btn-host-menu hidden" onclick="openHostMenu()" title="Spielleiter-Menü (Spieler kicken, Lobby, Link)">
             👑 Menü<span id="hostMenuReqBadge" class="host-req-badge hidden">0</span>
@@ -276,22 +280,22 @@
         </div>
       </header>
 
+      <!-- ZUSCHAUER-MODUS BANNER (CLEAN OBERHALB DES TISCHES PLATZIERT) -->
+      <div id="spectatorBanner" class="spectator-banner hidden">
+        <div class="spectator-banner-info">
+          <span class="spectator-badge">👀 ZUSCHAUER</span>
+          <span class="spectator-sub" id="spectatorSubText">Du schaust dieser Partie zu</span>
+        </div>
+        <div class="spectator-banner-action" id="spectatorActionArea">
+          <button id="spectatorJoinGameBtn" class="btn btn-xs btn-primary btn-spectator-play hidden" onclick="requestPlayFromSpectator()">
+            🎮 Mitspielen anfragen
+          </button>
+        </div>
+      </div>
+
       <!-- VIRTUELLER FILZTISCH -->
       <main class="felt-table-wrapper">
         <div class="felt-table" id="feltTable">
-
-          <!-- ZUSCHAUER-MODUS BANNER -->
-          <div id="spectatorBanner" class="spectator-banner hidden">
-            <div class="spectator-banner-info">
-              <span>👀 Du schaust zu</span>
-              <span class="spectator-sub" id="spectatorSubText">(Zuschauer-Modus)</span>
-            </div>
-            <div class="spectator-banner-action" id="spectatorActionArea">
-              <button id="spectatorJoinGameBtn" class="btn btn-xs btn-primary btn-spectator-play hidden" onclick="requestPlayFromSpectator()">
-                🎮 Mitspielen anfragen
-              </button>
-            </div>
-          </div>
 
           <!-- AUFFÄLLIGE MIT'-ANSAGE BENACHRICHTIGUNG IM FREIEN TISCHBEREICH -->
           <div id="mitFieldNotification" class="mit-field-notification hidden">
@@ -315,6 +319,12 @@
           <div id="cardsThrownNotification" class="cards-thrown-notification hidden">
             <span class="thrown-pop-icon">🗑️</span>
             <span id="cardsThrownPopText" class="cards-thrown-pop-text">Max hat die Karten weggeschmissen!</span>
+          </div>
+
+          <!-- AUFFÄLLIGE RESTLICHE-STICHE BENACHRICHTIGUNG IM FREIEN TISCHBEREICH -->
+          <div id="claimTricksFieldNotification" class="claim-tricks-field-notification hidden">
+            <span class="claim-pop-icon">👑</span>
+            <span id="claimPopText" class="claim-pop-text">Max deckt alle sicheren Stiche auf!</span>
           </div>
 
           <!-- AUFFÄLLIGE TRUMPF-GEDREHT BENACHRICHTIGUNG IM FREIEN TISCHBEREICH -->
@@ -536,6 +546,13 @@
                   ✕ Nicht ansagen
                 </button>
               </div>
+            </div>
+
+            <!-- RESTLICHE STICHE AUFDECKEN BANNER (GOLD & PROMINENT) -->
+            <div id="claimTricksBanner" class="claim-tricks-banner hidden">
+              <button id="claimTricksBtn" class="btn btn-sm btn-claim-tricks" onclick="claimTricks()">
+                👑 Sichere Restkarten aufdecken!
+              </button>
             </div>
 
             <!-- KARTEN WEGSCHMEISSEN BANNER (KOMPAKT & DEZENT) -->
@@ -944,6 +961,7 @@
             <span class="host-code-label">LOBBY-CODE:</span>
             <span id="hostModalRoomCode" class="host-code-val">----</span>
           </div>
+          <button class="btn btn-notify-friends btn-sm" onclick="openFriendsModal(true)" title="Freunde per Push in diese Runde einladen">📣 Freunde per Push</button>
           <button class="btn btn-share btn-sm" onclick="shareInviteLink()" title="Freunde einladen (WhatsApp / Teilen)">📲 Einladen</button>
           <button class="btn btn-outline btn-sm btn-copy-host-code" onclick="copyInviteLink()">📋 Link</button>
         </div>
@@ -1108,6 +1126,6 @@
   <!-- Socket.io Script -->
   <script src="/socket.io/socket.io.js"></script>
   <!-- Client JavaScript -->
-  <script src="client.js?v=8.0"></script>
+  <script src="client.js?v=8.1"></script>
 </body>
 </html>

@@ -306,7 +306,9 @@ function createRoom(roomCode, hostName, hostSocketId, hostFriendCode = null) {
     hasThrownCards: {}, // { [playerIndex]: boolean }
     actionLog: [`Raum ${roomCode} erstellt durch ${hostName}.`],
     chatMessages: [],
-    botTimer: null
+    botTimer: null,
+    matchWins: { teamA: 0, teamB: 0 },
+    matchWinRecorded: false
   };
   return room;
 }
@@ -452,6 +454,96 @@ function canPlayerThrowCards(room, playerIndex) {
 }
 
 /**
+ * Prüft, ob ein Spieler am Zug restliche Stiche sofort reklamieren / aufdecken kann.
+ * Dies ist der Fall, wenn:
+ * 1. Die Runde in der Phase PLAY_TRICK ist und der Spieler am Zug ist.
+ * 2. Der Spieler noch mindestens 1 Karte (typischerweise 2 oder mehr) auf der Hand hat.
+ * 3. Alle Karten in der Hand des Spielers unschlagbare Meister-Karten sind,
+ *    sodass kein gegnerischer Spieler rechnerisch mehr einen Stich gewinnen kann.
+ *    Beispiel: Der Spieler hält die höchsten verbleibenden Trümpfe (z. B. Ass, Mit', Kreuz-Dame).
+ */
+function canPlayerClaimTricks(room, playerIndex) {
+  if (room.phase !== 'PLAY_TRICK') return false;
+  if (room.currentTurn !== playerIndex) return false;
+  const maxPlayers = room.settings.playerCount || 4;
+  if (typeof playerIndex !== 'number' || playerIndex < 0 || playerIndex >= maxPlayers) return false;
+
+  const hand = room.hands[playerIndex];
+  if (!hand || hand.length === 0) return false;
+
+  const playerTeam = playerIndex % 2 === 0 ? 0 : 1;
+
+  // Sammle alle Handkarten der gegnerischen Spieler
+  const opponentCards = [];
+  for (let s = 0; s < maxPlayers; s++) {
+    if (s % 2 !== playerTeam && room.hands[s]) {
+      for (const c of room.hands[s]) {
+        opponentCards.push(c);
+      }
+    }
+  }
+
+  // Fall 1: Alle Handkarten des Spielers sind Trümpfe
+  const allHandCardsAreTrump = hand.every(c => isTrumpCard(c, room.trumpSuit, room.isMitAnnounced, room.settings));
+  if (allHandCardsAreTrump) {
+    const oppTrumps = opponentCards.filter(c => isTrumpCard(c, room.trumpSuit, room.isMitAnnounced, room.settings));
+
+    // Wenn Gegner gar keine Trümpfe mehr haben: Jeder Trumpf des Spielers sticht alles!
+    if (oppTrumps.length === 0) {
+      if (room.currentTrick && room.currentTrick.length > 0) {
+        const trickTrumps = room.currentTrick.filter(e => isTrumpCard(e.card, room.trumpSuit, room.isMitAnnounced, room.settings));
+        if (trickTrumps.length > 0) {
+          const maxTrickTrumpPower = Math.max(...trickTrumps.map(e => getTrumpPower(e.card, room.trumpSuit, room.isMitAnnounced, room.settings)));
+          const maxPlayerTrumpPower = Math.max(...hand.map(c => getTrumpPower(c, room.trumpSuit, room.isMitAnnounced, room.settings)));
+          if (maxPlayerTrumpPower <= maxTrickTrumpPower) return false;
+        }
+      }
+      return true;
+    }
+
+    // Gegner haben noch Trümpfe: Der schwächste Trumpf des Spielers muss stärker sein
+    // als der stärkste Trumpf irgendeines Gegners!
+    const minPlayerTrumpPower = Math.min(...hand.map(c => getTrumpPower(c, room.trumpSuit, room.isMitAnnounced, room.settings)));
+    const maxOppTrumpPower = Math.max(...oppTrumps.map(c => getTrumpPower(c, room.trumpSuit, room.isMitAnnounced, room.settings)));
+
+    if (minPlayerTrumpPower > maxOppTrumpPower) {
+      if (room.currentTrick && room.currentTrick.length > 0) {
+        const trickTrumps = room.currentTrick.filter(e => isTrumpCard(e.card, room.trumpSuit, room.isMitAnnounced, room.settings));
+        if (trickTrumps.length > 0) {
+          const maxTrickTrumpPower = Math.max(...trickTrumps.map(e => getTrumpPower(e.card, room.trumpSuit, room.isMitAnnounced, room.settings)));
+          if (minPlayerTrumpPower <= maxTrickTrumpPower) return false;
+        }
+      }
+      return true;
+    }
+  }
+
+  // Fall 2: Gegner haben keine Trümpfe mehr, und jede Handkarte des Spielers ist höchste Karte ihrer Farbe
+  const anyOppHasTrump = opponentCards.some(c => isTrumpCard(c, room.trumpSuit, room.isMitAnnounced, room.settings));
+  if (!anyOppHasTrump) {
+    let allMasterCards = true;
+    for (const card of hand) {
+      if (isTrumpCard(card, room.trumpSuit, room.isMitAnnounced, room.settings)) {
+        continue;
+      }
+      const effSuit = getEffectiveSuit(card, room.trumpSuit, room.isMitAnnounced, room.settings);
+      const myPower = getOffSuitPower(card);
+      const oppsSameSuit = opponentCards.filter(c => getEffectiveSuit(c, room.trumpSuit, room.isMitAnnounced, room.settings) === effSuit);
+      const oppsMaxPower = oppsSameSuit.length > 0 ? Math.max(...oppsSameSuit.map(c => getOffSuitPower(c))) : 0;
+      if (myPower <= oppsMaxPower) {
+        allMasterCards = false;
+        break;
+      }
+    }
+    if (allMasterCards) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
  * Filtert sensible Kartendaten (Hände anderer Spieler & verdeckter Stock) heraus.
  */
 function sanitizeStateForPlayer(room, seatIndex) {
@@ -544,6 +636,7 @@ function sanitizeStateForPlayer(room, seatIndex) {
 
   const isMeHost = (room.seats[seatIndex] && room.seats[seatIndex].socketId === room.hostSocketId);
   const canThrowCards = canPlayerThrowCards(room, seatIndex);
+  const canClaimTricks = canPlayerClaimTricks(room, seatIndex);
 
   return {
     roomCode: room.code,
@@ -551,6 +644,7 @@ function sanitizeStateForPlayer(room, seatIndex) {
     settings: room.settings,
     roundNumber: room.roundNumber,
     scores: room.scores,
+    matchWins: room.matchWins || { teamA: 0, teamB: 0 },
     dealerIndex: room.dealerIndex,
     declarerIndex: room.declarerIndex,
     declarerTeam: room.declarerTeam,
@@ -584,6 +678,7 @@ function sanitizeStateForPlayer(room, seatIndex) {
       hand: myHand,
       playableMap: playableMap,
       canThrowCards: canThrowCards,
+      canClaimTricks: canClaimTricks,
       hasThrownCards: Boolean(room.hasThrownCards && room.hasThrownCards[seatIndex])
     }
   };
@@ -1037,6 +1132,75 @@ function handleThrowCards(room, playerIndex) {
 }
 
 /**
+ * Verarbeitet das Reklamieren / Aufdecken der restlichen sicheren Stiche.
+ * Alle verbleibenden Stiche und Augen wandern zum Team des aufdeckenden Spielers.
+ */
+function handleClaimTricks(room, playerIndex) {
+  if (!canPlayerClaimTricks(room, playerIndex)) return;
+
+  const maxPlayers = room.settings.playerCount || 4;
+  const playerName = room.seats[playerIndex].name;
+  const playerTeam = playerIndex % 2 === 0 ? 0 : 1;
+
+  // Handkarten des Spielers einsammeln (zum Vorzeigen)
+  const claimedCards = [...room.hands[playerIndex]];
+  const remainingTricksCount = claimedCards.length;
+
+  // Alle verbleibenden Augen einholen (aus liegendem Stich und allen Spielerhänden)
+  let totalClaimedEyes = 0;
+  if (room.currentTrick && room.currentTrick.length > 0) {
+    room.currentTrick.forEach(e => {
+      totalClaimedEyes += (POINT_VALUES[e.card.rank] || 0);
+    });
+  }
+
+  for (let s = 0; s < maxPlayers; s++) {
+    if (room.hands[s]) {
+      room.hands[s].forEach(c => {
+        totalClaimedEyes += (POINT_VALUES[c.rank] || 0);
+      });
+      room.hands[s] = [];
+    }
+  }
+
+  // Augen und Stiche dem Team des Spielers gutschreiben
+  room.eyesWon[playerIndex] += totalClaimedEyes;
+  room.tricksWon[playerIndex] += remainingTricksCount;
+
+  if (playerTeam === 0) {
+    room.tricksTeamA += remainingTricksCount;
+    room.eyesTeamA += totalClaimedEyes;
+  } else {
+    room.tricksTeamB += remainingTricksCount;
+    room.eyesTeamB += totalClaimedEyes;
+  }
+
+  room.trickCount += remainingTricksCount;
+  room.currentTrick = [];
+
+  const suitIcons = { clubs: '♣', spades: '♠', hearts: '♥', diamonds: '♦' };
+  const cardNames = claimedCards.map(c => `${suitIcons[c.suit]}${c.rank}`).join(' ');
+
+  logAction(room, `👑 ${playerName} hat ${remainingTricksCount} sichere Stiche aufgedeckt (${cardNames}) und alle restlichen Stiche geholt!`);
+
+  io.to(room.code).emit('tricks_claimed', {
+    seatIndex: playerIndex,
+    playerIndex,
+    playerName,
+    cards: claimedCards,
+    remainingTricksCount,
+    eyesWon: totalClaimedEyes
+  });
+
+  broadcastGameState(room);
+
+  // Nach kurzer Pause (1.5s für Anzeige der aufgedeckten Karten) Runde auswerten
+  setTimeout(() => {
+    resolveRound(room);
+  }, 1500);
+}
+
+/**
  * Führt das Ausspielen einer Karte aus.
  */
 function handleCardPlay(room, playerIndex, cardId) {
@@ -1314,7 +1478,16 @@ function resolveRound(room) {
     const winningTeamName = (room.scores.teamA <= 0 && (room.scores.teamB > 0 || room.scores.teamA <= room.scores.teamB))
       ? 'Team A'
       : 'Team B';
-    logAction(room, `🎉 PARTIE BEENDET! ${winningTeamName} hat das Spiel gewonnen!`);
+    if (!room.matchWinRecorded) {
+      room.matchWinRecorded = true;
+      if (!room.matchWins) room.matchWins = { teamA: 0, teamB: 0 };
+      if (winningTeamName === 'Team A') {
+        room.matchWins.teamA++;
+      } else {
+        room.matchWins.teamB++;
+      }
+    }
+    logAction(room, `🎉 PARTIE BEENDET! ${winningTeamName} hat das Spiel gewonnen! (Gesamtsiege: Team A ${room.matchWins.teamA} - ${room.matchWins.teamB} Team B)`);
   } else {
     room.phase = 'ROUND_END';
     // Geber rotiert im Uhrzeigersinn um 1
@@ -1385,6 +1558,12 @@ function checkBotAction(room) {
           if (shouldAnnounceMit(botHand, room.declarerIndex, room.currentTurn, room.trumpSuit, { ...room.settings, playerCount: maxPlayers, scores: room.scores, declarerIndex: room.declarerIndex, declarerTeam: room.declarerTeam })) {
             handleMitAnnouncement(room, room.currentTurn, true);
           }
+        }
+
+        // 2b. Restliche Stiche abkürzen / aufdecken (wenn Bot unschlagbare Meisterkarten/Trümpfe hält)
+        if (canPlayerClaimTricks(room, room.currentTurn)) {
+          handleClaimTricks(room, room.currentTurn);
+          return;
         }
 
         // 3. Karten wegschmeißen (Dead Hand Fold: 0 Augen, 0 Trümpfe, 0 Siegchancen)
@@ -1735,20 +1914,30 @@ io.on('connection', (socket) => {
       return broadcastGameState(room);
     }
 
-    // 2. Reconnect: Prüfen, ob ein getrennter Spieler mit gleichem Namen existiert
+    // 2. Reconnect: Prüfen, ob ein getrennter Spieler mit gleichem Namen existiert oder kürzlich durch Bot ersetzt wurde
     if (playerName) {
       const cleanName = playerName.trim().toLowerCase();
-      const discIndex = room.seats.findIndex(s => s && !s.isBot && !s.connected && s.name.trim().toLowerCase() === cleanName);
+      let discIndex = room.seats.findIndex(s => s && !s.isBot && !s.connected && s.name.trim().toLowerCase() === cleanName);
+      if (discIndex === -1 && room.phase !== 'LOBBY') {
+        discIndex = room.seats.findIndex(s => s && s.isBot && s.replacedPlayerName && s.replacedPlayerName.toLowerCase() === cleanName && (Date.now() - s.replacedAt < 120000));
+      }
       if (discIndex !== -1) {
         const restored = room.seats[discIndex];
         restored.socketId = socket.id;
         restored.connected = true;
+        restored.isBot = false;
+        restored.name = playerName.trim();
+        delete restored.replacedPlayerName;
+        delete restored.replacedAt;
         if (myFriendCode) restored.friendCode = myFriendCode;
         currentRoomCode = code;
         currentSeatIndex = discIndex;
         socket.join(code);
-        logAction(room, `🔄 ${restored.name} hat die Verbindung wiederhergestellt.`);
-        return broadcastGameState(room);
+        logAction(room, `🔄 ${restored.name} hat die Verbindung wiederhergestellt und spielt weiter.`);
+        broadcastGameState(room);
+        broadcastPublicRooms();
+        checkBotAction(room);
+        return;
       }
     }
 
@@ -1777,15 +1966,22 @@ io.on('connection', (socket) => {
     const maxPlayers = room.settings.playerCount || 4;
     if (typeof seatIndex === 'number' && seatIndex >= 0 && seatIndex < maxPlayers) {
       const seat = room.seats[seatIndex];
-      if (seat && !seat.isBot) {
+      const cleanName = playerName ? playerName.trim().toLowerCase() : '';
+      if (seat && (!seat.isBot || (seat.replacedPlayerName && seat.replacedPlayerName.toLowerCase() === cleanName))) {
         seat.socketId = socket.id;
         seat.connected = true;
-        if (playerName) seat.name = playerName;
+        seat.isBot = false;
+        if (playerName) seat.name = playerName.trim();
+        delete seat.replacedPlayerName;
+        delete seat.replacedAt;
         currentRoomCode = code;
         currentSeatIndex = seatIndex;
         socket.join(code);
         logAction(room, `🔄 ${seat.name} wieder im Spiel.`);
-        return broadcastGameState(room);
+        broadcastGameState(room);
+        broadcastPublicRooms();
+        checkBotAction(room);
+        return;
       }
     }
   });
@@ -2055,6 +2251,16 @@ io.on('connection', (socket) => {
     handleThrowCards(room, currentSeatIndex);
   });
 
+  // Sichere Reststiche reklamieren / aufdecken
+  socket.on('claim_tricks', () => {
+    if (!currentRoomCode) return;
+    const room = rooms.get(currentRoomCode);
+    if (!room) return;
+    if (room.currentTurn !== currentSeatIndex) return;
+
+    handleClaimTricks(room, currentSeatIndex);
+  });
+
   // Nächste Runde starten (Nur Host / Spielleiter)
   socket.on('next_round', () => {
     if (!currentRoomCode) return;
@@ -2084,6 +2290,7 @@ io.on('connection', (socket) => {
     };
     room.roundNumber = 0;
     room.dealerIndex = 0;
+    room.matchWinRecorded = false;
     startNewRound(room);
   });
 
@@ -2161,7 +2368,9 @@ io.on('connection', (socket) => {
         socketId: null,
         isBot: true,
         connected: true,
-        team: leavingSeat % 2 === 0 ? 0 : 1
+        team: leavingSeat % 2 === 0 ? 0 : 1,
+        replacedPlayerName: playerName,
+        replacedAt: Date.now()
       };
 
       logAction(room, `🚪 ${playerName} hat das Spiel verlassen und wurde durch ${newBotName} ersetzt.`);
@@ -2221,6 +2430,7 @@ io.on('connection', (socket) => {
     room.roundSummary = null;
     room.roundNumber = 0;
     room.dealerIndex = 0;
+    room.matchWinRecorded = false;
     room.scores = {
       teamA: room.settings.startScoreA || 13,
       teamB: room.settings.startScoreB || 13
@@ -2532,70 +2742,8 @@ io.on('connection', (socket) => {
     if (myFriendCode && activePlayerCodes.get(myFriendCode)?.socketId === socket.id) {
       activePlayerCodes.delete(myFriendCode);
     }
-    if (currentRoomCode && currentSeatIndex === -1) {
-      const room = rooms.get(currentRoomCode);
-      if (room && Array.isArray(room.spectators)) {
-        room.spectators = room.spectators.filter(s => s && s.socketId !== socket.id);
-      }
-    }
-
-    if (currentRoomCode && currentSeatIndex !== -1) {
-      const room = rooms.get(currentRoomCode);
-      if (room && room.seats[currentSeatIndex]) {
-        room.seats[currentSeatIndex].connected = false;
-        const playerName = room.seats[currentSeatIndex].name;
-        logAction(room, `${playerName} hat die Verbindung getrennt.`);
-
-        // Wenn der Spielleiter die Verbindung trennt, Host sofort an den nächsten aktiven Menschen übertragen!
-        if (room.hostSocketId === socket.id) {
-          const nextHuman = room.seats.find(s => s && !s.isBot && s.socketId && s.connected !== false && s.index !== currentSeatIndex);
-          if (nextHuman) {
-            room.hostSocketId = nextHuman.socketId;
-            logAction(room, `👑 ${nextHuman.name} übernimmt die Spielleitung.`);
-          }
-        }
-
-        // Prüfen, ob überhaupt noch ein menschlicher Spieler aktiv verbunden ist:
-        const anyConnectedHuman = room.seats.some(s => s && !s.isBot && s.connected !== false);
-        if (!anyConnectedHuman) {
-          if (room.botTimer) {
-            clearTimeout(room.botTimer);
-            room.botTimer = null;
-          }
-
-          // Automatische Bereinigung verlassener Lobbys / Spiele ohne menschliche Spieler:
-          if (room.phase === 'LOBBY') {
-            setTimeout(() => {
-              const checkRoom = rooms.get(room.code);
-              if (checkRoom && checkRoom.phase === 'LOBBY') {
-                const stillAnyHuman = checkRoom.seats.some(s => s && !s.isBot && s.connected !== false);
-                if (!stillAnyHuman) {
-                  rooms.delete(room.code);
-                  broadcastPublicRooms();
-                }
-              }
-            }, 8000);
-          } else {
-            setTimeout(() => {
-              const checkRoom = rooms.get(room.code);
-              if (checkRoom && checkRoom.phase !== 'LOBBY') {
-                const stillAnyHuman = checkRoom.seats.some(s => s && !s.isBot && s.connected !== false);
-                if (!stillAnyHuman) {
-                  if (checkRoom.botTimer) {
-                    clearTimeout(checkRoom.botTimer);
-                    checkRoom.botTimer = null;
-                  }
-                  rooms.delete(room.code);
-                  broadcastPublicRooms();
-                }
-              }
-            }, 15000);
-          }
-        }
-
-        broadcastGameState(room);
-        broadcastPublicRooms();
-      }
+    if (currentRoomCode) {
+      handlePlayerLeave();
     }
   });
 });

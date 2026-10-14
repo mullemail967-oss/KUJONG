@@ -565,26 +565,32 @@ function handleCreateRoom() {
   const playerName = requirePlayerName();
   if (!playerName) return;
 
-  // Prüfen, ob Push unterstützt wird und bereits aktiv ist
+  promptPushIfInactive(() => {
+    executeCreateRoom(playerName);
+  });
+}
+
+let pendingPushCallback = null;
+
+function promptPushIfInactive(onProceed) {
   const supportsPush = ('Notification' in window && 'serviceWorker' in navigator && 'PushManager' in window);
   if (supportsPush && !isPushActive()) {
-    pendingCreateRoomName = playerName;
+    pendingPushCallback = onProceed;
     const promptModal = document.getElementById('pushPromptModal');
     if (promptModal) {
       promptModal.classList.remove('hidden');
       return;
     }
   }
-
-  executeCreateRoom(playerName);
+  onProceed();
 }
 
 async function handlePushPromptAccept() {
   const promptModal = document.getElementById('pushPromptModal');
   if (promptModal) promptModal.classList.add('hidden');
 
-  const pName = pendingCreateRoomName || requirePlayerName();
-  pendingCreateRoomName = null;
+  const cb = pendingPushCallback;
+  pendingPushCallback = null;
 
   try {
     await requestPushPermission();
@@ -592,8 +598,8 @@ async function handlePushPromptAccept() {
     console.warn('Push-Aktivierungsversuch:', e);
   }
 
-  if (pName) {
-    executeCreateRoom(pName);
+  if (typeof cb === 'function') {
+    cb();
   }
 }
 
@@ -601,11 +607,11 @@ function handlePushPromptSkip() {
   const promptModal = document.getElementById('pushPromptModal');
   if (promptModal) promptModal.classList.add('hidden');
 
-  const pName = pendingCreateRoomName || requirePlayerName();
-  pendingCreateRoomName = null;
+  const cb = pendingPushCallback;
+  pendingPushCallback = null;
 
-  if (pName) {
-    executeCreateRoom(pName);
+  if (typeof cb === 'function') {
+    cb();
   }
 }
 
@@ -630,6 +636,12 @@ function handleJoinRoom() {
   const playerName = requirePlayerName();
   if (!playerName) return;
 
+  promptPushIfInactive(() => {
+    executeJoinRoom(code, playerName);
+  });
+}
+
+function executeJoinRoom(code, playerName) {
   isJoiningRoom = true;
   setTimeout(() => { isJoiningRoom = false; }, 2500);
   socket.emit('join_room', { roomCode: code, playerName, friendCode: myFriendCode });
@@ -898,6 +910,15 @@ function throwCards() {
   const banner = document.getElementById('throwCardsBanner');
   if (banner) banner.classList.add('hidden');
 }
+
+function claimTricks() {
+  if (!gameState || !gameState.you || !gameState.you.canClaimTricks) return;
+  socket.emit('claim_tricks');
+  playSound('trump_fanfare');
+  const banner = document.getElementById('claimTricksBanner');
+  if (banner) banner.classList.add('hidden');
+}
+window.claimTricks = claimTricks;
 
 const currentlyFlyingCardIds = new Set();
 
@@ -1413,15 +1434,17 @@ function joinPublicRoom(code, isMidGame) {
   const name = requirePlayerName();
   if (!name) return;
 
-  if (isMidGame) {
-    // Sofort als Zuschauer eintreten (ohne Annahme zuschauen) und parallel Mitspiel-Anfrage an Spielleiter senden
-    socket.emit('join_as_spectator', { roomCode: code, playerName: name });
-    socket.emit('request_join_room', { roomCode: code, playerName: name });
-  } else {
-    const codeInput = document.getElementById('roomCodeInput');
-    if (codeInput) codeInput.value = code;
-    handleJoinRoom();
-  }
+  promptPushIfInactive(() => {
+    if (isMidGame) {
+      // Sofort als Zuschauer eintreten (ohne Annahme zuschauen) und parallel Mitspiel-Anfrage an Spielleiter senden
+      socket.emit('join_as_spectator', { roomCode: code, playerName: name });
+      socket.emit('request_join_room', { roomCode: code, playerName: name });
+    } else {
+      const codeInput = document.getElementById('roomCodeInput');
+      if (codeInput) codeInput.value = code;
+      executeJoinRoom(code, name);
+    }
+  });
 }
 
 function requestPlayFromSpectator() {
@@ -1638,6 +1661,47 @@ socket.on('cards_thrown', ({ playerIndex, playerName, count }) => {
     }, 2800);
   }
   playSound('card_play');
+});
+
+// Auffälliges Banner & Kartenanzeige im Spielfeld, wenn jemand sichere Reststiche aufdeckt
+let claimTricksNotificationTimer = null;
+socket.on('tricks_claimed', ({ seatIndex, playerName, cards, remainingTricksCount, eyesWon }) => {
+  const banner = document.getElementById('claimTricksFieldNotification');
+  const textEl = document.getElementById('claimPopText');
+  if (banner && textEl) {
+    const isMe = (seatIndex === mySeatIndex);
+    const displayName = isMe ? `${playerName} (Du)` : playerName;
+    const suitSymbols = { clubs: '♣', spades: '♠', hearts: '♥', diamonds: '♦' };
+    const cardStr = Array.isArray(cards) ? cards.map(c => `${suitSymbols[c.suit] || ''}${c.rank}`).join(' ') : '';
+    textEl.textContent = `${displayName} deckt ${remainingTricksCount} sichere Stiche auf (${cardStr})!`;
+    banner.classList.remove('hidden');
+    banner.classList.remove('fade-out');
+
+    if (claimTricksNotificationTimer) clearTimeout(claimTricksNotificationTimer);
+    claimTricksNotificationTimer = setTimeout(() => {
+      banner.classList.add('fade-out');
+      setTimeout(() => {
+        banner.classList.add('hidden');
+        banner.classList.remove('fade-out');
+      }, 500);
+    }, 2800);
+  }
+
+  // Karten in der Mitte des Tisches zur Schau stellen
+  const trickArea = document.getElementById('trickArea');
+  if (trickArea && Array.isArray(cards) && cards.length > 0) {
+    trickArea.innerHTML = '';
+    cards.forEach((c, idx) => {
+      const cardWrap = document.createElement('div');
+      cardWrap.className = 'trick-card-slot';
+      cardWrap.innerHTML = createCardHTML(c, false);
+      const rot = (idx - (cards.length - 1) / 2) * 8;
+      cardWrap.style.transform = `rotate(${rot}deg) scale(1.08)`;
+      trickArea.appendChild(cardWrap);
+    });
+  }
+
+  playSound('trump_fanfare');
 });
 
 // Auffälliges Banner im Spielfeld, wenn jemand Trumpf gedreht hat
@@ -1987,6 +2051,23 @@ function renderGameScreen() {
 
   // Runde & Trumpf-Badge
   document.getElementById('roundNumberDisplay').textContent = gameState.roundNumber;
+
+  // Gesamtsiege über mehrere Runden
+  const matchWinsPill = document.getElementById('matchWinsPill');
+  const matchWinsWe = document.getElementById('matchWinsWe');
+  const matchWinsThey = document.getElementById('matchWinsThey');
+  if (matchWinsPill && matchWinsWe && matchWinsThey) {
+    if (gameState.matchWins && (gameState.matchWins.teamA > 0 || gameState.matchWins.teamB > 0)) {
+      const weWins = (myTeam === 0 ? gameState.matchWins.teamA : gameState.matchWins.teamB) || 0;
+      const theyWins = (myTeam === 0 ? gameState.matchWins.teamB : gameState.matchWins.teamA) || 0;
+      matchWinsWe.textContent = weWins;
+      matchWinsThey.textContent = theyWins;
+      matchWinsPill.classList.remove('hidden');
+    } else {
+      matchWinsPill.classList.add('hidden');
+    }
+  }
+
   const trumpBadge = document.getElementById('trumpBadge');
   const mitBadge = document.getElementById('mitBadge');
 
@@ -2459,6 +2540,16 @@ function handleModals() {
     }
   } else {
     if (mitBanner) mitBanner.classList.add('hidden');
+  }
+
+  // Restliche Stiche aufdecken Banner (Sichere Meisterkarten/Trümpfe)
+  const claimTricksBanner = document.getElementById('claimTricksBanner');
+  if (claimTricksBanner) {
+    if (gameState.you && gameState.you.canClaimTricks) {
+      claimTricksBanner.classList.remove('hidden');
+    } else {
+      claimTricksBanner.classList.add('hidden');
+    }
   }
 
   // Karten wegschmeißen Banner (Dead Hand Fold)
@@ -3007,15 +3098,26 @@ function registerFriendSocket() {
   });
 }
 
-// Badge im Menü aktualisieren
+// Badge im Menü und im Spiel aktualisieren
 function updateFriendsCountBadge() {
   const badge = document.getElementById('friendsCountBadge');
-  if (!badge) return;
-  if (savedFriends.length > 0) {
-    badge.textContent = savedFriends.length;
-    badge.classList.remove('hidden');
-  } else {
-    badge.classList.add('hidden');
+  const gameBadge = document.getElementById('gameFriendsCountBadge');
+  const count = savedFriends.length;
+  if (badge) {
+    if (count > 0) {
+      badge.textContent = count;
+      badge.classList.remove('hidden');
+    } else {
+      badge.classList.add('hidden');
+    }
+  }
+  if (gameBadge) {
+    if (count > 0) {
+      gameBadge.textContent = count;
+      gameBadge.classList.remove('hidden');
+    } else {
+      gameBadge.classList.add('hidden');
+    }
   }
 }
 
@@ -3496,6 +3598,12 @@ function checkUrlParamsForFriendsAndRooms() {
     const roomCode = params.get('room').toUpperCase();
     const roomInput = document.getElementById('roomCodeInput');
     if (roomInput) roomInput.value = roomCode;
+    const savedName = getPlayerName();
+    if (savedName && savedName.length >= 2) {
+      promptPushIfInactive(() => {
+        executeJoinRoom(roomCode, savedName);
+      });
+    }
   }
 }
 
@@ -3537,9 +3645,8 @@ function acceptIncomingInvite() {
     } catch (e) {}
   }
 
-  socket.emit('join_room', {
-    roomCode: roomCode,
-    playerName: name
+  promptPushIfInactive(() => {
+    executeJoinRoom(roomCode, name);
   });
 }
 

@@ -1591,29 +1591,6 @@ input[type="text"]:focus {
   pointer-events: none !important;
 }
 
-.spectator-banner {
-  position: absolute;
-  top: 12px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: rgba(15, 23, 42, 0.92);
-  backdrop-filter: blur(8px);
-  border: 1px solid rgba(245, 158, 11, 0.6);
-  color: var(--team-we-gold);
-  font-weight: 800;
-  font-size: 0.85rem;
-  letter-spacing: 0.05em;
-  padding: 4px 16px;
-  border-radius: 20px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
-  z-index: 500;
-  pointer-events: none;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  text-transform: uppercase;
-  animation: popIn 0.3s ease-out;
-}
 
 .card-svg-element {
   width: 100%;
@@ -2517,6 +2494,43 @@ input:checked + .slider:before {
   100% {
     opacity: 0;
     transform: translateY(-14px);
+  }
+}
+
+/* Emote Bubbles Floating cleanly BELOW Player Names for Opposite/Top Players */
+.player-top .emote-bubble-box,
+.player-top-left .emote-bubble-box,
+.player-top-right .emote-bubble-box {
+  top: calc(100% + 6px) !important;
+  bottom: auto !important;
+}
+
+.player-top .clash-emote-bubble,
+.player-top-left .clash-emote-bubble,
+.player-top-right .clash-emote-bubble {
+  animation-name: subtleEmoteFloatDown !important;
+}
+
+@keyframes subtleEmoteFloatDown {
+  0% {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.85);
+  }
+  12% {
+    opacity: 1;
+    transform: translateY(2px) scale(1.05);
+  }
+  24% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  75% {
+    opacity: 1;
+    transform: translateY(2px);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(14px);
   }
 }
 
@@ -4577,5 +4591,152 @@ input:checked + .slider:before {
   font-weight: 700;
   border-radius: 12px;
 }
+
+/* ==========================================================================
+   MATCH-SIEGE, SICHERE RESTSTICHE & FREUNDE IM SPIEL
+   ========================================================================== */
+.match-wins-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(245, 158, 11, 0.18);
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  color: #fef08a;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 1px 8px;
+  border-radius: 10px;
+  margin-top: 2px;
+  letter-spacing: 0.02em;
+}
+
+.btn-friends-tool {
+  background: rgba(59, 130, 246, 0.18) !important;
+  border: 1px solid rgba(59, 130, 246, 0.45) !important;
+  color: #93c5fd !important;
+  font-weight: 700 !important;
+  position: relative;
+}
+
+.btn-friends-tool:hover {
+  background: rgba(59, 130, 246, 0.35) !important;
+  border-color: #60a5fa !important;
+  color: #fff !important;
+}
+
+.claim-tricks-banner {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: 6px;
+  animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.btn-claim-tricks {
+  background: linear-gradient(135deg, #d97706, #b45309, #f59e0b);
+  background-size: 200% 200%;
+  color: #fff;
+  border: 2px solid #fef08a;
+  border-radius: 20px;
+  padding: 6px 18px;
+  font-size: 0.85rem;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 0 16px rgba(245, 158, 11, 0.6), 0 4px 12px rgba(0, 0, 0, 0.7);
+  animation: claimPulse 1.8s infinite ease-in-out, goldShimmer 3s infinite linear;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn-claim-tricks:hover {
+  transform: translateY(-2px) scale(1.03);
+  box-shadow: 0 0 24px rgba(245, 158, 11, 0.9), 0 6px 16px rgba(0, 0, 0, 0.8);
+  border-color: #fff;
+}
+
+@keyframes claimPulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 14px rgba(245, 158, 11, 0.5); }
+  50% { transform: scale(1.04); box-shadow: 0 0 24px rgba(245, 158, 11, 0.85); }
+}
+
+@keyframes goldShimmer {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.claim-tricks-field-notification {
+  position: absolute;
+  top: 54px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: linear-gradient(135deg, rgba(70, 45, 5, 0.97) 0%, rgba(120, 75, 10, 0.98) 100%);
+  border: 2px solid #fbbf24;
+  color: #fef08a;
+  font-weight: 800;
+  padding: 6px 18px;
+  border-radius: 20px;
+  font-size: 0.86rem;
+  white-space: nowrap;
+  max-width: 90%;
+  box-sizing: border-box;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  z-index: 50;
+  pointer-events: none;
+  box-shadow: 0 0 25px rgba(251, 191, 36, 0.9), 0 8px 30px rgba(0, 0, 0, 0.95);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  animation: mitNotificationPop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  transition: opacity 0.5s ease, transform 0.5s ease;
+}
+
+.claim-tricks-field-notification.fade-out {
+  opacity: 0;
+  transform: translate(-50%, -10px) scale(0.95);
+}
+
+.claim-pop-icon {
+  font-size: 1.2rem;
+  filter: drop-shadow(0 0 6px #fbbf24);
+  animation: pulseGold 1.2s infinite ease-in-out;
+}
+
+@keyframes pulseGold {
+  0%, 100% { transform: scale(1); filter: drop-shadow(0 0 4px #fbbf24); }
+  50% { transform: scale(1.2); filter: drop-shadow(0 0 10px #f59e0b); }
+}
+
+.spectator-badge {
+  background: rgba(59, 130, 246, 0.25);
+  color: #60a5fa;
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  margin-right: 6px;
+}
+
+@media (max-width: 520px) {
+  .spectator-banner {
+    padding: 5px 10px;
+    margin: 2px 8px 4px 8px;
+    font-size: 0.75rem;
+  }
+  .btn-spectator-play {
+    font-size: 0.72rem;
+    padding: 4px 8px;
+    white-space: nowrap;
+  }
+  .btn-claim-tricks {
+    font-size: 0.75rem;
+    padding: 5px 12px;
+  }
+}
+
 
 
