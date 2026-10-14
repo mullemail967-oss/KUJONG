@@ -1,7 +1,7 @@
 // ==========================================================================
 // KUJONG - SERVICE WORKER (PWA Offline Shell & Fast Assets)
 // ==========================================================================
-const CACHE_NAME = 'kujong-cache-v3';
+const CACHE_NAME = 'kujong-cache-v6';
 const STATIC_ASSETS = [
   '/',
   'index.html',
@@ -69,7 +69,11 @@ self.addEventListener('push', (event) => {
       body: data.body || 'Eine neue Runde wartet auf dich!',
       icon: 'icon-192.png',
       badge: 'icon-192.png',
-      data: { url: data.url || '/' }
+      vibrate: [100, 50, 100],
+      data: { url: data.url || '/' },
+      actions: [
+        { action: 'join', title: '🎮 Jetzt beitreten' }
+      ]
     };
     event.waitUntil(self.registration.showNotification(title, options));
   } catch (e) {

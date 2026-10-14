@@ -5,7 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node tests/test-rules.js && node tests/test-bot-ai.js && node tests/test-bot-integrity.js"
+    "test": "node tests/test-rules.js && node tests/test-bot-ai.js && node tests/test-bot-integrity.js && node tests/test-push-notifications.js && node tests/test-client-friend-integration.js && node tests/test-spectator-speed.js && node tests/test-player-name.js"
   },
   "keywords": [
     "couillon",
@@ -19,7 +19,8 @@
   "license": "MIT",
   "dependencies": {
     "express": "^4.19.2",
-    "socket.io": "^4.7.5"
+    "socket.io": "^4.7.5",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "socket.io-client": "^4.8.3"

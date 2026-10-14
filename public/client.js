@@ -364,9 +364,13 @@ document.addEventListener('DOMContentLoaded', () => {
   if ('serviceWorker' in navigator && (window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
     navigator.serviceWorker.register('sw.js').then((reg) => {
       console.log('Kujong Service Worker registriert:', reg.scope);
+      initFriendSystem();
     }).catch((err) => {
       console.warn('Service Worker Registrierung fehlgeschlagen:', err);
+      initFriendSystem();
     });
+  } else {
+    initFriendSystem();
   }
 });
 
@@ -418,6 +422,42 @@ function setupEventListeners() {
       if (e.key === 'Enter') handleJoinRoom();
     });
   }
+
+  // Spielername Input: Automatisches Laden & Speichern im localStorage
+  const nameInput = document.getElementById('playerNameInput');
+  if (nameInput) {
+    try {
+      const savedName = localStorage.getItem('kujong_player_name');
+      if (savedName && !nameInput.value) {
+        nameInput.value = savedName;
+      }
+    } catch (e) {}
+
+    nameInput.addEventListener('input', () => {
+      const val = nameInput.value.trim();
+      nameInput.classList.remove('input-error-shake');
+      if (val) {
+        try {
+          localStorage.setItem('kujong_player_name', val);
+          sessionStorage.setItem('kujong_name', val);
+        } catch (e) {}
+        const nameDisp = document.getElementById('myProfileNameDisplay');
+        if (nameDisp) nameDisp.textContent = val;
+        registerFriendSocket();
+      }
+    });
+
+    nameInput.addEventListener('keyup', (e) => {
+      if (e.key === 'Enter') {
+        const codeInput = document.getElementById('roomCodeInput');
+        if (codeInput && codeInput.value.trim()) {
+          handleJoinRoom();
+        } else {
+          handleCreateRoom();
+        }
+      }
+    });
+  }
 }
 
 function updateLobbyButtonsState() {
@@ -456,7 +496,39 @@ function checkUrlParams() {
 
 function getPlayerName() {
   const input = document.getElementById('playerNameInput');
-  return (input.value || '').trim() || 'Spieler ' + Math.floor(Math.random() * 100);
+  let name = (input ? input.value : '').trim();
+  if (!name) {
+    try {
+      name = (localStorage.getItem('kujong_player_name') || '').trim();
+      if (name && input) input.value = name;
+    } catch (e) {}
+  }
+  return name;
+}
+
+function requirePlayerName() {
+  const input = document.getElementById('playerNameInput');
+  let name = getPlayerName();
+
+  if (!name || name.length < 2) {
+    if (input) {
+      input.classList.remove('input-error-shake');
+      void input.offsetWidth; // Trigger reflow for CSS Shake animation
+      input.classList.add('input-error-shake');
+      input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      input.focus();
+    }
+    showToast('⚠️ Bitte gib deinen Spielernamen ein (mind. 2 Zeichen)!');
+    return null;
+  }
+
+  // Dauerhaft im localStorage und sessionStorage speichern
+  try {
+    localStorage.setItem('kujong_player_name', name);
+    sessionStorage.setItem('kujong_name', name);
+  } catch (e) {}
+
+  return name;
 }
 
 function showToast(message) {
@@ -479,9 +551,11 @@ function handleCreateRoom() {
     showToast('Du hast einen Raumcode eingegeben! Klicke auf Beitreten.');
     return;
   }
+  const playerName = requirePlayerName();
+  if (!playerName) return;
+
   isCreatingRoom = true;
   setTimeout(() => { isCreatingRoom = false; }, 2500);
-  const playerName = getPlayerName();
   socket.emit('create_room', { playerName, settings: currentSettings });
 }
 
@@ -493,9 +567,11 @@ function handleJoinRoom() {
   if (!code) {
     return showToast('Bitte gib einen Raumcode ein.');
   }
+  const playerName = requirePlayerName();
+  if (!playerName) return;
+
   isJoiningRoom = true;
   setTimeout(() => { isJoiningRoom = false; }, 2500);
-  const playerName = getPlayerName();
   socket.emit('join_room', { roomCode: code, playerName });
 }
 
@@ -916,6 +992,20 @@ function leaveLobby() {
 }
 
 function confirmLeaveGame() {
+  if (isSpectator) {
+    socket.emit('leave_room');
+    isSpectator = false;
+    currentRoomCode = null;
+    mySeatIndex = -1;
+    gameState = null;
+    document.getElementById('lobbyWaitingRoom').classList.add('hidden');
+    document.getElementById('lobbyInitialOptions').classList.remove('hidden');
+    document.getElementById('gameScreen').classList.remove('active');
+    document.getElementById('lobbyScreen').classList.add('active');
+    showToast('Zuschauer-Modus beendet.');
+    refreshPublicRooms();
+    return;
+  }
   const confirmLeave = confirm('Möchtest du das Spiel wirklich verlassen? Dein Platz wird sofort von einem Bot übernommen, damit die Partie weitergehen kann.');
   if (confirmLeave) {
     socket.emit('leave_game');
@@ -1124,19 +1214,37 @@ socket.on('public_rooms_update', (rooms) => {
 // Beitrittsanfrage (Nachjoinen) Events auf Client-Seite
 socket.on('join_request_sent', ({ roomCode, hostName }) => {
   showToast(`⏳ Anfrage an ${hostName} gesendet. Bitte warten...`);
+  const joinBtn = document.getElementById('spectatorJoinGameBtn');
+  if (joinBtn) {
+    joinBtn.disabled = true;
+    joinBtn.textContent = '⏳ Anfrage gesendet...';
+  }
 });
 
 socket.on('join_request_cooldown', ({ remainingSec }) => {
   showToast(`⏳ Bitte warte noch ${remainingSec} Sekunden vor der nächsten Anfrage.`);
+  const joinBtn = document.getElementById('spectatorJoinGameBtn');
+  if (joinBtn) {
+    joinBtn.disabled = false;
+    joinBtn.textContent = '🎮 Mitspielen anfragen';
+  }
 });
 
 socket.on('join_request_rejected', ({ message }) => {
   showToast(message || 'Der Spielleiter hat deine Anfrage abgelehnt.');
+  const joinBtn = document.getElementById('spectatorJoinGameBtn');
+  if (joinBtn) {
+    joinBtn.disabled = false;
+    joinBtn.textContent = '🎮 Mitspielen anfragen';
+  }
 });
 
 socket.on('join_request_accepted', ({ roomCode, seatIndex }) => {
+  isSpectator = false;
   currentRoomCode = roomCode;
   mySeatIndex = seatIndex;
+  const specBanner = document.getElementById('spectatorBanner');
+  if (specBanner) specBanner.classList.add('hidden');
   const nameInput = document.getElementById('playerNameInput');
   const playerName = nameInput ? nameInput.value.trim() : 'Spieler';
   sessionStorage.setItem('kujong_session', JSON.stringify({ roomCode, seatIndex, playerName }));
@@ -1144,6 +1252,7 @@ socket.on('join_request_accepted', ({ roomCode, seatIndex }) => {
   document.getElementById('lobbyScreen').classList.remove('active');
   document.getElementById('gameScreen').classList.add('active');
   showToast('🎉 Du bist der Partie beigetreten!');
+  renderUI();
 });
 
 // Beim Spielleiter: Dezent registrierte Beitrittsanfragen (kein blockierendes Riesen-Popup)
@@ -1224,8 +1333,8 @@ function renderPublicRooms(rooms) {
 }
 
 function spectatePublicRoom(code) {
-  const nameInput = document.getElementById('playerNameInput');
-  const name = (nameInput && nameInput.value.trim()) ? nameInput.value.trim() : 'Zuschauer';
+  const name = requirePlayerName();
+  if (!name) return;
   socket.emit('join_as_spectator', { roomCode: code, playerName: name });
 }
 
@@ -1235,23 +1344,18 @@ function handleSpectateRoom() {
     showToast('Bitte einen Raumcode eingeben.');
     return;
   }
-  const nameInput = document.getElementById('playerNameInput');
-  const name = (nameInput && nameInput.value.trim()) ? nameInput.value.trim() : 'Zuschauer';
+  const name = requirePlayerName();
+  if (!name) return;
   socket.emit('join_as_spectator', { roomCode: code, playerName: name });
 }
 
 function joinPublicRoom(code, isMidGame) {
-  const nameInput = document.getElementById('playerNameInput');
-  let name = nameInput ? nameInput.value.trim() : '';
-  if (!name) {
-    name = prompt('Bitte gib deinen Spielernamen ein:') || '';
-    name = name.trim();
-    if (!name) return;
-    if (nameInput) nameInput.value = name;
-  }
-  sessionStorage.setItem('kujong_name', name);
+  const name = requirePlayerName();
+  if (!name) return;
 
   if (isMidGame) {
+    // Sofort als Zuschauer eintreten (ohne Annahme zuschauen) und parallel Mitspiel-Anfrage an Spielleiter senden
+    socket.emit('join_as_spectator', { roomCode: code, playerName: name });
     socket.emit('request_join_room', { roomCode: code, playerName: name });
   } else {
     const codeInput = document.getElementById('roomCodeInput');
@@ -1259,6 +1363,23 @@ function joinPublicRoom(code, isMidGame) {
     handleJoinRoom();
   }
 }
+
+function requestPlayFromSpectator() {
+  if (!currentRoomCode) {
+    showToast('Kein aktiver Raumcode vorhanden.');
+    return;
+  }
+  const name = requirePlayerName();
+  if (!name) return;
+
+  const joinBtn = document.getElementById('spectatorJoinGameBtn');
+  if (joinBtn) {
+    joinBtn.disabled = true;
+    joinBtn.textContent = '⏳ Anfrage senden...';
+  }
+  socket.emit('request_join_room', { roomCode: currentRoomCode, playerName: name });
+}
+window.requestPlayFromSpectator = requestPlayFromSpectator;
 
 function updateHostMenuBadge() {
   const count = pendingJoinRequests.size;
@@ -1823,6 +1944,20 @@ function renderGameScreen() {
   if (isSpectator) {
     const turnInd = document.getElementById('turnIndicator');
     if (turnInd) turnInd.classList.add('hidden');
+
+    const joinBtn = document.getElementById('spectatorJoinGameBtn');
+    const subText = document.getElementById('spectatorSubText');
+    if (joinBtn && gameState && gameState.players) {
+      const maxP = gameState.playerCount || gameState.players.length;
+      const hasBots = gameState.players.slice(0, maxP).some(p => p && p.isBot);
+      if (hasBots) {
+        joinBtn.classList.remove('hidden');
+        if (subText && !joinBtn.disabled) subText.textContent = '(Bot-Plätze frei zum Mitspielen)';
+      } else {
+        joinBtn.classList.add('hidden');
+        if (subText) subText.textContent = '(Keine Bot-Plätze frei)';
+      }
+    }
   }
 
   // Status Ticker
@@ -2376,7 +2511,7 @@ let currentSettings = {
   startScoreA: 13,
   startScoreB: 13,
   drinkingGameMode: 'none',
-  trickDisplaySeconds: 2.5,
+  trickDisplaySeconds: 1.5,
   dealAndTurnDelaySeconds: 1.0,
   isPublic: true
 };
@@ -2498,7 +2633,7 @@ function syncSettingsUI() {
   const dispTrick = document.getElementById('displayTrickDelay');
   const dispDeal = document.getElementById('displayDealDelay');
   if (dispTrick) {
-    const trickVal = (typeof currentSettings.trickDisplaySeconds === 'number') ? currentSettings.trickDisplaySeconds : 2.5;
+    const trickVal = (typeof currentSettings.trickDisplaySeconds === 'number') ? currentSettings.trickDisplaySeconds : 1.5;
     dispTrick.textContent = `${trickVal.toFixed(1)}s`;
   }
   if (dispDeal) {
@@ -2532,7 +2667,7 @@ function setDrinkingGameSetting(mode) {
     const names = { light: 'Leicht (1–4 Schlucke)', medium: 'Mittel (2–8 Schlucke)', heavy: 'Schwer (4–12 Schlucke)' };
     showToast(`🍻 Trinkspiel-Modus: ${names[mode] || mode} aktiviert! Spieltempo auf schnell (1.2s / 0.5s) geschaltet.`);
   } else {
-    currentSettings.trickDisplaySeconds = 2.5;
+    currentSettings.trickDisplaySeconds = 1.5;
     currentSettings.dealAndTurnDelaySeconds = 1.0;
     showToast('🍻 Trinkspiel-Modus deaktiviert.');
   }
@@ -2547,7 +2682,7 @@ function adjustSpeedSetting(type, delta) {
     return;
   }
   if (type === 'trickDelay') {
-    let val = ((typeof currentSettings.trickDisplaySeconds === 'number') ? currentSettings.trickDisplaySeconds : 2.5) + delta;
+    let val = ((typeof currentSettings.trickDisplaySeconds === 'number') ? currentSettings.trickDisplaySeconds : 1.5) + delta;
     val = Math.round(val * 10) / 10;
     if (val < 0.8) val = 0.8;
     if (val > 7.0) val = 7.0;
@@ -2653,7 +2788,7 @@ function saveRuleSettings() {
     startScoreA: scoreAInput ? (parseInt(scoreAInput.value) || 13) : (currentSettings.startScoreA || 13),
     startScoreB: scoreBInput ? (parseInt(scoreBInput.value) || 13) : (currentSettings.startScoreB || 13),
     drinkingGameMode: currentSettings.drinkingGameMode || 'none',
-    trickDisplaySeconds: (typeof currentSettings.trickDisplaySeconds === 'number') ? currentSettings.trickDisplaySeconds : 2.5,
+    trickDisplaySeconds: (typeof currentSettings.trickDisplaySeconds === 'number') ? currentSettings.trickDisplaySeconds : 1.5,
     dealAndTurnDelaySeconds: (typeof currentSettings.dealAndTurnDelaySeconds === 'number') ? currentSettings.dealAndTurnDelaySeconds : 1.0,
     isPublic: isPublicInput ? isPublicInput.checked : (currentSettings.isPublic !== undefined ? currentSettings.isPublic : true)
   };
@@ -2663,3 +2798,562 @@ function saveRuleSettings() {
     socket.emit('update_settings', { settings: settingsPayload });
   }
 }
+
+/* ==========================================================================
+   FREUNDE-SYSTEM & WEB-PUSH INTEGRATION (OPTION A - ZERO ACCOUNT)
+   ========================================================================== */
+
+let myFriendCode = null;
+let savedFriends = [];
+let vapidPublicKey = null;
+let pendingIncomingInvite = null;
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// Hilfsfunktion: Konvertiert VAPID Public Key von Base64 zu Uint8Array
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding)
+    .replace(/\-/g, '+')
+    .replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
+// 1. Initialisierung des Freundes-Profils beim Laden der App
+function initFriendSystem() {
+  // Freundes-Code laden oder neu generieren
+  try {
+    myFriendCode = localStorage.getItem('kujong_friend_code');
+  } catch (e) {}
+
+  if (!myFriendCode) {
+    const randomChars = Math.random().toString(36).substring(2, 6).toUpperCase();
+    myFriendCode = `KUJ-${randomChars}`;
+    try {
+      localStorage.setItem('kujong_friend_code', myFriendCode);
+    } catch (e) {}
+  }
+
+  // Gespeicherte Freunde aus localStorage laden
+  try {
+    const raw = localStorage.getItem('kujong_friends');
+    savedFriends = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(savedFriends)) savedFriends = [];
+  } catch (e) {
+    savedFriends = [];
+  }
+
+  updateFriendsCountBadge();
+
+  // Socket Registrierung absenden
+  if (socket && socket.connected) {
+    registerFriendSocket();
+  }
+
+  // URL-Parameter prüfen (?add_friend=... oder ?room=...)
+  checkUrlParamsForFriendsAndRooms();
+
+  // Prüfen, ob Push bereits aktiviert ist
+  checkExistingPushSubscription();
+
+  // Prüfen, ob iOS Safari vorliegt (für Home-Screen Hinweis)
+  checkIosSafariPrompt();
+}
+
+// Socket mit meinem Code registrieren
+function registerFriendSocket() {
+  if (!socket || !myFriendCode) return;
+  const playerName = (document.getElementById('playerNameInput')?.value || '').trim() || localStorage.getItem('kujong_player_name') || 'Spieler';
+  socket.emit('register_friend_code', {
+    friendCode: myFriendCode,
+    playerName: playerName
+  });
+}
+
+// Badge im Menü aktualisieren
+function updateFriendsCountBadge() {
+  const badge = document.getElementById('friendsCountBadge');
+  if (!badge) return;
+  if (savedFriends.length > 0) {
+    badge.textContent = savedFriends.length;
+    badge.classList.remove('hidden');
+  } else {
+    badge.classList.add('hidden');
+  }
+}
+
+// Bestehende Push-Erlaubnis prüfen
+async function checkExistingPushSubscription() {
+  const statusBadge = document.getElementById('pushStatusBadge');
+  const enableBtn = document.getElementById('enablePushBtn');
+
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    if (statusBadge) {
+      statusBadge.textContent = '⚪ Push nicht unterstützt';
+      statusBadge.className = 'push-status-pill push-inactive';
+    }
+    if (enableBtn) enableBtn.classList.add('hidden');
+    return;
+  }
+
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (sub) {
+      try {
+        localStorage.setItem('kujong_push_sub', JSON.stringify(sub));
+      } catch (e) {}
+      if (statusBadge) {
+        statusBadge.textContent = '🟢 Push aktiv';
+        statusBadge.className = 'push-status-pill push-active';
+      }
+      if (enableBtn) {
+        enableBtn.textContent = '🔔 Benachrichtigungen aktiv';
+        enableBtn.disabled = true;
+      }
+    } else {
+      if (statusBadge) {
+        statusBadge.textContent = '⚪ Push inaktiv';
+        statusBadge.className = 'push-status-pill push-inactive';
+      }
+      if (enableBtn) {
+        enableBtn.textContent = '🔔 Benachrichtigungen aktivieren';
+        enableBtn.disabled = false;
+      }
+    }
+  } catch (err) {
+    console.warn('Fehler bei Push-Check:', err);
+  }
+}
+
+// Web-Push Benachrichtigungen anfordern & registrieren
+async function requestPushPermission() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    showToast('Web-Push wird von diesem Browser leider nicht unterstützt.');
+    return;
+  }
+
+  try {
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') {
+      showToast('Benachrichtigungen wurden nicht erlaubt.');
+      return;
+    }
+
+    // Public Key vom Server holen
+    if (!vapidPublicKey) {
+      const resp = await fetch('/api/vapid-public-key');
+      const data = await resp.json();
+      vapidPublicKey = data.publicKey;
+    }
+
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)
+    });
+
+    try {
+      localStorage.setItem('kujong_push_sub', JSON.stringify(sub));
+    } catch (e) {}
+
+    showToast('🔔 Benachrichtigungen erfolgreich aktiviert!');
+    checkExistingPushSubscription();
+  } catch (err) {
+    console.error('Push Registrierungsfehler:', err);
+    showToast('Fehler beim Aktivieren der Benachrichtigungen.');
+  }
+}
+
+// iOS PWA Hinweis anzeigen falls auf iPhone im regulären Safari geöffnet
+function checkIosSafariPrompt() {
+  const isIos = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+  const isStandalone = window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
+  const helpBox = document.getElementById('iosPwaHelpBox');
+  if (helpBox) {
+    if (isIos && !isStandalone) {
+      helpBox.classList.remove('hidden');
+    } else {
+      helpBox.classList.add('hidden');
+    }
+  }
+}
+
+// Modal öffnen
+function openFriendsModal(isFromWaitingRoom = false) {
+  const modal = document.getElementById('friendsModal');
+  if (!modal) return;
+
+  // Eigenen Namen & Code anzeigen
+  const myName = getPlayerName() || 'Spieler';
+  const nameDisp = document.getElementById('myProfileNameDisplay');
+  const codeDisp = document.getElementById('myFriendCodeDisplay');
+  if (nameDisp) nameDisp.textContent = myName;
+  if (codeDisp) codeDisp.textContent = myFriendCode || 'KUJ-????';
+
+  checkExistingPushSubscription();
+  renderFriendsList(isFromWaitingRoom);
+
+  modal.classList.remove('hidden');
+}
+
+function closeFriendsModal() {
+  const modal = document.getElementById('friendsModal');
+  if (modal) modal.classList.add('hidden');
+}
+
+function changeMyPlayerNamePrompt() {
+  const current = getPlayerName() || '';
+  const newName = prompt('Wie möchtest du in Kujong heißen?', current);
+  if (newName !== null) {
+    const trimmed = newName.trim();
+    if (!trimmed || trimmed.length < 2) {
+      showToast('⚠️ Der Name muss mindestens 2 Zeichen lang sein.');
+      return;
+    }
+    const nameInput = document.getElementById('playerNameInput');
+    if (nameInput) {
+      nameInput.value = trimmed;
+      nameInput.classList.remove('input-error-shake');
+    }
+    try {
+      localStorage.setItem('kujong_player_name', trimmed);
+      sessionStorage.setItem('kujong_name', trimmed);
+    } catch (e) {}
+    const nameDisp = document.getElementById('myProfileNameDisplay');
+    if (nameDisp) nameDisp.textContent = trimmed;
+    registerFriendSocket();
+    showToast(`✅ Name gespeichert: "${trimmed}"`);
+  }
+}
+
+// Freundesliste rendern
+function renderFriendsList(isFromWaitingRoom = false) {
+  const container = document.getElementById('friendsListContainer');
+  const countSpan = document.getElementById('friendsListCount');
+  const inviteAllBtn = document.getElementById('inviteAllFriendsBtn');
+  if (!container) return;
+
+  if (countSpan) countSpan.textContent = savedFriends.length;
+
+  if (savedFriends.length === 0) {
+    container.innerHTML = `
+      <div class="friends-empty-state">
+        <p>Du hast noch keine Freunde hinzugefügt.</p>
+        <p class="empty-hint">Teile deinen Freundschaftslink oder gib den Code eines Freundes ein!</p>
+      </div>`;
+    if (inviteAllBtn) inviteAllBtn.classList.add('hidden');
+    return;
+  }
+
+  const inWaitingRoom = isFromWaitingRoom || (currentRoomCode && !gameState?.gameStarted);
+  if (inviteAllBtn) {
+    inviteAllBtn.classList.toggle('hidden', !inWaitingRoom);
+  }
+
+  // Live-Online-Status beim Server anfragen
+  const friendCodes = savedFriends.map(f => f.code);
+  socket.emit('check_friends_status', { friendCodes }, (response) => {
+    let html = '';
+    savedFriends.forEach(friend => {
+      const isOnline = !!(response && (response[friend.code] === true || response.statusMap?.[friend.code]?.online));
+      const statusClass = isOnline ? 'online' : 'offline';
+      const statusText = isOnline ? 'Online in Kujong' : 'Offline (Push bereit)';
+
+      html += `
+        <div class="friend-item-card" data-code="${friend.code}">
+          <div class="friend-item-left">
+            <div class="friend-status-dot ${statusClass}" title="${statusText}"></div>
+            <div class="friend-info-col">
+              <span class="friend-name">${escapeHtml(friend.name)}</span>
+              <span class="friend-subtext">${friend.code} • ${statusText}</span>
+            </div>
+          </div>
+          <div class="friend-item-actions">
+            <button class="btn btn-friend-invite" onclick="inviteFriend('${friend.code}')" ${inWaitingRoom ? '' : 'disabled title="Erstelle zuerst einen Raum"'}>
+              🔔 Einladen
+            </button>
+            <button class="btn btn-friend-wa" onclick="sendWhatsAppInviteToFriend('${escapeHtml(friend.name)}')" title="Per WhatsApp anpingen">
+              💬 WA
+            </button>
+            <button class="btn btn-friend-delete" onclick="removeFriend('${friend.code}')" title="Freund entfernen">
+              🗑️
+            </button>
+          </div>
+        </div>`;
+    });
+
+    container.innerHTML = html;
+  });
+}
+
+// Freund hinzufügen via Code-Input
+function addFriendByCodeInput() {
+  const input = document.getElementById('addFriendCodeInput');
+  if (!input) return;
+  const code = input.value.trim().toUpperCase();
+
+  if (!code.startsWith('KUJ-') || code.length < 7) {
+    showToast('Bitte einen gültigen Freundes-Code eingeben (z.B. KUJ-8492).');
+    return;
+  }
+
+  if (code === myFriendCode) {
+    showToast('Das ist dein eigener Freundes-Code!');
+    return;
+  }
+
+  const exists = savedFriends.some(f => f.code === code);
+  if (exists) {
+    showToast('Dieser Freund ist bereits in deiner Liste.');
+    return;
+  }
+
+  savedFriends.push({
+    code: code,
+    name: `Freund ${code.substring(4)}`,
+    pushSub: null,
+    addedAt: Date.now()
+  });
+
+  saveFriendsToStorage();
+  input.value = '';
+  showToast(`Freund ${code} hinzugefügt!`);
+  renderFriendsList();
+  updateFriendsCountBadge();
+}
+
+// Freund entfernen
+function removeFriend(code) {
+  savedFriends = savedFriends.filter(f => f.code !== code);
+  saveFriendsToStorage();
+  renderFriendsList();
+  updateFriendsCountBadge();
+  showToast('Freund entfernt.');
+}
+
+function saveFriendsToStorage() {
+  try {
+    localStorage.setItem('kujong_friends', JSON.stringify(savedFriends));
+  } catch (e) {}
+}
+
+// Meinen Freundes-Code kopieren
+function copyMyFriendCode() {
+  if (!myFriendCode) return;
+  navigator.clipboard.writeText(myFriendCode).then(() => {
+    showToast('📋 Freundes-Code in die Zwischenablage kopiert!');
+  }).catch(() => {
+    showToast(`Dein Code: ${myFriendCode}`);
+  });
+}
+
+// Meinen Freundschaftslink teilen
+function shareMyFriendLink() {
+  const nameInput = document.getElementById('playerNameInput');
+  const myName = (nameInput?.value || '').trim() || localStorage.getItem('kujong_player_name') || 'Spieler';
+  const mySub = localStorage.getItem('kujong_push_sub');
+
+  let shareUrl = `${window.location.origin}/?add_friend=${encodeURIComponent(myFriendCode)}&name=${encodeURIComponent(myName)}`;
+  if (mySub) {
+    try {
+      const subObj = JSON.parse(mySub);
+      shareUrl += `&sub=${encodeURIComponent(JSON.stringify(subObj))}`;
+    } catch (e) {}
+  }
+
+  const shareText = `Lass uns Kujong spielen! Füge mich als Freund hinzu, damit wir uns direkt zu Runden einladen können:`;
+
+  if (navigator.share) {
+    navigator.share({
+      title: 'Kujong Freundschaftseinladung',
+      text: shareText,
+      url: shareUrl
+    }).catch(() => {});
+  } else {
+    navigator.clipboard.writeText(`${shareText}\n${shareUrl}`).then(() => {
+      showToast('📲 Freundschaftslink kopiert! Schicke ihn per WhatsApp an deinen Freund.');
+    });
+  }
+}
+
+// Einzelnen Freund zu meiner aktuellen Runde einladen
+function inviteFriend(friendCode) {
+  if (!currentRoomCode) {
+    showToast('Du musst dich in einem Raum befinden, um Freunde einzuladen.');
+    return;
+  }
+
+  const friend = savedFriends.find(f => f.code === friendCode);
+  if (!friend) return;
+
+  const nameInput = document.getElementById('playerNameInput');
+  const myName = (nameInput?.value || '').trim() || localStorage.getItem('kujong_player_name') || 'Ein Freund';
+
+  socket.emit('send_friend_invite', {
+    targetFriendCode: friend.code,
+    targetPushSub: friend.pushSub,
+    roomCode: currentRoomCode,
+    inviterName: myName
+  }, (ack) => {
+    if (ack && ack.rateLimited) {
+      showToast(`⏳ ${ack.message || 'Bitte kurz warten vor dem nächsten Ping an diesen Freund.'}`);
+    } else if (ack && ack.success) {
+      showToast(`📣 Einladung an ${friend.name} gesendet!`);
+    } else {
+      showToast(`Einladung an ${friend.name} gesendet.`);
+    }
+  });
+}
+
+// Alle Freunde auf einmal anpingen
+function inviteAllFriends() {
+  if (!currentRoomCode || savedFriends.length === 0) return;
+  savedFriends.forEach(f => inviteFriend(f.code));
+  showToast(`📣 Einladungen an ${savedFriends.length} Freunde gesendet!`);
+}
+
+// WhatsApp Fallback-Ping
+function sendWhatsAppInviteToFriend(friendName) {
+  if (!currentRoomCode) {
+    showToast('Bitte zuerst einen Raum erstellen.');
+    return;
+  }
+  const inviteUrl = `${window.location.origin}/?room=${currentRoomCode}`;
+  const text = `Hey ${friendName}, ich spiele gerade Kujong! Tritt meiner Runde bei: ${inviteUrl}`;
+  window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+}
+
+// URL Parameter beim Start parsen (?add_friend=... oder ?room=...)
+function checkUrlParamsForFriendsAndRooms() {
+  const params = new URLSearchParams(window.location.search);
+
+  // 1. Freundschafts-Link empfangen
+  if (params.has('add_friend')) {
+    const friendCode = params.get('add_friend');
+    const friendName = params.get('name') || `Freund ${friendCode.substring(4)}`;
+    let friendSub = null;
+    if (params.has('sub')) {
+      try {
+        friendSub = JSON.parse(params.get('sub'));
+      } catch (e) {}
+    }
+
+    if (friendCode && friendCode !== myFriendCode) {
+      const idx = savedFriends.findIndex(f => f.code === friendCode);
+      if (idx >= 0) {
+        savedFriends[idx].name = friendName;
+        if (friendSub) savedFriends[idx].pushSub = friendSub;
+      } else {
+        savedFriends.push({
+          code: friendCode,
+          name: friendName,
+          pushSub: friendSub,
+          addedAt: Date.now()
+        });
+      }
+      saveFriendsToStorage();
+      updateFriendsCountBadge();
+      showToast(`🎉 ${friendName} wurde als Freund hinzugefügt!`);
+    }
+
+    // URL aufräumen
+    window.history.replaceState({}, document.title, window.location.pathname);
+  }
+
+  // 2. Raumcode über Einladungslink
+  if (params.has('room')) {
+    const roomCode = params.get('room').toUpperCase();
+    const roomInput = document.getElementById('roomCodeInput');
+    if (roomInput) roomInput.value = roomCode;
+  }
+}
+
+// Live In-App Einladungs-Banner Steuerung
+function showIncomingInviteBanner(invite) {
+  pendingIncomingInvite = invite;
+  const banner = document.getElementById('incomingInviteBanner');
+  const hostElem = document.getElementById('inviteHostName');
+  const roomElem = document.getElementById('inviteRoomCode');
+
+  if (hostElem) hostElem.textContent = invite.fromName || invite.hostName || 'Ein Freund';
+  if (roomElem) roomElem.textContent = invite.roomCode;
+  if (banner) banner.classList.remove('hidden');
+
+  // Leichtes Vibrieren auf Mobilgeräten
+  if ('vibrate' in navigator) {
+    try { navigator.vibrate([100, 50, 100]); } catch (e) {}
+  }
+}
+
+function acceptIncomingInvite() {
+  if (!pendingIncomingInvite) return;
+  const roomCode = pendingIncomingInvite.roomCode;
+  dismissIncomingInvite();
+
+  let name = requirePlayerName();
+  if (!name) {
+    name = prompt('Bitte gib deinen Spielernamen ein, um der Runde beizutreten:') || '';
+    name = name.trim();
+    if (!name) return;
+    const nameInput = document.getElementById('playerNameInput');
+    if (nameInput) {
+      nameInput.value = name;
+      nameInput.classList.remove('input-error-shake');
+    }
+    try {
+      localStorage.setItem('kujong_player_name', name);
+      sessionStorage.setItem('kujong_name', name);
+    } catch (e) {}
+  }
+
+  socket.emit('join_room', {
+    roomCode: roomCode,
+    playerName: name
+  });
+}
+
+function dismissIncomingInvite() {
+  pendingIncomingInvite = null;
+  const banner = document.getElementById('incomingInviteBanner');
+  if (banner) banner.classList.add('hidden');
+}
+
+// Socket Event-Listener für Live-Einladungen
+socket.on('incoming_game_invite', (data) => {
+  showIncomingInviteBanner(data);
+});
+
+// Bei Wiederverbindung Freundes-Code erneut registrieren
+socket.on('connect', () => {
+  registerFriendSocket();
+});
+
+// Globale Fenster-Verknüpfungen für HTML onclick-Handler
+window.openFriendsModal = openFriendsModal;
+window.closeFriendsModal = closeFriendsModal;
+window.copyMyFriendCode = copyMyFriendCode;
+window.shareMyFriendLink = shareMyFriendLink;
+window.requestPushPermission = requestPushPermission;
+window.addFriendByCodeInput = addFriendByCodeInput;
+window.inviteAllFriends = inviteAllFriends;
+window.inviteFriend = inviteFriend;
+window.sendWhatsAppInviteToFriend = sendWhatsAppInviteToFriend;
+window.removeFriend = removeFriend;
+window.acceptIncomingInvite = acceptIncomingInvite;
+window.dismissIncomingInvite = dismissIncomingInvite;
+window.changeMyPlayerNamePrompt = changeMyPlayerNamePrompt;
+

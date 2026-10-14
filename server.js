@@ -36,6 +36,20 @@ const io = new Server(server, {
 
 const PORT = process.env.PORT || 3000;
 
+// Web-Push VAPID Konfiguration (Stateless Push-Relay)
+const webpush = require('web-push');
+const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || 'BNtidbxGRg4OvQf8WwYxb2fXS1-feu7dDCjl3HNfkjvqOs5CtD5xSKeokka9MZkOKPC9xVoSZfAcvqENmz4fCOQ';
+const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || 'JrnEK2fA0kVG8ky8DlZWTnlr3kr7QDTutmBcRqHPETY';
+const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:support@kujong.app';
+
+try {
+  webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+} catch (err) {
+  console.warn('VAPID setup warning:', err.message);
+}
+
+app.use(express.json());
+
 // Statische Dateien aus dem public-Ordner bereitstellen (ohne Caching für sofortige Updates)
 app.use(express.static(path.join(__dirname, 'public'), {
   etag: false,
@@ -48,6 +62,11 @@ app.use(express.static(path.join(__dirname, 'public'), {
 // In-Memory Raum-Verwaltung & Cooldowns
 const rooms = new Map();
 const joinCooldowns = new Map(); // key: `${clientIp}_${roomCode}`, value: timestamp (expiry)
+
+// Aktive Online-Freunde (friendCode -> { socketId, playerName, lastSeen })
+const activePlayerCodes = new Map();
+// Spam-Schutz für Web-Push (targetEndpoint -> timestamp)
+const pushRateLimits = new Map();
 
 function getPublicRoomsData() {
   const list = [];
@@ -114,6 +133,11 @@ function setJoinCooldown(socket, roomCode, playerName, seconds = 45) {
 // API-Endpunkt für aktive öffentliche Lobbys (für Render & Browser)
 app.get('/api/rooms', (req, res) => {
   res.json(getPublicRoomsData());
+});
+
+// API-Endpunkt für VAPID Public Key (Web-Push)
+app.get('/api/vapid-public-key', (req, res) => {
+  res.json({ publicKey: VAPID_PUBLIC_KEY });
 });
 
 // Fallback-Route für direkte Glitch-/Browser-Zugriffe
@@ -184,7 +208,7 @@ function createRoom(roomCode, hostName, hostSocketId) {
       startScoreA: 13,                // Startwert Team A (Standard: 13)
       startScoreB: 13,                // Startwert Team B (Standard: 13)
       drinkingGameMode: 'none',       // Trinkspiel-Modus: 'none', 'light', 'medium', 'heavy' (Standard: 'none')
-      trickDisplaySeconds: 2.5,       // Anzeigedauer des fertigen Stichs (Standard: 2.5s)
+      trickDisplaySeconds: 1.5,       // Anzeigedauer des fertigen Stichs (Standard: 1.5s)
       dealAndTurnDelaySeconds: 1.0,   // Pause bei Austeilen & Bot-Zügen (Standard: 1.0s)
       isPublic: true                  // In aktiver Liste sichtbar & Nachjoinen erlaubt (Standard: true)
     },
@@ -899,11 +923,11 @@ function triggerTrickEvaluation(room) {
   // Pause, damit alle den Stich & Sieger in Ruhe sehen.
   let trickDelay = (room.settings && typeof room.settings.trickDisplaySeconds === 'number')
     ? room.settings.trickDisplaySeconds * 1000
-    : 2500;
+    : 1500;
   
-  // Falls Live-Augen AUS sind und Standard (2.5s) aktiv ist: etwas mehr Zeit zum Mitdenken
-  if (room.settings && room.settings.countEyesLive === false && room.settings.trickDisplaySeconds === 2.5) {
-    trickDelay = (room.trickCount === 4) ? 5000 : 4000;
+  // Falls Live-Augen AUS sind und Standard (1.5s) aktiv ist: etwas mehr Zeit zum Mitdenken
+  if (room.settings && room.settings.countEyesLive === false && room.settings.trickDisplaySeconds === 1.5) {
+    trickDelay = (room.trickCount === 4) ? 4000 : 3000;
   }
 
   setTimeout(() => {
@@ -1346,6 +1370,7 @@ function checkBotAction(room) {
 io.on('connection', (socket) => {
   let currentRoomCode = null;
   let currentSeatIndex = -1;
+  let myFriendCode = null;
 
   // Raum erstellen
   socket.on('create_room', ({ playerName, settings }) => {
@@ -1601,6 +1626,10 @@ io.on('connection', (socket) => {
       isHost: false
     };
 
+    if (Array.isArray(room.spectators)) {
+      room.spectators = room.spectators.filter(s => s && s.socketId !== requesterSocket.id);
+    }
+
     requesterSocket.join(room.code);
     requesterSocket.emit('join_request_accepted', {
       roomCode: room.code,
@@ -1661,9 +1690,9 @@ io.on('connection', (socket) => {
       }
     }
 
-    // 3. Wenn Spiel bereits läuft: Beitrittsanfrage an den Spielleiter senden!
+    // 3. Wenn Spiel bereits läuft: Sofort als Zuschauer beitreten (Zuschauen ohne Host-Annahme erlaubt!)
     if (room.phase !== 'LOBBY') {
-      return handleJoinRequest(socket, code, playerName);
+      return doJoinAsSpectator(socket, code, playerName);
     }
 
     // In der Lobby: Normal beitreten
@@ -2237,8 +2266,107 @@ io.on('connection', (socket) => {
     });
   });
 
+  // ------------------------------------------------------------------------
+  // FREUNDES- & PUSH-BENACHRICHTIGUNGSSYSTEM
+  // ------------------------------------------------------------------------
+  socket.on('register_friend_code', ({ friendCode, playerName }) => {
+    if (!friendCode || typeof friendCode !== 'string') return;
+    myFriendCode = friendCode.trim().toUpperCase().slice(0, 16);
+    activePlayerCodes.set(myFriendCode, {
+      socketId: socket.id,
+      playerName: (playerName || 'Spieler').trim().slice(0, 20),
+      lastSeen: Date.now()
+    });
+  });
+
+  socket.on('check_friends_status', ({ friendCodes }, callback) => {
+    const cb = (typeof callback === 'function') ? callback : () => {};
+    if (!Array.isArray(friendCodes)) return cb({});
+    const result = {};
+    for (const code of friendCodes) {
+      if (typeof code === 'string') {
+        const c = code.trim().toUpperCase();
+        result[c] = activePlayerCodes.has(c);
+      }
+    }
+    cb(result);
+  });
+
+  socket.on('send_friend_invite', async ({ targetFriendCode, targetPushSub, roomCode, inviterName }, callback) => {
+    const cb = (typeof callback === 'function') ? callback : () => {};
+    if (!roomCode || typeof roomCode !== 'string') {
+      return cb({ success: false, error: 'Kein gültiger Raumcode' });
+    }
+
+    const hostName = (inviterName || 'Ein Freund').trim().slice(0, 20);
+    const code = (targetFriendCode || '').trim().toUpperCase();
+    const cleanRoom = roomCode.trim().toUpperCase();
+    let sentOnline = false;
+    let sentPush = false;
+
+    // 1. Live WebSocket Einladung falls Freund aktuell online ist
+    if (code && activePlayerCodes.has(code)) {
+      const targetSession = activePlayerCodes.get(code);
+      if (targetSession && targetSession.socketId && targetSession.socketId !== socket.id) {
+        io.to(targetSession.socketId).emit('incoming_game_invite', {
+          roomCode: cleanRoom,
+          fromName: hostName,
+          timestamp: Date.now()
+        });
+        sentOnline = true;
+      }
+    }
+
+    // 2. Web-Push Benachrichtigung senden (Handy im Sperrbildschirm / Offline)
+    if (targetPushSub && targetPushSub.endpoint) {
+      const rateLimitKey = targetPushSub.endpoint;
+      const now = Date.now();
+      const lastPush = pushRateLimits.get(rateLimitKey) || 0;
+
+      // Spam-Schutz: Höchstens 1 Push pro Ziel-Handy alle 2 Minuten
+      if (now - lastPush < 120000) {
+        return cb({
+          success: sentOnline,
+          rateLimited: true,
+          sentOnline,
+          message: 'Vor Kurzem bereits angepingt. Bitte 2 Minuten warten.'
+        });
+      }
+
+      pushRateLimits.set(rateLimitKey, now);
+
+      // Periodisches Aufräumen alter Rate-Limits (alle 10 Min)
+      if (pushRateLimits.size > 2000) {
+        for (const [k, ts] of pushRateLimits.entries()) {
+          if (now - ts > 600000) pushRateLimits.delete(k);
+        }
+      }
+
+      const payload = JSON.stringify({
+        title: 'Kujong Kartenspiel',
+        body: `🃏 ${hostName} hat Raum ${cleanRoom} gestartet! Tippe zum Mitspielen.`,
+        url: `/?room=${encodeURIComponent(cleanRoom)}`
+      });
+
+      try {
+        await webpush.sendNotification(targetPushSub, payload);
+        sentPush = true;
+      } catch (pushErr) {
+        console.warn('Web-Push Zustellungsfehler:', pushErr.statusCode || pushErr.message);
+        if (pushErr.statusCode === 404 || pushErr.statusCode === 410) {
+          return cb({ success: sentOnline, expired: true, sentOnline });
+        }
+      }
+    }
+
+    cb({ success: sentOnline || sentPush, sentOnline, sentPush });
+  });
+
   // Trennung behandeln
   socket.on('disconnect', () => {
+    if (myFriendCode && activePlayerCodes.get(myFriendCode)?.socketId === socket.id) {
+      activePlayerCodes.delete(myFriendCode);
+    }
     if (currentRoomCode && currentSeatIndex === -1) {
       const room = rooms.get(currentRoomCode);
       if (room && Array.isArray(room.spectators)) {

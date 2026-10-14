@@ -20,9 +20,25 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=6.0">
+  <link rel="stylesheet" href="style.css?v=6.3">
 </head>
 <body>
+
+  <!-- LIVE IN-APP EINLADUNGS-BANNER -->
+  <div id="incomingInviteBanner" class="incoming-invite-banner hidden">
+    <div class="invite-banner-glow"></div>
+    <div class="invite-banner-content">
+      <div class="invite-banner-icon">🃏</div>
+      <div class="invite-banner-text">
+        <div class="invite-banner-title"><span id="inviteHostName">Peter</span> lädt dich ein!</div>
+        <div class="invite-banner-subtitle">Partie in Raum <strong id="inviteRoomCode">ABCD</strong> beitreten?</div>
+      </div>
+      <div class="invite-banner-actions">
+        <button class="btn btn-sm btn-success btn-invite-accept" onclick="acceptIncomingInvite()">🎮 Beitreten</button>
+        <button class="btn btn-sm btn-outline btn-invite-dismiss" onclick="dismissIncomingInvite()">✕</button>
+      </div>
+    </div>
+  </div>
 
   <!-- HAUPT-CONTAINER -->
   <div id="app" class="app-container">
@@ -41,13 +57,17 @@
 
         <div id="lobbyInitialOptions" class="lobby-section">
           <div class="input-group">
-            <label for="playerNameInput">Dein Spielername</label>
-            <input type="text" id="playerNameInput" placeholder="Name eingeben..." maxlength="15" autocomplete="nickname">
+            <label for="playerNameInput">Dein Spielername <span class="required-star" title="Erforderlich">*</span></label>
+            <input type="text" id="playerNameInput" placeholder="Name eingeben (z. B. Max)..." maxlength="15" autocomplete="nickname">
           </div>
 
           <div class="lobby-action-buttons">
             <button id="createRoomBtn" class="btn btn-primary btn-large">
               <span>🏰 Raum erstellen</span>
+            </button>
+            <button id="openFriendsModalBtn" class="btn btn-secondary btn-large" onclick="openFriendsModal()">
+              <span>👥 Freunde</span>
+              <span id="friendsCountBadge" class="friends-counter-badge hidden">0</span>
             </button>
             <div class="divider"><span>ODER</span></div>
             <div class="join-box">
@@ -78,6 +98,7 @@
             <div class="room-code-display">
               <span class="label">Raumcode:</span>
               <span id="displayRoomCode" class="code-val">----</span>
+              <button id="pingFriendsWaitingRoomBtn" class="btn btn-sm btn-notify-friends" onclick="openFriendsModal(true)" title="Freunde zu diesem Raum einladen">📣 Freunde einladen</button>
               <button id="shareInviteBtn" class="btn btn-sm btn-share" onclick="shareInviteLink()" title="Freunde einladen (WhatsApp / Teilen)">📲 Einladen</button>
               <button id="copyInviteBtn" class="btn btn-sm btn-outline" title="Einladungslink kopieren">📋 Link</button>
               <button id="openSettingsBtn" class="btn btn-sm btn-outline btn-settings-gear" onclick="openSettingsModal()" title="Spieleinstellungen & Regeln anpassen">⚙️ Regeln</button>
@@ -261,7 +282,15 @@
 
           <!-- ZUSCHAUER-MODUS BANNER -->
           <div id="spectatorBanner" class="spectator-banner hidden">
-            <span>👀 Zuschauer-Modus</span>
+            <div class="spectator-banner-info">
+              <span>👀 Du schaust zu</span>
+              <span class="spectator-sub" id="spectatorSubText">(Zuschauer-Modus)</span>
+            </div>
+            <div class="spectator-banner-action" id="spectatorActionArea">
+              <button id="spectatorJoinGameBtn" class="btn btn-xs btn-primary btn-spectator-play hidden" onclick="requestPlayFromSpectator()">
+                🎮 Mitspielen anfragen
+              </button>
+            </div>
           </div>
 
           <!-- AUFFÄLLIGE MIT'-ANSAGE BENACHRICHTIGUNG IM FREIEN TISCHBEREICH -->
@@ -860,7 +889,7 @@
               <label for="displayTrickDelay">Stich-Anzeige</label>
               <div class="stepper-input">
                 <button type="button" class="btn-stepper" onclick="adjustSpeedSetting('trickDelay', -0.5)">-</button>
-                <span id="displayTrickDelay" class="speed-val">2.5s</span>
+                <span id="displayTrickDelay" class="speed-val">1.5s</span>
                 <button type="button" class="btn-stepper" onclick="adjustSpeedSetting('trickDelay', 0.5)">+</button>
               </div>
             </div>
@@ -874,9 +903,9 @@
             </div>
           </div>
           <div class="speed-presets-row">
-            <button type="button" class="btn-preset" onclick="setSpeedPreset(2.5, 1.0)">⚡ Normal (2.5s / 1.0s)</button>
-            <button type="button" class="btn-preset" onclick="setSpeedPreset(1.2, 0.5)">🚀 Blitz (1.2s / 0.5s)</button>
-            <button type="button" class="btn-preset" onclick="setSpeedPreset(4.0, 1.5)">☕ Gemütlich (4.0s / 1.5s)</button>
+            <button type="button" class="btn-preset" onclick="setSpeedPreset(1.5, 0.8)">⚡ Normal (1.5s / 0.8s)</button>
+            <button type="button" class="btn-preset" onclick="setSpeedPreset(1.0, 0.5)">🚀 Blitz (1.0s / 0.5s)</button>
+            <button type="button" class="btn-preset" onclick="setSpeedPreset(3.0, 1.2)">☕ Gemütlich (3.0s / 1.2s)</button>
           </div>
         </div>
 
@@ -973,12 +1002,91 @@
     </div>
   </div>
 
+  <!-- FREUNDE & BENACHRICHTIGUNGEN MODAL -->
+  <div id="friendsModal" class="modal-overlay hidden">
+    <div class="modal-card friends-modal-card">
+      <div class="modal-header">
+        <div class="modal-title-box">
+          <h3>👥 Kujong Freunde & Einladungen</h3>
+          <p class="modal-subtitle">Lade Freunde per Fingertipp direkt auf ihr Handy ein</p>
+        </div>
+        <button class="modal-close-btn" onclick="closeFriendsModal()">✕</button>
+      </div>
+
+      <div class="modal-body friends-modal-body">
+        <!-- MEIN PROFIL-KARTE -->
+        <div class="friend-profile-card">
+          <div class="profile-card-top">
+            <div class="profile-avatar">👤</div>
+            <div class="profile-details">
+              <div class="profile-name-row">
+                <span class="profile-name" id="myProfileNameDisplay">Spieler</span>
+                <button class="btn btn-xs btn-outline btn-edit-name" onclick="changeMyPlayerNamePrompt()" title="Spielernamen ändern">✏️</button>
+                <span id="pushStatusBadge" class="push-status-pill push-inactive" title="Push-Status">⚪ Push inaktiv</span>
+              </div>
+              <div class="profile-code-row">
+                <span class="profile-code-label">Mein Freundes-Code:</span>
+                <span class="profile-code-val" id="myFriendCodeDisplay">KUJ-????</span>
+                <button class="btn btn-xs btn-outline" onclick="copyMyFriendCode()" title="Code kopieren">📋</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="profile-card-actions">
+            <button id="enablePushBtn" class="btn btn-sm btn-primary" onclick="requestPushPermission()">
+              🔔 Benachrichtigungen aktivieren
+            </button>
+            <button class="btn btn-sm btn-secondary" onclick="shareMyFriendLink()">
+              📲 Freundschaftslink teilen
+            </button>
+          </div>
+
+          <!-- iOS PWA Hilfebox (erscheint nur auf iOS Safari, wenn nicht als PWA installiert) -->
+          <div id="iosPwaHelpBox" class="ios-pwa-help-box hidden">
+            <span class="help-icon">💡</span>
+            <span><strong>iPhone-Hinweis:</strong> Um Einladungen auf den Sperrbildschirm zu erhalten, tippe in Safari auf <strong>Teilen</strong> (<span style="font-size:1.1em">⎋</span>) und <strong>„Zum Home-Bildschirm“</strong>.</span>
+          </div>
+        </div>
+
+        <!-- FREUND HINZUFÜGEN -->
+        <div class="add-friend-section">
+          <h4>Freund hinzufügen</h4>
+          <div class="add-friend-input-group">
+            <input type="text" id="addFriendCodeInput" placeholder="Code (z.B. KUJ-8492)" maxlength="12" autocapitalize="characters" autocomplete="off">
+            <button class="btn btn-primary" onclick="addFriendByCodeInput()">+ Hinzufügen</button>
+          </div>
+        </div>
+
+        <!-- FREUNDESLISTE -->
+        <div class="friends-list-section">
+          <div class="friends-list-header">
+            <h4>Meine Freunde (<span id="friendsListCount">0</span>)</h4>
+            <button id="inviteAllFriendsBtn" class="btn btn-xs btn-outline hidden" onclick="inviteAllFriends()">
+              📣 Alle anpingen
+            </button>
+          </div>
+
+          <div id="friendsListContainer" class="friends-list-container">
+            <div class="friends-empty-state">
+              <p>Du hast noch keine Freunde hinzugefügt.</p>
+              <p class="empty-hint">Teile deinen Freundschaftslink oder gib den Code eines Freundes ein!</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeFriendsModal()">Schließen</button>
+      </div>
+    </div>
+  </div>
+
   <!-- TOAST NOTIFICATIONS -->
   <div id="toastContainer" class="toast-container"></div>
 
   <!-- Socket.io Script -->
   <script src="/socket.io/socket.io.js"></script>
   <!-- Client JavaScript -->
-  <script src="client.js?v=7.3"></script>
+  <script src="client.js?v=7.6"></script>
 </body>
 </html>
