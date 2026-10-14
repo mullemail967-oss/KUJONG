@@ -1,7 +1,7 @@
 // ==========================================================================
 // KUJONG - SERVICE WORKER (PWA Offline Shell & Fast Assets)
 // ==========================================================================
-const CACHE_NAME = 'kujong-cache-v7';
+const CACHE_NAME = 'kujong-cache-v9';
 const STATIC_ASSETS = [
   '/',
   'index.html',

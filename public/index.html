@@ -20,7 +20,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=6.3">
+  <link rel="stylesheet" href="style.css?v=6.5">
 </head>
 <body>
 
@@ -1005,12 +1005,12 @@
   <!-- FREUNDE & BENACHRICHTIGUNGEN MODAL -->
   <div id="friendsModal" class="modal-overlay hidden">
     <div class="modal-card friends-modal-card">
-      <div class="modal-header">
+      <div class="modal-header friends-modal-header">
         <div class="modal-title-box">
           <h3>👥 Kujong Freunde & Einladungen</h3>
           <p class="modal-subtitle">Lade Freunde per Fingertipp direkt auf ihr Handy ein</p>
         </div>
-        <button class="modal-close-btn" onclick="closeFriendsModal()">✕</button>
+        <button class="modal-close-btn" onclick="closeFriendsModal()" aria-label="Schließen">✕</button>
       </div>
 
       <div class="modal-body friends-modal-body">
@@ -1075,8 +1075,29 @@
         </div>
       </div>
 
-      <div class="modal-footer">
-        <button class="btn btn-secondary" onclick="closeFriendsModal()">Schließen</button>
+      <div class="modal-footer friends-modal-footer">
+        <button class="btn btn-secondary btn-close-friends" onclick="closeFriendsModal()">Schließen</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- PUSH-BENACHRICHTIGUNGEN ABFRAGE VOR RAUM-ERSTELLUNG -->
+  <div id="pushPromptModal" class="modal-overlay hidden">
+    <div class="modal-card push-prompt-card">
+      <div class="modal-header">
+        <div class="push-prompt-icon">🔔</div>
+        <h3 class="modal-title">Benachrichtigungen aktivieren?</h3>
+        <p class="modal-subtitle">
+          Erhalte eine Push-Mitteilung direkt auf dein Handy, wenn Freunde eine neue Runde starten oder dich einladen!
+        </p>
+      </div>
+      <div class="push-prompt-actions">
+        <button id="pushPromptEnableBtn" class="btn btn-primary btn-lg" onclick="handlePushPromptAccept()">
+          🔔 Jetzt aktivieren
+        </button>
+        <button class="btn btn-secondary btn-outline" onclick="handlePushPromptSkip()">
+          Ohne Benachrichtigungen spielen
+        </button>
       </div>
     </div>
   </div>
@@ -1087,6 +1108,6 @@
   <!-- Socket.io Script -->
   <script src="/socket.io/socket.io.js"></script>
   <!-- Client JavaScript -->
-  <script src="client.js?v=7.7"></script>
+  <script src="client.js?v=7.9"></script>
 </body>
 </html>

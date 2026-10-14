@@ -69,6 +69,16 @@ const activePlayerCodes = new Map();
 // Spam-Schutz für Web-Push (targetEndpoint -> timestamp)
 const pushRateLimits = new Map();
 
+function getFriendCodeForSocket(socketId) {
+  if (!socketId) return null;
+  for (const [code, entry] of activePlayerCodes.entries()) {
+    if (entry && entry.socketId === socketId) {
+      return code;
+    }
+  }
+  return null;
+}
+
 // Dauerhaftes Freundes- und Push-Verzeichnis (friendCode -> { friendCode, playerName, pushSub, lastSeen })
 const friendRegistry = new Map();
 const REGISTRY_FILE = path.join(__dirname, 'data', 'friend_registry.json');
@@ -229,13 +239,14 @@ function generateRoomCode() {
 /**
  * Erstellt ein neues Raum-Objekt.
  */
-function createRoom(roomCode, hostName, hostSocketId) {
+function createRoom(roomCode, hostName, hostSocketId, hostFriendCode = null) {
+  const fCode = hostFriendCode || getFriendCodeForSocket(hostSocketId) || null;
   const room = {
     code: roomCode,
     hostSocketId: hostSocketId,
     createdAt: Date.now(),
     seats: [
-      { index: 0, name: hostName || 'Spieler 1', socketId: hostSocketId, isBot: false, connected: true, team: 0 },
+      { index: 0, name: hostName || 'Spieler 1', socketId: hostSocketId, isBot: false, connected: true, team: 0, friendCode: fCode },
       null,
       null,
       null
@@ -467,7 +478,8 @@ function sanitizeStateForPlayer(room, seatIndex) {
       isTurn: room.currentTurn === idx,
       isMitAnnouncer: room.isMitAnnounced && (room.mitAnnouncerIndex === idx),
       isHost: (seat.socketId === room.hostSocketId),
-      hasThrownCards: Boolean(room.hasThrownCards && room.hasThrownCards[idx])
+      hasThrownCards: Boolean(room.hasThrownCards && room.hasThrownCards[idx]),
+      friendCode: seat.friendCode || getFriendCodeForSocket(seat.socketId) || null
     };
   });
 
@@ -1417,14 +1429,16 @@ io.on('connection', (socket) => {
   let myFriendCode = null;
 
   // Raum erstellen
-  socket.on('create_room', ({ playerName, settings }) => {
+  socket.on('create_room', ({ playerName, settings, friendCode }) => {
     // Falls dieser Client bereits in einem Raum war: den alten Raum vorher sauber auflösen/verlassen!
     if (currentRoomCode) {
       handlePlayerLeave();
     }
 
+    if (friendCode) myFriendCode = friendCode.trim().toUpperCase().slice(0, 16);
     const code = generateRoomCode();
-    const room = createRoom(code, playerName || 'Spieler 1', socket.id);
+    const cleanFCode = myFriendCode || getFriendCodeForSocket(socket.id);
+    const room = createRoom(code, playerName || 'Spieler 1', socket.id, cleanFCode);
     if (settings) {
       if (settings.playerCount === 6) {
         room.settings.playerCount = 6;
@@ -1531,7 +1545,8 @@ io.on('connection', (socket) => {
       socketId: sock.id,
       isBot: false,
       connected: true,
-      team: targetSeat % 2 === 0 ? 0 : 1
+      team: targetSeat % 2 === 0 ? 0 : 1,
+      friendCode: myFriendCode || getFriendCodeForSocket(sock.id) || null
     };
 
     room.seats[targetSeat] = newSeat;
@@ -1700,7 +1715,8 @@ io.on('connection', (socket) => {
   });
 
   // Raum beitreten
-  socket.on('join_room', ({ roomCode, playerName, preferredSeat }) => {
+  socket.on('join_room', ({ roomCode, playerName, preferredSeat, friendCode }) => {
+    if (friendCode) myFriendCode = friendCode.trim().toUpperCase().slice(0, 16);
     const code = (roomCode || '').toUpperCase().trim();
     const room = rooms.get(code);
 
@@ -1714,6 +1730,7 @@ io.on('connection', (socket) => {
       currentRoomCode = code;
       currentSeatIndex = existingIndex;
       room.seats[existingIndex].connected = true;
+      if (myFriendCode) room.seats[existingIndex].friendCode = myFriendCode;
       socket.join(code);
       return broadcastGameState(room);
     }
@@ -1726,6 +1743,7 @@ io.on('connection', (socket) => {
         const restored = room.seats[discIndex];
         restored.socketId = socket.id;
         restored.connected = true;
+        if (myFriendCode) restored.friendCode = myFriendCode;
         currentRoomCode = code;
         currentSeatIndex = discIndex;
         socket.join(code);
@@ -2332,6 +2350,27 @@ io.on('connection', (socket) => {
       lastSeen: Date.now()
     });
     saveFriendRegistryDebounced();
+
+    // Falls der Spieler bereits an einem Tisch sitzt, friendCode dort aktualisieren!
+    if (currentRoomCode) {
+      const room = rooms.get(currentRoomCode);
+      if (room && typeof currentSeatIndex === 'number' && currentSeatIndex >= 0 && room.seats[currentSeatIndex]) {
+        room.seats[currentSeatIndex].friendCode = myFriendCode;
+        broadcastGameState(room);
+      }
+    }
+  });
+
+  // Freundes-Code eines Mitspielers am Tisch abrufen
+  socket.on('get_player_friend_code', ({ seatIndex }, callback) => {
+    const cb = (typeof callback === 'function') ? callback : () => {};
+    if (!currentRoomCode || typeof seatIndex !== 'number') return cb({ success: false });
+    const room = rooms.get(currentRoomCode);
+    if (!room || !room.seats[seatIndex]) return cb({ success: false });
+    const seat = room.seats[seatIndex];
+    if (seat.isBot) return cb({ success: false, isBot: true });
+    const code = seat.friendCode || getFriendCodeForSocket(seat.socketId);
+    cb({ success: Boolean(code), friendCode: code, playerName: seat.name });
   });
 
   socket.on('save_push_subscription', ({ friendCode, pushSub, playerName }) => {
@@ -2437,15 +2476,15 @@ io.on('connection', (socket) => {
       const now = Date.now();
       const lastPush = pushRateLimits.get(rateLimitKey) || 0;
 
-      // Spam-Schutz: Höchstens 1 Push pro Ziel-Handy alle 2 Minuten
-      if (now - lastPush < 120000) {
+      // Spam-Schutz: Höchstens 1 Push pro Ziel-Handy alle 30 Sekunden
+      if (now - lastPush < 30000) {
         return cb({
           success: sentOnline,
           rateLimited: true,
           sentOnline,
           friendName: targetProfile?.playerName || null,
           hasPush: true,
-          message: 'Vor Kurzem bereits angepingt. Bitte 2 Minuten warten.'
+          message: 'Vor Kurzem bereits angepingt. Bitte 30 Sekunden warten.'
         });
       }
 

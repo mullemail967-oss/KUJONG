@@ -544,6 +544,17 @@ function showToast(message) {
 // LOBBY & RAUM-AKTIONEN
 // --------------------------------------------------------------------------
 let isCreatingRoom = false;
+let pendingCreateRoomName = null;
+
+function isPushActive() {
+  try {
+    const sub = localStorage.getItem('kujong_push_sub');
+    return ('Notification' in window && Notification.permission === 'granted' && !!sub);
+  } catch (e) {
+    return false;
+  }
+}
+
 function handleCreateRoom() {
   if (isCreatingRoom) return;
   const codeInput = document.getElementById('roomCodeInput');
@@ -554,9 +565,58 @@ function handleCreateRoom() {
   const playerName = requirePlayerName();
   if (!playerName) return;
 
+  // Prüfen, ob Push unterstützt wird und bereits aktiv ist
+  const supportsPush = ('Notification' in window && 'serviceWorker' in navigator && 'PushManager' in window);
+  if (supportsPush && !isPushActive()) {
+    pendingCreateRoomName = playerName;
+    const promptModal = document.getElementById('pushPromptModal');
+    if (promptModal) {
+      promptModal.classList.remove('hidden');
+      return;
+    }
+  }
+
+  executeCreateRoom(playerName);
+}
+
+async function handlePushPromptAccept() {
+  const promptModal = document.getElementById('pushPromptModal');
+  if (promptModal) promptModal.classList.add('hidden');
+
+  const pName = pendingCreateRoomName || requirePlayerName();
+  pendingCreateRoomName = null;
+
+  try {
+    await requestPushPermission();
+  } catch (e) {
+    console.warn('Push-Aktivierungsversuch:', e);
+  }
+
+  if (pName) {
+    executeCreateRoom(pName);
+  }
+}
+
+function handlePushPromptSkip() {
+  const promptModal = document.getElementById('pushPromptModal');
+  if (promptModal) promptModal.classList.add('hidden');
+
+  const pName = pendingCreateRoomName || requirePlayerName();
+  pendingCreateRoomName = null;
+
+  if (pName) {
+    executeCreateRoom(pName);
+  }
+}
+
+function executeCreateRoom(playerName) {
   isCreatingRoom = true;
   setTimeout(() => { isCreatingRoom = false; }, 2500);
-  socket.emit('create_room', { playerName, settings: currentSettings });
+  socket.emit('create_room', {
+    playerName,
+    settings: currentSettings,
+    friendCode: myFriendCode
+  });
 }
 
 let isJoiningRoom = false;
@@ -572,7 +632,7 @@ function handleJoinRoom() {
 
   isJoiningRoom = true;
   setTimeout(() => { isJoiningRoom = false; }, 2500);
-  socket.emit('join_room', { roomCode: code, playerName });
+  socket.emit('join_room', { roomCode: code, playerName, friendCode: myFriendCode });
 }
 
 function copyInviteLink() {
@@ -1821,8 +1881,36 @@ function renderLobby() {
     if (seat) {
       totalOccupied++;
       const isMe = (i === mySeatIndex);
-      nameEl.textContent = `${seat.name}${isMe ? ' (Du)' : ''}`;
       nameEl.style.color = isMe ? 'var(--team-we-gold)' : '#fff';
+
+      if (isMe || seat.isBot) {
+        nameEl.textContent = `${seat.name}${isMe ? ' (Du)' : ''}`;
+        nameEl.classList.remove('clickable-friend-name');
+        nameEl.removeAttribute('title');
+        nameEl.onclick = null;
+      } else {
+        const isFriend = seat.friendCode && savedFriends.some(f => f.code === seat.friendCode);
+        const icon = isFriend ? ' ⭐' : ' ➕👥';
+        nameEl.textContent = `${seat.name}${icon}`;
+        nameEl.title = isFriend
+          ? `⭐ ${seat.name} ist bereits dein Freund`
+          : `👥 Klicke hier, um ${seat.name} als Freund hinzuzufügen`;
+        nameEl.classList.add('clickable-friend-name');
+        nameEl.onclick = () => {
+          if (seat.friendCode) {
+            addFriendDirectly(seat.friendCode, seat.name);
+          } else {
+            socket.emit('get_player_friend_code', { seatIndex: i }, (res) => {
+              if (res && res.friendCode) {
+                addFriendDirectly(res.friendCode, seat.name);
+              } else {
+                showToast(`Konnte Freundes-Code für ${seat.name} nicht abrufen.`);
+              }
+            });
+          }
+        };
+      }
+
       joinBtn.classList.add('hidden');
       botBtn.textContent = seat.isBot ? '✕ Bot' : '';
       botBtn.classList.toggle('hidden', !seat.isBot);
@@ -1835,6 +1923,9 @@ function renderLobby() {
     } else {
       nameEl.textContent = 'Frei';
       nameEl.style.color = 'var(--text-muted)';
+      nameEl.classList.remove('clickable-friend-name');
+      nameEl.removeAttribute('title');
+      nameEl.onclick = null;
       joinBtn.classList.remove('hidden');
       botBtn.textContent = '+ Bot';
       botBtn.classList.remove('hidden');
@@ -2068,7 +2159,33 @@ function renderTablePlayers() {
     const declarerPill = document.getElementById(`declarerPill${key}`);
 
     if (nameEl) {
-      nameEl.textContent = isMe ? `${player.name} (Du)` : player.name;
+      if (isMe || player.isBot) {
+        nameEl.textContent = isMe ? `${player.name} (Du)` : player.name;
+        nameEl.classList.remove('clickable-friend-name');
+        nameEl.removeAttribute('title');
+        nameEl.onclick = null;
+      } else {
+        const isFriend = player.friendCode && savedFriends.some(f => f.code === player.friendCode);
+        const icon = isFriend ? ' ⭐' : ' ➕👥';
+        nameEl.textContent = `${player.name}${icon}`;
+        nameEl.title = isFriend
+          ? `⭐ ${player.name} ist bereits dein Freund`
+          : `👥 Klicke hier, um ${player.name} als Freund hinzuzufügen`;
+        nameEl.classList.add('clickable-friend-name');
+        nameEl.onclick = () => {
+          if (player.friendCode) {
+            addFriendDirectly(player.friendCode, player.name);
+          } else {
+            socket.emit('get_player_friend_code', { seatIndex: seatIdx }, (res) => {
+              if (res && res.friendCode) {
+                addFriendDirectly(res.friendCode, player.name);
+              } else {
+                showToast(`Konnte Freundes-Code für ${player.name} nicht abrufen.`);
+              }
+            });
+          }
+        };
+      }
     }
 
     if (declarerPill) {
@@ -3186,6 +3303,47 @@ function addFriendByCodeInput() {
     renderFriendsList();
     updateFriendsCountBadge();
   });
+}
+
+// Freund direkt aus dem Spiel/Lobby durch Klick auf den Namen hinzufügen
+function addFriendDirectly(friendCode, friendName) {
+  if (!friendCode) {
+    showToast('Freundes-Code dieses Spielers konnte nicht ermittelt werden.');
+    return;
+  }
+  const cleanCode = friendCode.trim().toUpperCase();
+  if (myFriendCode && cleanCode === myFriendCode.toUpperCase()) {
+    showToast('Das bist du selbst!');
+    return;
+  }
+  const cleanName = (friendName || 'Spieler').trim();
+  const exists = savedFriends.some(f => f.code === cleanCode);
+  if (exists) {
+    showToast(`⭐ ${cleanName} ist bereits in deiner Freundesliste!`);
+    return;
+  }
+
+  savedFriends.push({
+    code: cleanCode,
+    name: cleanName,
+    pushSub: null,
+    addedAt: Date.now()
+  });
+
+  saveFriendsToStorage();
+  updateFriendsCountBadge();
+  showToast(`🎉 ${cleanName} (${cleanCode}) zu Freunden hinzugefügt!`);
+
+  socket.emit('check_friends_status', { friendCodes: [cleanCode] }, () => {
+    renderFriendsList();
+  });
+
+  if (typeof renderTablePlayers === 'function') {
+    renderTablePlayers();
+  }
+  if (typeof renderLobby === 'function') {
+    renderLobby();
+  }
 }
 
 // Freund entfernen
