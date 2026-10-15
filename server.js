@@ -798,6 +798,10 @@ function startNewRound(room) {
   room.trickWinnerInfo = null;
   room.roundSummary = null;
   room.hasThrownCards = {};
+  if (room.claimTimer) {
+    clearTimeout(room.claimTimer);
+    room.claimTimer = null;
+  }
 
   // Deck mischen (24 Karten bei 4p, 32 Karten bei 6p)
   const freshDeck = shuffleDeck(createDeck(maxPlayers));
@@ -1287,7 +1291,12 @@ function handleClaimTricks(room, playerIndex) {
   broadcastGameState(room);
 
   // Nach 3.5s Pause (für Anzeige der aufgedeckten Karten für alle) Runde auswerten
-  setTimeout(() => {
+  if (room.claimTimer) {
+    clearTimeout(room.claimTimer);
+    room.claimTimer = null;
+  }
+  room.claimTimer = setTimeout(() => {
+    room.claimTimer = null;
     resolveRound(room);
   }, 3500);
 }
@@ -2448,6 +2457,10 @@ io.on('connection', (socket) => {
           clearTimeout(room.botTimer);
           room.botTimer = null;
         }
+        if (room.claimTimer) {
+          clearTimeout(room.claimTimer);
+          room.claimTimer = null;
+        }
         logAction(room, `🚪 Letzter menschlicher Spieler hat das Spiel verlassen. Partie wurde beendet.`);
         rooms.delete(currentRoomCode);
         socket.leave(currentRoomCode);
@@ -2508,6 +2521,10 @@ io.on('connection', (socket) => {
     if (room.botTimer) {
       clearTimeout(room.botTimer);
       room.botTimer = null;
+    }
+    if (room.claimTimer) {
+      clearTimeout(room.claimTimer);
+      room.claimTimer = null;
     }
 
     const maxPlayers = room.settings.playerCount || 4;

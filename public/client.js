@@ -813,6 +813,20 @@ function getRelativePosition(targetSeatIndex, mySeatIndex) {
   }
 }
 
+// Helper: Berechnet den Sitzplatz-Index für eine relative Position
+function getSeatIndexForPosition(pos, mySeat, maxPlayers) {
+  const m = (typeof mySeat === 'number' && mySeat >= 0 && !isSpectator) ? mySeat : 0;
+  if (maxPlayers === 6) {
+    const map = { Bottom: 0, BottomLeft: 1, TopLeft: 2, Top: 3, TopRight: 4, BottomRight: 5 };
+    const offset = map[pos] !== undefined ? map[pos] : 0;
+    return (m + offset) % 6;
+  } else {
+    const map = { Bottom: 0, Left: 1, Top: 2, Right: 3 };
+    const offset = map[pos] !== undefined ? map[pos] : 0;
+    return (m + offset) % 4;
+  }
+}
+
 // Clash Royale Ragebait Emotes mit Spam-Schutz & dynamischem Cooldown
 let lastEmoteTime = 0;
 let emoteSpamCount = 0;
@@ -1695,11 +1709,14 @@ let claimTricksNotificationTimer = null;
 let activeClaimReveal = null;
 
 socket.on('tricks_claimed', ({ seatIndex, playerName, cards, allRevealedHands, remainingTricksCount, eyesWon }) => {
+  isAnimatingTrick = false;
+  socketEventQueue = [];
   activeClaimReveal = {
     seatIndex,
     playerName,
     cards,
-    allRevealedHands: allRevealedHands || []
+    allRevealedHands: allRevealedHands || [],
+    remainingTricksCount: remainingTricksCount || (Array.isArray(cards) ? cards.length : 1)
   };
 
   const banner = document.getElementById('claimTricksFieldNotification');
@@ -1709,7 +1726,7 @@ socket.on('tricks_claimed', ({ seatIndex, playerName, cards, allRevealedHands, r
     const displayName = isMe ? `${playerName} (Du)` : playerName;
     const suitSymbols = { clubs: '♣', spades: '♠', hearts: '♥', diamonds: '♦' };
     const cardStr = Array.isArray(cards) ? cards.map(c => `${suitSymbols[c.suit] || ''}${c.rank}`).join(' ') : '';
-    textEl.textContent = `👑 ${displayName} deckt ${remainingTricksCount} sichere Rest-Trümpfe auf (${cardStr})! Alle Hände aufgedeckt!`;
+    textEl.textContent = `👑 ${displayName} deckt ${remainingTricksCount} sichere Rest-Trümpfe auf (${cardStr})!`;
     banner.classList.remove('hidden');
     banner.classList.remove('fade-out');
 
@@ -1720,81 +1737,21 @@ socket.on('tricks_claimed', ({ seatIndex, playerName, cards, allRevealedHands, r
         banner.classList.add('hidden');
         banner.classList.remove('fade-out');
       }, 500);
-    }, 3800);
+    }, 3500);
   }
 
-  // 1. Alle aufgedeckten Handkarten aller Spieler prominent in der Tischmitte (trickCenter) präsentieren
-  const trickCenter = document.getElementById('trickCenter');
-  if (trickCenter) {
-    trickCenter.innerHTML = '';
-    const wrapper = document.createElement('div');
-    wrapper.className = 'claim-table-showcase';
+  // Sofort rendern: Die Karten aller Spieler werden direkt auf den Tisch gelegt (in die regulären Slots!)
+  renderTrickCenter();
+  renderMyHand();
 
-    let playersHtml = '';
-    if (Array.isArray(allRevealedHands)) {
-      allRevealedHands.forEach(item => {
-        const isClaimer = (item.seatIndex === seatIndex);
-        const isWe = (mySeatIndex !== -1 && item.seatIndex % 2 === (mySeatIndex % 2));
-        const teamLabel = isWe ? 'WIR' : 'SIE';
-        const hasCards = Array.isArray(item.cards) && item.cards.length > 0;
-
-        playersHtml += `
-          <div class="claim-table-player-row ${isClaimer ? 'is-claimer' : ''}">
-            <div class="claim-table-player-info">
-              <span class="claim-p-badge ${isWe ? 'tag-we' : 'tag-they'}">${teamLabel}</span>
-              <span class="claim-p-name">${isClaimer ? '👑 ' : ''}${escapeHtml(item.playerName)}</span>
-            </div>
-            <div class="claim-table-player-cards">
-              ${hasCards 
-                ? item.cards.map(c => createCardHTML(c, false)).join('') 
-                : '<span class="claim-no-cards">Keine Restkarten</span>'}
-            </div>
-          </div>
-        `;
-      });
+  // Avatar-Karten leeren, da alle Restkarten nun auf dem Tischfilz liegen
+  ['Left', 'Top', 'Right', 'BottomLeft', 'TopLeft', 'TopRight', 'BottomRight'].forEach(pos => {
+    const container = document.getElementById(`cards${pos}`);
+    if (container) {
+      container.innerHTML = '';
+      container.classList.remove('cards-revealed-faceup');
     }
-
-    wrapper.innerHTML = `
-      <div class="claim-table-showcase-title">
-        👑 <strong>${escapeHtml(playerName)}</strong> deckt ${remainingTricksCount} sichere Rest-Trümpfe auf!
-      </div>
-      <div class="claim-table-players-list">
-        ${playersHtml}
-      </div>
-    `;
-    trickCenter.appendChild(wrapper);
-  }
-
-  // 2. Auch an den Sitzplätzen der Spieler die Karten aufdecken
-  if (Array.isArray(allRevealedHands)) {
-    allRevealedHands.forEach(item => {
-      const pos = getRelativePosition(item.seatIndex, mySeatIndex);
-      if (pos === 'Bottom') {
-        const fan = document.getElementById('myHandFan');
-        if (fan && Array.isArray(item.cards)) {
-          fan.innerHTML = '';
-          fan.setAttribute('data-card-count', item.cards.length);
-          item.cards.forEach(card => {
-            const cardEl = document.createElement('div');
-            cardEl.innerHTML = createCardHTML(card, false);
-            fan.appendChild(cardEl.firstElementChild);
-          });
-        }
-      } else {
-        const container = document.getElementById(`cards${pos}`);
-        if (container && Array.isArray(item.cards)) {
-          container.innerHTML = '';
-          container.classList.add('cards-revealed-faceup');
-          item.cards.forEach(card => {
-            const cardWrap = document.createElement('div');
-            cardWrap.className = 'mini-card-faceup';
-            cardWrap.innerHTML = createCardHTML(card, false);
-            container.appendChild(cardWrap);
-          });
-        }
-      }
-    });
-  }
+  });
 
   playSound('trump_fanfare');
 });
@@ -2423,22 +2380,12 @@ function renderTablePlayers() {
     if (key !== 'Bottom') {
       const cardsContainer = document.getElementById(`cards${key}`);
       if (cardsContainer) {
-        if (activeClaimReveal && Array.isArray(activeClaimReveal.allRevealedHands)) {
-          const revealed = activeClaimReveal.allRevealedHands.find(h => h.seatIndex === player.seatIndex);
-          if (revealed && Array.isArray(revealed.cards) && revealed.cards.length > 0) {
-            cardsContainer.innerHTML = '';
-            cardsContainer.classList.add('cards-revealed-faceup');
-            revealed.cards.forEach(card => {
-              const mini = document.createElement('div');
-              mini.className = 'mini-card-faceup';
-              mini.innerHTML = createCardHTML(card, false, true);
-              cardsContainer.appendChild(mini);
-            });
-            return;
-          }
-        }
-        cardsContainer.classList.remove('cards-revealed-faceup');
         cardsContainer.innerHTML = '';
+        cardsContainer.classList.remove('cards-revealed-faceup');
+        if (activeClaimReveal) {
+          // Während des Claims liegen die Restkarten aller Spieler auf dem Tischfilz!
+          return;
+        }
         for (let c = 0; c < player.cardCount; c++) {
           const mini = document.createElement('div');
           mini.className = 'mini-card-back';
@@ -2454,8 +2401,7 @@ function renderTablePlayers() {
 }
 
 function renderTrickCenter() {
-  if (activeClaimReveal) return; // Aufgedeckte Meisterkarten in der Tischmitte während des Claims nicht überschreiben!
-  const maxPlayers = gameState.settings ? (gameState.settings.playerCount || 4) : 4;
+  const maxPlayers = (gameState && gameState.settings) ? (gameState.settings.playerCount || 4) : 4;
   const is6p = (maxPlayers === 6);
 
   const slotLeft = document.getElementById('trickSlotLeft');
@@ -2476,17 +2422,61 @@ function renderTrickCenter() {
     ? ['Bottom', 'BottomLeft', 'TopLeft', 'Top', 'TopRight', 'BottomRight']
     : ['Bottom', 'Left', 'Top', 'Right'];
 
-  // Group cards in trick by seat position
+  // FALL 1: Ein Spieler hat alle besten Karten / Reststiche aufgedeckt ("Claim")
+  // Die echten Handkarten ALLER Spieler werden direkt als aufgespielte Karten in die Slots auf den Tisch gelegt!
+  if (activeClaimReveal && Array.isArray(activeClaimReveal.allRevealedHands)) {
+    const claimCardsByPos = {};
+    activeClaimReveal.allRevealedHands.forEach(item => {
+      const pos = getRelativePosition(item.seatIndex, mySeatIndex);
+      claimCardsByPos[pos] = item.cards || [];
+    });
+
+    allPositions.forEach(pos => {
+      const slot = document.getElementById(`trickSlot${pos}`);
+      if (!slot) return;
+      const items = claimCardsByPos[pos] || [];
+      const seatIdx = getSeatIndexForPosition(pos, mySeatIndex, maxPlayers);
+      const isClaimer = (seatIdx === activeClaimReveal.seatIndex);
+      slot.classList.toggle('claim-winning-slot', isClaimer);
+
+      if (items.length === 0) {
+        slot.innerHTML = '<div class="card-placeholder"></div>';
+        slot.classList.remove('has-multi-cards');
+      } else if (items.length === 1) {
+        slot.innerHTML = createCardHTML(items[0], false, true);
+        slot.classList.remove('has-multi-cards');
+      } else {
+        slot.classList.add('has-multi-cards');
+        const cardsHtml = items.map(c => createCardHTML(c, false, true)).join('');
+        slot.innerHTML = `<div class="trick-multi-cards-group" data-count="${items.length}">${cardsHtml}</div>`;
+      }
+    });
+
+    const banner = document.getElementById('trickBanner');
+    if (banner) {
+      banner.classList.remove('hidden');
+      const wText = document.getElementById('trickWinnerText');
+      if (wText) {
+        wText.textContent = `👑 ${activeClaimReveal.playerName} holt ${activeClaimReveal.remainingTricksCount} sichere Rest-Stiche!`;
+      }
+    }
+    return;
+  }
+
+  // FALL 2: Normaler Spielverlauf (Karten des aktuellen Stichs)
   const cardsByPos = {};
-  gameState.currentTrick.forEach(trickItem => {
-    const pos = getRelativePosition(trickItem.playerIndex, mySeatIndex);
-    if (!cardsByPos[pos]) cardsByPos[pos] = [];
-    cardsByPos[pos].push(trickItem);
-  });
+  if (Array.isArray(gameState.currentTrick)) {
+    gameState.currentTrick.forEach(trickItem => {
+      const pos = getRelativePosition(trickItem.playerIndex, mySeatIndex);
+      if (!cardsByPos[pos]) cardsByPos[pos] = [];
+      cardsByPos[pos].push(trickItem);
+    });
+  }
 
   allPositions.forEach(pos => {
     const slot = document.getElementById(`trickSlot${pos}`);
     if (!slot) return;
+    slot.classList.remove('claim-winning-slot');
     const items = cardsByPos[pos] || [];
     if (items.length === 0) {
       slot.innerHTML = '<div class="card-placeholder"></div>';
@@ -2509,38 +2499,36 @@ function renderTrickCenter() {
   const banner = document.getElementById('trickBanner');
   const info = gameState.trickWinnerInfo || gameState.lastTrick;
   if (gameState.phase === 'EVALUATING_TRICK' && info) {
-    banner.classList.remove('hidden');
+    if (banner) {
+      banner.classList.remove('hidden');
 
-    const myTeam = gameState.you ? gameState.you.team : 0;
-    const winnerTeam = (typeof info.winnerTeam === 'number') ? info.winnerTeam : (info.winnerIndex % 2 === 0 ? 0 : 1);
-    const isWe = (winnerTeam === myTeam);
-    const teamLabel = isWe ? 'WIR' : 'SIE';
+      const myTeam = gameState.you ? gameState.you.team : 0;
+      const winnerTeam = (typeof info.winnerTeam === 'number') ? info.winnerTeam : (info.winnerIndex % 2 === 0 ? 0 : 1);
+      const isWe = (winnerTeam === myTeam);
+      const teamLabel = isWe ? 'WIR' : 'SIE';
 
-    const countEyesLive = gameState.settings ? (gameState.settings.countEyesLive !== false) : true;
-    const pointsSuffix = countEyesLive ? ` (+${info.points} Augen)` : '';
+      const countEyesLive = gameState.settings ? (gameState.settings.countEyesLive !== false) : true;
+      const pointsSuffix = countEyesLive ? ` (+${info.points} Augen)` : '';
 
-    document.getElementById('trickWinnerText').textContent = 
-      `🏆 Stich an ${info.winnerName} (${teamLabel})!${pointsSuffix}`;
+      const wText = document.getElementById('trickWinnerText');
+      if (wText) {
+        wText.textContent = `🏆 Stich an ${info.winnerName} (${teamLabel})!${pointsSuffix}`;
+      }
+    }
   } else {
-    banner.classList.add('hidden');
+    if (banner) banner.classList.add('hidden');
   }
 }
 
 function renderMyHand() {
   const fan = document.getElementById('myHandFan');
+  if (!fan) return;
   fan.innerHTML = '';
 
-  if (activeClaimReveal && Array.isArray(activeClaimReveal.allRevealedHands)) {
-    const revealed = activeClaimReveal.allRevealedHands.find(h => h.seatIndex === mySeatIndex);
-    if (revealed && Array.isArray(revealed.cards) && revealed.cards.length > 0) {
-      fan.setAttribute('data-card-count', revealed.cards.length);
-      revealed.cards.forEach(card => {
-        const cardEl = document.createElement('div');
-        cardEl.innerHTML = createCardHTML(card, false, true);
-        fan.appendChild(cardEl.firstElementChild);
-      });
-      return;
-    }
+  if (activeClaimReveal) {
+    // Eigene Restkarten liegen während des Claims bereits direkt auf dem Tischfilz!
+    fan.setAttribute('data-card-count', 0);
+    return;
   }
 
   if (isSpectator || (gameState.you && gameState.you.seatIndex === -1)) {
