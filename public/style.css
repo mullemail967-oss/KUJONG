@@ -4624,6 +4624,29 @@ input:checked + .slider:before {
   color: #fff !important;
 }
 
+.btn-menu-friends-large {
+  background: linear-gradient(135deg, #1d4ed8, #2563eb, #3b82f6) !important;
+  border: 1px solid rgba(147, 197, 253, 0.5) !important;
+  color: #fff !important;
+  font-weight: 700 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 8px !important;
+  padding: 10px 14px !important;
+  font-size: 0.92rem !important;
+  border-radius: 10px !important;
+  box-shadow: 0 2px 10px rgba(37, 99, 235, 0.3) !important;
+  cursor: pointer !important;
+  transition: all 0.2s ease !important;
+}
+
+.btn-menu-friends-large:hover {
+  background: linear-gradient(135deg, #2563eb, #1d4ed8) !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.45) !important;
+}
+
 .claim-tricks-banner {
   display: flex;
   justify-content: center;
@@ -4738,5 +4761,78 @@ input:checked + .slider:before {
   }
 }
 
+/* AUFGEDECKTE REST-KARTEN (CLAIM REVEAL) */
+.cards-revealed-faceup {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  gap: 3px !important;
+  z-index: 25 !important;
+}
 
+.mini-card-faceup {
+  width: 28px !important;
+  height: 40px !important;
+  border-radius: 4px !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.7) !important;
+  animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
+  flex-shrink: 0 !important;
+  overflow: hidden !important;
+}
 
+.mini-card-faceup .playing-card {
+  width: 100% !important;
+  height: 100% !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border-radius: 3px !important;
+}
+
+.claim-reveal-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  animation: popIn 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  z-index: 30;
+}
+
+.claim-reveal-center-title {
+  background: rgba(15, 23, 42, 0.92);
+  border: 1px solid rgba(245, 158, 11, 0.6);
+  color: #fef08a;
+  padding: 4px 14px;
+  border-radius: 14px;
+  font-size: 0.8rem;
+  font-weight: 800;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.7);
+  text-align: center;
+  white-space: nowrap;
+}
+
+.claim-reveal-center-cards {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+}
+
+.claim-reveal-center-cards .playing-card {
+  width: 58px;
+  height: 84px;
+  box-shadow: 0 4px 16px rgba(245, 158, 11, 0.4), 0 2px 8px rgba(0, 0, 0, 0.8);
+  border: 2px solid #fef08a;
+  border-radius: 6px;
+}
+
+@media (max-width: 520px) {
+  .mini-card-faceup {
+    width: 22px !important;
+    height: 32px !important;
+  }
+  .claim-reveal-center-cards .playing-card {
+    width: 48px;
+    height: 70px;
+  }
+}

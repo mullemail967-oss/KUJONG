@@ -20,7 +20,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=6.7">
+  <link rel="stylesheet" href="style.css?v=6.8">
 </head>
 <body>
 
@@ -64,10 +64,6 @@
           <div class="lobby-action-buttons">
             <button id="createRoomBtn" class="btn btn-primary btn-large">
               <span>🏰 Raum erstellen</span>
-            </button>
-            <button id="openFriendsModalBtn" class="btn btn-secondary btn-large" onclick="openFriendsModal()">
-              <span>👥 Freunde</span>
-              <span id="friendsCountBadge" class="friends-counter-badge hidden">0</span>
             </button>
             <div class="divider"><span>ODER</span></div>
             <div class="join-box">
@@ -261,11 +257,8 @@
           <button id="leaveGameBtn" class="btn-tool btn-leave-game" onclick="confirmLeaveGame()" title="Partie verlassen (wird durch Bot ersetzt)">
             🚪 Verlassen
           </button>
-          <button id="gameFriendsBtn" class="btn-tool btn-friends-tool" onclick="openFriendsModal(true)" title="Freunde per Push in diese Runde einladen">
-            👥 Freunde<span id="gameFriendsCountBadge" class="friends-counter-badge hidden">0</span>
-          </button>
-          <button id="hostMenuBtn" class="btn-tool btn-host-menu hidden" onclick="openHostMenu()" title="Spielleiter-Menü (Spieler kicken, Lobby, Link)">
-            👑 Menü<span id="hostMenuReqBadge" class="host-req-badge hidden">0</span>
+          <button id="hostMenuBtn" class="btn-tool btn-host-menu" onclick="openHostMenu()" title="Spiel-Menü (Freunde, Regeln, Optionen)">
+            <span id="hostMenuIcon">👑</span> Menü<span id="hostMenuReqBadge" class="host-req-badge hidden">0</span>
           </button>
           <button id="announceContraBtn" class="btn-tool btn-contra hidden" onclick="announceContra()" title="Kontra ansagen">
             ⚡ KONTRA GEBEN!
@@ -850,6 +843,18 @@
           </div>
         </div>
 
+        <!-- 5b. Sicheres Gewinnen (Meisterkarten aufdecken) -->
+        <div class="setting-item setting-item-toggle">
+          <div class="setting-info">
+            <span class="setting-title">👑 Sichere Restkarten aufdecken (Sofort-Sieg)</span>
+            <span class="setting-desc">Erlaubt es Spielern mit unschlagbaren Meistertrümpfen, alle restlichen Stiche sofort auf einmal zu holen</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="settingAllowClaimTricks" checked onchange="saveRuleSettings()">
+            <span class="slider"></span>
+          </label>
+        </div>
+
         <!-- 6. Start-Punktestand festlegen -->
         <div class="setting-item setting-scores-item setting-item-stacked">
           <div class="setting-info">
@@ -945,12 +950,12 @@
     </div>
   </div>
 
-  <!-- SPIELLEITER-MENÜ MODAL (👑) -->
+  <!-- SPIEL- & SPIELLEITER-MENÜ MODAL -->
   <div id="hostControlModal" class="modal-overlay hidden">
     <div class="modal-card host-menu-modal">
       <div class="modal-header">
-        <div class="modal-tag">👑 Spielleiter</div>
-        <h2 class="modal-title">Spielleitung & Verwaltung</h2>
+        <div class="modal-tag" id="gameMenuModalTag">👑 Spielleiter</div>
+        <h2 class="modal-title" id="gameMenuModalTitle">Spielleitung & Verwaltung</h2>
         <button class="modal-close-btn" onclick="closeHostMenu()">✕</button>
       </div>
 
@@ -967,7 +972,7 @@
         </div>
 
         <!-- Schneller Privatsphäre-Hebel im Menü -->
-        <div class="host-privacy-row">
+        <div class="host-privacy-row" id="hostPrivacyRow">
           <div class="host-privacy-info">
             <span class="host-privacy-title" id="hostPrivacyTitle">🌐 Öffentliche Runde</span>
             <span class="host-privacy-desc" id="hostPrivacyDesc">In aktiver Liste sichtbar & Nachjoinen aktiv</span>
@@ -986,14 +991,20 @@
           </div>
         </div>
 
-        <!-- Schnelle Raum-Aktionen -->
+        <!-- Menü- & Raum-Aktionen -->
         <div class="host-section">
-          <div class="host-section-title">⚡ Raum-Aktionen</div>
+          <div class="host-section-title">⚡ Aktionen & Optionen</div>
           <div class="host-actions-grid">
+            <button class="btn btn-menu-friends-large" onclick="openFriendsModal(true)" title="Freunde per Push aufs Smartphone einladen">
+              👥 Freunde & Push-Einladungen (<span id="menuFriendsCount">0</span>)
+            </button>
+            <button class="btn btn-outline btn-sm" onclick="openSettingsModal()" title="Spielregeln & Optionen ansehen">
+              ⚙️ Spielregeln & Einstellungen
+            </button>
             <button class="btn btn-outline btn-sm" onclick="copyInviteLink()">
               📋 Einladungslink kopieren
             </button>
-            <button class="btn btn-outline btn-sm btn-return-lobby" onclick="returnToLobby()">
+            <button id="hostReturnLobbyBtn" class="btn btn-outline btn-sm btn-return-lobby" onclick="returnToLobby()">
               🏠 Partie beenden & Zurück zur Lobby
             </button>
             <button class="btn btn-outline btn-sm btn-leave-game-host" onclick="closeHostMenu(); confirmLeaveGame();">
@@ -1126,6 +1137,6 @@
   <!-- Socket.io Script -->
   <script src="/socket.io/socket.io.js"></script>
   <!-- Client JavaScript -->
-  <script src="client.js?v=8.1"></script>
+  <script src="client.js?v=8.2"></script>
 </body>
 </html>

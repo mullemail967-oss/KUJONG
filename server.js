@@ -260,6 +260,7 @@ function createRoom(roomCode, hostName, hostSocketId, hostFriendCode = null) {
       contraPoints: 4,                // Rundenwert bei Kontra: 4 Pkt (Standard: 4, alternativ: 3)
       allowContraRe: true,            // Kontra-Re (Gegen-Kontra) erlaubt: verdoppelt auf 8 Pkt bzw. +1 auf 4 Pkt (Standard: false)
       ansagerZeroTricksPenalty: 2,    // Strafpunkte bei 0 Stichen für Ansager: 2 Pkt (Standard: 2, alternativ: 1)
+      allowClaimTricks: true,         // Sichere Restkarten aufdecken / Sofort-Sieg (Standard: true)
       startScoreA: 13,                // Startwert Team A (Standard: 13)
       startScoreB: 13,                // Startwert Team B (Standard: 13)
       drinkingGameMode: 'none',       // Trinkspiel-Modus: 'none', 'light', 'medium', 'heavy' (Standard: 'none')
@@ -463,81 +464,72 @@ function canPlayerThrowCards(room, playerIndex) {
  *    Beispiel: Der Spieler hält die höchsten verbleibenden Trümpfe (z. B. Ass, Mit', Kreuz-Dame).
  */
 function canPlayerClaimTricks(room, playerIndex) {
+  // 0. Prüfe, ob die Regel-Einstellung aktiv ist (Standard: true)
+  if (room.settings && room.settings.allowClaimTricks === false) return false;
+
   if (room.phase !== 'PLAY_TRICK') return false;
   if (room.currentTurn !== playerIndex) return false;
+
+  // 1. Nicht in der ersten Runde (Stich 1)!
+  // In Stich 1 kann noch jemand die Mit' (♠Q) ansagen oder Kontra geben.
+  if (room.trickCount === 0) return false;
+
+  // 2. Nicht wenn das Kontra-Fenster noch offen ist!
+  if (isContraWindowOpen(room)) return false;
+
   const maxPlayers = room.settings.playerCount || 4;
   if (typeof playerIndex !== 'number' || playerIndex < 0 || playerIndex >= maxPlayers) return false;
 
   const hand = room.hands[playerIndex];
   if (!hand || hand.length === 0) return false;
 
-  const playerTeam = playerIndex % 2 === 0 ? 0 : 1;
-
-  // Sammle alle Handkarten der gegnerischen Spieler
-  const opponentCards = [];
-  for (let s = 0; s < maxPlayers; s++) {
-    if (s % 2 !== playerTeam && room.hands[s]) {
-      for (const c of room.hands[s]) {
-        opponentCards.push(c);
-      }
-    }
-  }
-
-  // Fall 1: Alle Handkarten des Spielers sind Trümpfe
+  // 3. ALLE verbleibenden Handkarten des Spielers MÜSSEN Trümpfe sein!
+  // Sobald auch nur eine Fehlfarben-Karte auf der Hand liegt, kann nie 100% garantiert werden,
+  // dass Gegner nicht abwerfen, stechen oder höhere Karten halten.
   const allHandCardsAreTrump = hand.every(c => isTrumpCard(c, room.trumpSuit, room.isMitAnnounced, room.settings));
-  if (allHandCardsAreTrump) {
-    const oppTrumps = opponentCards.filter(c => isTrumpCard(c, room.trumpSuit, room.isMitAnnounced, room.settings));
+  if (!allHandCardsAreTrump) return false;
 
-    // Wenn Gegner gar keine Trümpfe mehr haben: Jeder Trumpf des Spielers sticht alles!
-    if (oppTrumps.length === 0) {
-      if (room.currentTrick && room.currentTrick.length > 0) {
-        const trickTrumps = room.currentTrick.filter(e => isTrumpCard(e.card, room.trumpSuit, room.isMitAnnounced, room.settings));
-        if (trickTrumps.length > 0) {
-          const maxTrickTrumpPower = Math.max(...trickTrumps.map(e => getTrumpPower(e.card, room.trumpSuit, room.isMitAnnounced, room.settings)));
-          const maxPlayerTrumpPower = Math.max(...hand.map(c => getTrumpPower(c, room.trumpSuit, room.isMitAnnounced, room.settings)));
-          if (maxPlayerTrumpPower <= maxTrickTrumpPower) return false;
-        }
+  const minPlayerTrumpPower = Math.min(...hand.map(c => getTrumpPower(c, room.trumpSuit, room.isMitAnnounced, room.settings)));
+
+  // 4. Falls im aktuell liegenden Stich bereits ein Trumpf gespielt wurde:
+  // Der schwächste Trumpf des Spielers muss diesen Stich-Trumpf überbieten können!
+  if (room.currentTrick && room.currentTrick.length > 0) {
+    const trickTrumps = room.currentTrick.filter(e => isTrumpCard(e.card, room.trumpSuit, room.isMitAnnounced, room.settings));
+    if (trickTrumps.length > 0) {
+      const maxTrickTrumpPower = Math.max(...trickTrumps.map(e => getTrumpPower(e.card, room.trumpSuit, room.isMitAnnounced, room.settings)));
+      if (minPlayerTrumpPower <= maxTrickTrumpPower) {
+        return false;
       }
-      return true;
-    }
-
-    // Gegner haben noch Trümpfe: Der schwächste Trumpf des Spielers muss stärker sein
-    // als der stärkste Trumpf irgendeines Gegners!
-    const minPlayerTrumpPower = Math.min(...hand.map(c => getTrumpPower(c, room.trumpSuit, room.isMitAnnounced, room.settings)));
-    const maxOppTrumpPower = Math.max(...oppTrumps.map(c => getTrumpPower(c, room.trumpSuit, room.isMitAnnounced, room.settings)));
-
-    if (minPlayerTrumpPower > maxOppTrumpPower) {
-      if (room.currentTrick && room.currentTrick.length > 0) {
-        const trickTrumps = room.currentTrick.filter(e => isTrumpCard(e.card, room.trumpSuit, room.isMitAnnounced, room.settings));
-        if (trickTrumps.length > 0) {
-          const maxTrickTrumpPower = Math.max(...trickTrumps.map(e => getTrumpPower(e.card, room.trumpSuit, room.isMitAnnounced, room.settings)));
-          if (minPlayerTrumpPower <= maxTrickTrumpPower) return false;
-        }
-      }
-      return true;
     }
   }
 
-  // Fall 2: Gegner haben keine Trümpfe mehr, und jede Handkarte des Spielers ist höchste Karte ihrer Farbe
-  const anyOppHasTrump = opponentCards.some(c => isTrumpCard(c, room.trumpSuit, room.isMitAnnounced, room.settings));
-  if (!anyOppHasTrump) {
-    let allMasterCards = true;
-    for (const card of hand) {
-      if (isTrumpCard(card, room.trumpSuit, room.isMitAnnounced, room.settings)) {
-        continue;
-      }
-      const effSuit = getEffectiveSuit(card, room.trumpSuit, room.isMitAnnounced, room.settings);
-      const myPower = getOffSuitPower(card);
-      const oppsSameSuit = opponentCards.filter(c => getEffectiveSuit(c, room.trumpSuit, room.isMitAnnounced, room.settings) === effSuit);
-      const oppsMaxPower = oppsSameSuit.length > 0 ? Math.max(...oppsSameSuit.map(c => getOffSuitPower(c))) : 0;
-      if (myPower <= oppsMaxPower) {
-        allMasterCards = false;
-        break;
+  // 5. Sammle alle verbleibenden Trumpfkarten ALLER ANDEREN aktiven Spieler
+  // (sowohl Gegner als auch Partner – denn wenn der Partner einen höheren Trumpf hätte,
+  // könnte er den Stich gewinnen, die Spielführung übernehmen und an eine gegnerische Fehlfarbe verlieren!)
+  const otherTrumps = [];
+  for (let s = 0; s < maxPlayers; s++) {
+    if (s !== playerIndex && room.hands[s]) {
+      for (const c of room.hands[s]) {
+        if (isTrumpCard(c, room.trumpSuit, room.isMitAnnounced, room.settings)) {
+          otherTrumps.push(c);
+        }
       }
     }
-    if (allMasterCards) {
-      return true;
-    }
+  }
+
+  // Fall A: Kein anderer Spieler im Spiel hat noch Trümpfe auf der Hand!
+  // Da der Spieler nur Trümpfe hat und Trümpfe ausnahmslos jede Fehlfarbe schlagen:
+  // Rechnerisch 100% sicherer Sieg aller verbleibenden Stiche!
+  if (otherTrumps.length === 0) {
+    return true;
+  }
+
+  // Fall B: Andere Spieler haben noch Trümpfe.
+  // Der schwächste Trumpf des Spielers MUSS zwingend stärker sein als der allerstärkste Trumpf
+  // aller anderen Spieler (der Spieler hält die lückenlos höchsten Meistertrümpfe, z. B. Ass + Mit' + ♣Q)!
+  const maxOtherTrumpPower = Math.max(...otherTrumps.map(c => getTrumpPower(c, room.trumpSuit, room.isMitAnnounced, room.settings)));
+  if (minPlayerTrumpPower > maxOtherTrumpPower) {
+    return true;
   }
 
   return false;
@@ -1146,6 +1138,16 @@ function handleClaimTricks(room, playerIndex) {
   const claimedCards = [...room.hands[playerIndex]];
   const remainingTricksCount = claimedCards.length;
 
+  // Alle verbleibenden Handkarten ALLER Spieler vor dem Abräumen sichern (zum Aufdecken für alle)
+  const allRevealedHands = [];
+  for (let s = 0; s < maxPlayers; s++) {
+    allRevealedHands.push({
+      seatIndex: s,
+      playerName: room.seats[s] ? room.seats[s].name : `Spieler ${s + 1}`,
+      cards: room.hands[s] ? [...room.hands[s]] : []
+    });
+  }
+
   // Alle verbleibenden Augen einholen (aus liegendem Stich und allen Spielerhänden)
   let totalClaimedEyes = 0;
   if (room.currentTrick && room.currentTrick.length > 0) {
@@ -1188,16 +1190,17 @@ function handleClaimTricks(room, playerIndex) {
     playerIndex,
     playerName,
     cards: claimedCards,
+    allRevealedHands,
     remainingTricksCount,
     eyesWon: totalClaimedEyes
   });
 
   broadcastGameState(room);
 
-  // Nach kurzer Pause (1.5s für Anzeige der aufgedeckten Karten) Runde auswerten
+  // Nach 3.5s Pause (für Anzeige der aufgedeckten Karten für alle) Runde auswerten
   setTimeout(() => {
     resolveRound(room);
-  }, 1500);
+  }, 3500);
 }
 
 /**
@@ -1649,6 +1652,9 @@ io.on('connection', (socket) => {
       }
       if (typeof settings.isPublic === 'boolean') {
         room.settings.isPublic = settings.isPublic;
+      }
+      if (typeof settings.allowClaimTricks === 'boolean') {
+        room.settings.allowClaimTricks = settings.allowClaimTricks;
       }
     }
     rooms.set(code, room);
@@ -2104,6 +2110,9 @@ io.on('connection', (socket) => {
       if (typeof settings.isPublic === 'boolean') {
         room.settings.isPublic = settings.isPublic;
         broadcastPublicRooms();
+      }
+      if (typeof settings.allowClaimTricks === 'boolean') {
+        room.settings.allowClaimTricks = settings.allowClaimTricks;
       }
     }
 

@@ -1116,13 +1116,33 @@ function returnToLobby() {
 // SPIELLEITER-MENÜ & SPIELER-VERWALTUNG (KICKEN)
 // --------------------------------------------------------------------------
 function openHostMenu() {
-  if (!gameState || !gameState.you || !gameState.you.isHost) return;
+  if (!gameState || !gameState.you) return;
+  const isHost = Boolean(gameState.you.isHost);
   const codeEl = document.getElementById('hostModalRoomCode');
   if (codeEl) {
     codeEl.textContent = currentRoomCode || '----';
   }
+
+  // Header-Titel anpassen
+  const tagEl = document.getElementById('gameMenuModalTag');
+  const titleEl = document.getElementById('gameMenuModalTitle');
+  if (tagEl) tagEl.textContent = isHost ? '👑 Spielleiter' : '☰ Menü';
+  if (titleEl) titleEl.textContent = isHost ? 'Spielleitung & Verwaltung' : 'Spiel-Menü';
+
+  // Host-spezifische Hebel ein-/ausblenden
+  const privacyRow = document.getElementById('hostPrivacyRow');
+  if (privacyRow) privacyRow.classList.toggle('hidden', !isHost);
+
+  const returnLobbyBtn = document.getElementById('hostReturnLobbyBtn');
+  if (returnLobbyBtn) returnLobbyBtn.classList.toggle('hidden', !isHost);
+
+  const pendingSec = document.getElementById('hostPendingRequestsSection');
+  if (pendingSec && !isHost) pendingSec.classList.add('hidden');
+
   syncSettingsUI();
-  renderHostPendingRequests();
+  if (isHost) {
+    renderHostPendingRequests();
+  }
   renderHostPlayerList();
   document.getElementById('hostControlModal').classList.remove('hidden');
 }
@@ -1136,10 +1156,13 @@ function renderHostPlayerList() {
   if (!container || !gameState) return;
   container.innerHTML = '';
 
+  const isHost = Boolean(gameState.you && gameState.you.isHost);
   const maxPlayers = gameState.settings ? (gameState.settings.playerCount || 4) : 4;
   const sectionTitle = document.getElementById('hostPlayerSectionTitle');
   if (sectionTitle) {
-    sectionTitle.textContent = `👥 Spieler-Verwaltung (${maxPlayers} Plätze)`;
+    sectionTitle.textContent = isHost
+      ? `👥 Spieler-Verwaltung (${maxPlayers} Plätze)`
+      : `👥 Mitspieler (${maxPlayers} Plätze)`;
   }
 
   for (let i = 0; i < maxPlayers; i++) {
@@ -1157,12 +1180,14 @@ function renderHostPlayerList() {
     if (!player) {
       tagHTML = '<span class="host-player-tag tag-bot">Frei</span>';
     } else if (isMe) {
-      tagHTML = '<span class="host-player-tag tag-host">Spielleiter (Du)</span>';
+      tagHTML = isHost ? '<span class="host-player-tag tag-host">Spielleiter (Du)</span>' : '<span class="host-player-tag tag-host">Du</span>';
     } else if (isBot) {
       tagHTML = '<span class="host-player-tag tag-bot">🤖 Bot</span>';
     } else {
       tagHTML = '<span class="host-player-tag tag-player">👤 Spieler</span>';
-      actionHTML = `<button class="btn-kick" onclick="kickPlayer(${i}, '${player.name}')">👢 Kicken (Bot)</button>`;
+      if (isHost) {
+        actionHTML = `<button class="btn-kick" onclick="kickPlayer(${i}, '${player.name}')">👢 Kicken (Bot)</button>`;
+      }
     }
 
     const pName = player ? player.name : 'Leerer Platz';
@@ -1665,7 +1690,16 @@ socket.on('cards_thrown', ({ playerIndex, playerName, count }) => {
 
 // Auffälliges Banner & Kartenanzeige im Spielfeld, wenn jemand sichere Reststiche aufdeckt
 let claimTricksNotificationTimer = null;
-socket.on('tricks_claimed', ({ seatIndex, playerName, cards, remainingTricksCount, eyesWon }) => {
+let activeClaimReveal = null;
+
+socket.on('tricks_claimed', ({ seatIndex, playerName, cards, allRevealedHands, remainingTricksCount, eyesWon }) => {
+  activeClaimReveal = {
+    seatIndex,
+    playerName,
+    cards,
+    allRevealedHands: allRevealedHands || []
+  };
+
   const banner = document.getElementById('claimTricksFieldNotification');
   const textEl = document.getElementById('claimPopText');
   if (banner && textEl) {
@@ -1673,7 +1707,7 @@ socket.on('tricks_claimed', ({ seatIndex, playerName, cards, remainingTricksCoun
     const displayName = isMe ? `${playerName} (Du)` : playerName;
     const suitSymbols = { clubs: '♣', spades: '♠', hearts: '♥', diamonds: '♦' };
     const cardStr = Array.isArray(cards) ? cards.map(c => `${suitSymbols[c.suit] || ''}${c.rank}`).join(' ') : '';
-    textEl.textContent = `${displayName} deckt ${remainingTricksCount} sichere Stiche auf (${cardStr})!`;
+    textEl.textContent = `👑 ${displayName} deckt ${remainingTricksCount} sichere Rest-Trümpfe auf (${cardStr})! Alle Hände aufgedeckt!`;
     banner.classList.remove('hidden');
     banner.classList.remove('fade-out');
 
@@ -1684,20 +1718,52 @@ socket.on('tricks_claimed', ({ seatIndex, playerName, cards, remainingTricksCoun
         banner.classList.add('hidden');
         banner.classList.remove('fade-out');
       }, 500);
-    }, 2800);
+    }, 3800);
   }
 
-  // Karten in der Mitte des Tisches zur Schau stellen
+  // 1. Aufgedeckte Meisterkarten des Spielers groß und prominent in der Mitte präsentieren
   const trickArea = document.getElementById('trickArea');
   if (trickArea && Array.isArray(cards) && cards.length > 0) {
     trickArea.innerHTML = '';
-    cards.forEach((c, idx) => {
-      const cardWrap = document.createElement('div');
-      cardWrap.className = 'trick-card-slot';
-      cardWrap.innerHTML = createCardHTML(c, false);
-      const rot = (idx - (cards.length - 1) / 2) * 8;
-      cardWrap.style.transform = `rotate(${rot}deg) scale(1.08)`;
-      trickArea.appendChild(cardWrap);
+    const wrapper = document.createElement('div');
+    wrapper.className = 'claim-reveal-center';
+    wrapper.innerHTML = `
+      <div class="claim-reveal-center-title">👑 Unschlagbare Rest-Trümpfe von ${escapeHtml(playerName)}</div>
+      <div class="claim-reveal-center-cards">
+        ${cards.map(c => createCardHTML(c, false, true)).join('')}
+      </div>
+    `;
+    trickArea.appendChild(wrapper);
+  }
+
+  // 2. Alle restlichen Handkarten aller Mitspieler auf dem Tisch aufdecken
+  if (Array.isArray(allRevealedHands)) {
+    allRevealedHands.forEach(item => {
+      const pos = getRelativePosition(item.seatIndex, mySeatIndex);
+      if (pos === 'Bottom') {
+        const fan = document.getElementById('myHandFan');
+        if (fan && Array.isArray(item.cards)) {
+          fan.innerHTML = '';
+          fan.setAttribute('data-card-count', item.cards.length);
+          item.cards.forEach(card => {
+            const cardEl = document.createElement('div');
+            cardEl.innerHTML = createCardHTML(card, false, true);
+            fan.appendChild(cardEl.firstElementChild);
+          });
+        }
+      } else {
+        const container = document.getElementById(`cards${pos}`);
+        if (container && Array.isArray(item.cards)) {
+          container.innerHTML = '';
+          container.classList.add('cards-revealed-faceup');
+          item.cards.forEach(card => {
+            const cardWrap = document.createElement('div');
+            cardWrap.className = 'mini-card-faceup';
+            cardWrap.innerHTML = createCardHTML(card, false, true);
+            container.appendChild(cardWrap);
+          });
+        }
+      }
     });
   }
 
@@ -2017,6 +2083,9 @@ function renderLobby() {
 }
 
 function renderGameScreen() {
+  if (gameState.phase !== 'PLAY_TRICK') {
+    activeClaimReveal = null;
+  }
   const myTeam = gameState.you ? gameState.you.team : 0;
   // Team 0 = Team A, Team 1 = Team B
 
@@ -2100,7 +2169,12 @@ function renderGameScreen() {
   const hostMenuBtn = document.getElementById('hostMenuBtn');
   const isHost = gameState.you ? gameState.you.isHost : false;
   if (hostMenuBtn) {
-    hostMenuBtn.classList.toggle('hidden', !isHost);
+    hostMenuBtn.classList.remove('hidden');
+    const iconEl = document.getElementById('hostMenuIcon');
+    if (iconEl) {
+      iconEl.textContent = isHost ? '👑' : '☰';
+    }
+    hostMenuBtn.title = isHost ? 'Spielleiter-Menü (Freunde, Kicken, Lobby, Link)' : 'Spiel-Menü (Freunde, Regeln, Optionen)';
   }
 
   const hostModal = document.getElementById('hostControlModal');
@@ -2320,6 +2394,21 @@ function renderTablePlayers() {
     if (key !== 'Bottom') {
       const cardsContainer = document.getElementById(`cards${key}`);
       if (cardsContainer) {
+        if (activeClaimReveal && Array.isArray(activeClaimReveal.allRevealedHands)) {
+          const revealed = activeClaimReveal.allRevealedHands.find(h => h.seatIndex === player.seatIndex);
+          if (revealed && Array.isArray(revealed.cards) && revealed.cards.length > 0) {
+            cardsContainer.innerHTML = '';
+            cardsContainer.classList.add('cards-revealed-faceup');
+            revealed.cards.forEach(card => {
+              const mini = document.createElement('div');
+              mini.className = 'mini-card-faceup';
+              mini.innerHTML = createCardHTML(card, false, true);
+              cardsContainer.appendChild(mini);
+            });
+            return;
+          }
+        }
+        cardsContainer.classList.remove('cards-revealed-faceup');
         cardsContainer.innerHTML = '';
         for (let c = 0; c < player.cardCount; c++) {
           const mini = document.createElement('div');
@@ -2336,6 +2425,7 @@ function renderTablePlayers() {
 }
 
 function renderTrickCenter() {
+  if (activeClaimReveal) return; // Aufgedeckte Meisterkarten in der Tischmitte während des Claims nicht überschreiben!
   const maxPlayers = gameState.settings ? (gameState.settings.playerCount || 4) : 4;
   const is6p = (maxPlayers === 6);
 
@@ -2410,6 +2500,19 @@ function renderTrickCenter() {
 function renderMyHand() {
   const fan = document.getElementById('myHandFan');
   fan.innerHTML = '';
+
+  if (activeClaimReveal && Array.isArray(activeClaimReveal.allRevealedHands)) {
+    const revealed = activeClaimReveal.allRevealedHands.find(h => h.seatIndex === mySeatIndex);
+    if (revealed && Array.isArray(revealed.cards) && revealed.cards.length > 0) {
+      fan.setAttribute('data-card-count', revealed.cards.length);
+      revealed.cards.forEach(card => {
+        const cardEl = document.createElement('div');
+        cardEl.innerHTML = createCardHTML(card, false, true);
+        fan.appendChild(cardEl.firstElementChild);
+      });
+      return;
+    }
+  }
 
   if (isSpectator || (gameState.you && gameState.you.seatIndex === -1)) {
     fan.setAttribute('data-card-count', 0);
@@ -2716,6 +2819,7 @@ let currentSettings = {
   allowMit: true,
   contraPoints: 4,
   ansagerZeroTricksPenalty: 2,
+  allowClaimTricks: true,
   startScoreA: 13,
   startScoreB: 13,
   drinkingGameMode: 'none',
@@ -2809,6 +2913,12 @@ function syncSettingsUI() {
   if (allowContraReInput) {
     allowContraReInput.checked = currentSettings.allowContraRe === true;
     allowContraReInput.disabled = !isHost;
+  }
+
+  const allowClaimInput = document.getElementById('settingAllowClaimTricks');
+  if (allowClaimInput) {
+    allowClaimInput.checked = currentSettings.allowClaimTricks !== false;
+    allowClaimInput.disabled = !isHost;
   }
 
   const segPen2 = document.getElementById('segPenalty2');
@@ -2984,6 +3094,7 @@ function saveRuleSettings() {
   const scoreBInput = document.getElementById('settingStartScoreB');
   const isPublicInput = document.getElementById('settingIsPublic');
   const allowContraReInput = document.getElementById('settingAllowContraRe');
+  const allowClaimInput = document.getElementById('settingAllowClaimTricks');
 
   const settingsPayload = {
     playerCount: currentSettings.playerCount || 4,
@@ -2993,6 +3104,7 @@ function saveRuleSettings() {
     contraPoints: currentSettings.contraPoints || 4,
     allowContraRe: allowContraReInput ? allowContraReInput.checked : true,
     ansagerZeroTricksPenalty: currentSettings.ansagerZeroTricksPenalty || 2,
+    allowClaimTricks: allowClaimInput ? allowClaimInput.checked : (currentSettings.allowClaimTricks !== false),
     startScoreA: scoreAInput ? (parseInt(scoreAInput.value) || 13) : (currentSettings.startScoreA || 13),
     startScoreB: scoreBInput ? (parseInt(scoreBInput.value) || 13) : (currentSettings.startScoreB || 13),
     drinkingGameMode: currentSettings.drinkingGameMode || 'none',
@@ -3102,6 +3214,7 @@ function registerFriendSocket() {
 function updateFriendsCountBadge() {
   const badge = document.getElementById('friendsCountBadge');
   const gameBadge = document.getElementById('gameFriendsCountBadge');
+  const menuFriendsCount = document.getElementById('menuFriendsCount');
   const count = savedFriends.length;
   if (badge) {
     if (count > 0) {
@@ -3118,6 +3231,9 @@ function updateFriendsCountBadge() {
     } else {
       gameBadge.classList.add('hidden');
     }
+  }
+  if (menuFriendsCount) {
+    menuFriendsCount.textContent = count;
   }
 }
 
@@ -3346,9 +3462,6 @@ function renderFriendsList(isFromWaitingRoom = false) {
           <div class="friend-item-actions">
             <button class="btn btn-friend-invite" onclick="inviteFriend('${friend.code}')" ${inWaitingRoom ? '' : 'disabled title="Erstelle zuerst einen Raum"'}>
               🔔 Einladen
-            </button>
-            <button class="btn btn-friend-wa" onclick="sendWhatsAppInviteToFriend('${escapeHtml(friend.name)}')" title="Per WhatsApp anpingen">
-              💬 WA
             </button>
             <button class="btn btn-friend-delete" onclick="removeFriend('${friend.code}')" title="Freund entfernen">
               🗑️
