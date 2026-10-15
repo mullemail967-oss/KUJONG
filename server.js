@@ -463,6 +463,59 @@ function canPlayerThrowCards(room, playerIndex) {
  *    sodass kein gegnerischer Spieler rechnerisch mehr einen Stich gewinnen kann.
  *    Beispiel: Der Spieler hält die höchsten verbleibenden Trümpfe (z. B. Ass, Mit', Kreuz-Dame).
  */
+/**
+ * Prüft, ob ein Spieler nach den bisherigen Spielzügen öffentlich nachweisbar keinen Trumpf mehr hat.
+ * Dies ist der Fall, wenn:
+ * 1. Der Spieler keine Handkarten mehr hat oder weggeschmissen hat.
+ * 2. In einem früheren (oder aktuellen) Stich ein Trumpf angespielt wurde, und der Spieler
+ *    eine Fehlfarbe bedient/abgeworfen hat (striktes Bediengebot bei Trumpf-Ausspiel!).
+ */
+function isPlayerKnownVoidInTrump(room, playerIndex) {
+  const maxPlayers = room.settings.playerCount || 4;
+  if (playerIndex < 0 || playerIndex >= maxPlayers) return true;
+
+  if (!room.hands[playerIndex] || room.hands[playerIndex].length === 0) {
+    return true;
+  }
+  if (room.hasThrownCards && room.hasThrownCards[playerIndex]) {
+    return true;
+  }
+
+  // Historie durchsuchen: Wurde jemals Trumpf angespielt und dieser Spieler legte Fehlfarbe?
+  if (Array.isArray(room.trickHistory)) {
+    for (const trick of room.trickHistory) {
+      if (!trick.cards || trick.cards.length === 0) continue;
+      const leadEntry = trick.cards[0];
+      if (leadEntry && isTrumpCard(leadEntry.card, room.trumpSuit, room.isMitAnnounced, room.settings)) {
+        const playerEntry = trick.cards.find(e => e.playerIndex === playerIndex);
+        if (playerEntry && !isTrumpCard(playerEntry.card, room.trumpSuit, room.isMitAnnounced, room.settings)) {
+          return true; // Hat keinen Trumpf bedient -> nachweislich Trumpf-frei!
+        }
+      }
+    }
+  }
+
+  // Aktuellen Stich prüfen
+  if (room.currentTrick && room.currentTrick.length > 0) {
+    const leadEntry = room.currentTrick[0];
+    if (leadEntry && isTrumpCard(leadEntry.card, room.trumpSuit, room.isMitAnnounced, room.settings)) {
+      const playerEntry = room.currentTrick.find(e => e.playerIndex === playerIndex);
+      if (playerEntry && !isTrumpCard(playerEntry.card, room.trumpSuit, room.isMitAnnounced, room.settings)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Prüft, ob ein Spieler am Zug restliche Stiche sofort reklamieren / aufdecken kann.
+ * Berücksichtigt Imperfect Information (der Spieler kennt den verdeckten Stock NICHT!).
+ * Trümpfe, die noch nicht gespielt wurden und nicht in der eigenen Hand liegen,
+ * könnten potentiell bei Gegnern liegen (selbst wenn sie physisch im Stock liegen),
+ * AUSSER die Gegner haben bereits nachweislich keine Trümpfe mehr ("keinen Trumpf bekannt").
+ */
 function canPlayerClaimTricks(room, playerIndex) {
   // 0. Prüfe, ob die Regel-Einstellung aktiv ist (Standard: true)
   if (room.settings && room.settings.allowClaimTricks === false) return false;
@@ -474,6 +527,10 @@ function canPlayerClaimTricks(room, playerIndex) {
   // In Stich 1 kann noch jemand die Mit' (♠Q) ansagen oder Kontra geben.
   if (room.trickCount === 0) return false;
 
+  // 1b. Nicht in der letzten Runde (Stich 5 bzw. bei nur 1 Restkarte)!
+  // Im letzten Stich werden ohnehin alle verbleibenden Karten regulär aufgedeckt / ausgespielt.
+  if (room.trickCount >= 4) return false;
+
   // 2. Nicht wenn das Kontra-Fenster noch offen ist!
   if (isContraWindowOpen(room)) return false;
 
@@ -481,18 +538,15 @@ function canPlayerClaimTricks(room, playerIndex) {
   if (typeof playerIndex !== 'number' || playerIndex < 0 || playerIndex >= maxPlayers) return false;
 
   const hand = room.hands[playerIndex];
-  if (!hand || hand.length === 0) return false;
+  if (!hand || hand.length <= 1) return false;
 
   // 3. ALLE verbleibenden Handkarten des Spielers MÜSSEN Trümpfe sein!
-  // Sobald auch nur eine Fehlfarben-Karte auf der Hand liegt, kann nie 100% garantiert werden,
-  // dass Gegner nicht abwerfen, stechen oder höhere Karten halten.
   const allHandCardsAreTrump = hand.every(c => isTrumpCard(c, room.trumpSuit, room.isMitAnnounced, room.settings));
   if (!allHandCardsAreTrump) return false;
 
   const minPlayerTrumpPower = Math.min(...hand.map(c => getTrumpPower(c, room.trumpSuit, room.isMitAnnounced, room.settings)));
 
   // 4. Falls im aktuell liegenden Stich bereits ein Trumpf gespielt wurde:
-  // Der schwächste Trumpf des Spielers muss diesen Stich-Trumpf überbieten können!
   if (room.currentTrick && room.currentTrick.length > 0) {
     const trickTrumps = room.currentTrick.filter(e => isTrumpCard(e.card, room.trumpSuit, room.isMitAnnounced, room.settings));
     if (trickTrumps.length > 0) {
@@ -503,36 +557,71 @@ function canPlayerClaimTricks(room, playerIndex) {
     }
   }
 
-  // 5. Sammle alle verbleibenden Trumpfkarten ALLER ANDEREN aktiven Spieler
-  // (sowohl Gegner als auch Partner – denn wenn der Partner einen höheren Trumpf hätte,
-  // könnte er den Stich gewinnen, die Spielführung übernehmen und an eine gegnerische Fehlfarbe verlieren!)
-  const otherTrumps = [];
-  for (let s = 0; s < maxPlayers; s++) {
-    if (s !== playerIndex && room.hands[s]) {
-      for (const c of room.hands[s]) {
-        if (isTrumpCard(c, room.trumpSuit, room.isMitAnnounced, room.settings)) {
-          otherTrumps.push(c);
-        }
+  // 5. Sammle alle Karten, die dieser Spieler bereits öffentlich auf dem Tisch gesehen hat oder selbst hält:
+  const getCardKey = (c) => (c && c.suit && c.rank) ? `${c.suit}_${c.rank}` : (c ? c.id : '');
+  const seenKeys = new Set();
+  hand.forEach(c => seenKeys.add(getCardKey(c)));
+  if (Array.isArray(room.trickHistory)) {
+    for (const trick of room.trickHistory) {
+      if (Array.isArray(trick.cards)) {
+        trick.cards.forEach(e => {
+          if (e.card) seenKeys.add(getCardKey(e.card));
+        });
       }
     }
   }
-
-  // Fall A: Kein anderer Spieler im Spiel hat noch Trümpfe auf der Hand!
-  // Da der Spieler nur Trümpfe hat und Trümpfe ausnahmslos jede Fehlfarbe schlagen:
-  // Rechnerisch 100% sicherer Sieg aller verbleibenden Stiche!
-  if (otherTrumps.length === 0) {
-    return true;
+  if (Array.isArray(room.currentTrick)) {
+    room.currentTrick.forEach(e => {
+      if (e.card) seenKeys.add(getCardKey(e.card));
+    });
   }
 
-  // Fall B: Andere Spieler haben noch Trümpfe.
-  // Der schwächste Trumpf des Spielers MUSS zwingend stärker sein als der allerstärkste Trumpf
-  // aller anderen Spieler (der Spieler hält die lückenlos höchsten Meistertrümpfe, z. B. Ass + Mit' + ♣Q)!
-  const maxOtherTrumpPower = Math.max(...otherTrumps.map(c => getTrumpPower(c, room.trumpSuit, room.isMitAnnounced, room.settings)));
-  if (minPlayerTrumpPower > maxOtherTrumpPower) {
-    return true;
+  // 6. Alle theoretisch möglichen Trümpfe des Decks für diesen Modus ermitteln:
+  const fullDeck = createDeck(maxPlayers);
+  const allPossibleTrumps = fullDeck.filter(c => isTrumpCard(c, room.trumpSuit, room.isMitAnnounced, room.settings));
+
+  // 7. Ungesehene höhere Trümpfe ermitteln:
+  // (Jeder Trumpf, der weder in der eigenen Hand liegt noch auf dem Tisch gespielt wurde.
+  // Er könnte im verdeckten Stock liegen ODER bei einem anderen Spieler auf der Hand!)
+  const unseenHigherTrumps = allPossibleTrumps.filter(c => {
+    if (seenKeys.has(getCardKey(c))) return false; // Bereits gesehen/gespielt
+    const power = getTrumpPower(c, room.trumpSuit, room.isMitAnnounced, room.settings);
+    return power > minPlayerTrumpPower;
+  });
+
+  // 8. Prüfe, ob noch andere Spieler Trümpfe halten könnten (Gegner oder Partner):
+  const playerTeam = playerIndex % 2 === 0 ? 0 : 1;
+  let anyOpponentCanHaveTrump = false;
+  let partnerCanHaveTrump = false;
+
+  for (let s = 0; s < maxPlayers; s++) {
+    if (s === playerIndex) continue;
+    const isOpp = (s % 2 !== playerTeam);
+    const voidInTrump = isPlayerKnownVoidInTrump(room, s);
+    if (!voidInTrump) {
+      if (isOpp) anyOpponentCanHaveTrump = true;
+      else partnerCanHaveTrump = true;
+    }
   }
 
-  return false;
+  // Fall A: Es gibt ungesehene Trümpfe, die höher sind als die schwächste Karte des Spielers!
+  // Da der Spieler den verdeckten Stock nicht kennt (Shoppen-Dame / Kreuz-Dame könnten im Stock liegen,
+  // könnten aber genauso gut bei einem Gegner auf der Hand sein):
+  if (unseenHigherTrumps.length > 0) {
+    if (anyOpponentCanHaveTrump) {
+      return false; // Ein Gegner könnte einen der höheren Trümpfe halten!
+    }
+    // Selbst wenn Gegner keine Trümpfe mehr haben: Wenn der Partner noch einen höheren Trumpf
+    // haben könnte, könnte er die Spielführung übernehmen und an eine gegnerische Fehlfarbe verlieren!
+    if (partnerCanHaveTrump) {
+      return false;
+    }
+  }
+
+  // Fall B: Keine ungesehenen höheren Trümpfe mehr im Spiel!
+  // Alle höheren Trümpfe sind entweder in der Hand des Spielers oder wurden bereits gespielt.
+  // Damit hält der Spieler die absolut höchsten verbleibenden Trümpfe der gesamten Partie.
+  return true;
 }
 
 /**
@@ -2722,8 +2811,13 @@ io.on('connection', (socket) => {
         url: `/?room=${encodeURIComponent(cleanRoom)}`
       });
 
+      const pushOptions = {
+        TTL: 300, // 5 Minuten Gültigkeit
+        urgency: 'high' // Sofortige Zustellung & Aufwecken des Handys via FCM (High Priority)
+      };
+
       try {
-        await webpush.sendNotification(pushSub, payload);
+        await webpush.sendNotification(pushSub, payload, pushOptions);
         sentPush = true;
       } catch (pushErr) {
         console.warn('Web-Push Zustellungsfehler:', pushErr.statusCode || pushErr.message);

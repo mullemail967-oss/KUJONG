@@ -913,6 +913,8 @@ function throwCards() {
 
 function claimTricks() {
   if (!gameState || !gameState.you || !gameState.you.canClaimTricks) return;
+  if (gameState.trickCount >= 4) return;
+  if (gameState.you.hand && gameState.you.hand.length <= 1) return;
   socket.emit('claim_tricks');
   playSound('trump_fanfare');
   const banner = document.getElementById('claimTricksBanner');
@@ -1721,22 +1723,49 @@ socket.on('tricks_claimed', ({ seatIndex, playerName, cards, allRevealedHands, r
     }, 3800);
   }
 
-  // 1. Aufgedeckte Meisterkarten des Spielers groß und prominent in der Mitte präsentieren
-  const trickArea = document.getElementById('trickArea');
-  if (trickArea && Array.isArray(cards) && cards.length > 0) {
-    trickArea.innerHTML = '';
+  // 1. Alle aufgedeckten Handkarten aller Spieler prominent in der Tischmitte (trickCenter) präsentieren
+  const trickCenter = document.getElementById('trickCenter');
+  if (trickCenter) {
+    trickCenter.innerHTML = '';
     const wrapper = document.createElement('div');
-    wrapper.className = 'claim-reveal-center';
+    wrapper.className = 'claim-table-showcase';
+
+    let playersHtml = '';
+    if (Array.isArray(allRevealedHands)) {
+      allRevealedHands.forEach(item => {
+        const isClaimer = (item.seatIndex === seatIndex);
+        const isWe = (mySeatIndex !== -1 && item.seatIndex % 2 === (mySeatIndex % 2));
+        const teamLabel = isWe ? 'WIR' : 'SIE';
+        const hasCards = Array.isArray(item.cards) && item.cards.length > 0;
+
+        playersHtml += `
+          <div class="claim-table-player-row ${isClaimer ? 'is-claimer' : ''}">
+            <div class="claim-table-player-info">
+              <span class="claim-p-badge ${isWe ? 'tag-we' : 'tag-they'}">${teamLabel}</span>
+              <span class="claim-p-name">${isClaimer ? '👑 ' : ''}${escapeHtml(item.playerName)}</span>
+            </div>
+            <div class="claim-table-player-cards">
+              ${hasCards 
+                ? item.cards.map(c => createCardHTML(c, false)).join('') 
+                : '<span class="claim-no-cards">Keine Restkarten</span>'}
+            </div>
+          </div>
+        `;
+      });
+    }
+
     wrapper.innerHTML = `
-      <div class="claim-reveal-center-title">👑 Unschlagbare Rest-Trümpfe von ${escapeHtml(playerName)}</div>
-      <div class="claim-reveal-center-cards">
-        ${cards.map(c => createCardHTML(c, false, true)).join('')}
+      <div class="claim-table-showcase-title">
+        👑 <strong>${escapeHtml(playerName)}</strong> deckt ${remainingTricksCount} sichere Rest-Trümpfe auf!
+      </div>
+      <div class="claim-table-players-list">
+        ${playersHtml}
       </div>
     `;
-    trickArea.appendChild(wrapper);
+    trickCenter.appendChild(wrapper);
   }
 
-  // 2. Alle restlichen Handkarten aller Mitspieler auf dem Tisch aufdecken
+  // 2. Auch an den Sitzplätzen der Spieler die Karten aufdecken
   if (Array.isArray(allRevealedHands)) {
     allRevealedHands.forEach(item => {
       const pos = getRelativePosition(item.seatIndex, mySeatIndex);
@@ -1747,7 +1776,7 @@ socket.on('tricks_claimed', ({ seatIndex, playerName, cards, allRevealedHands, r
           fan.setAttribute('data-card-count', item.cards.length);
           item.cards.forEach(card => {
             const cardEl = document.createElement('div');
-            cardEl.innerHTML = createCardHTML(card, false, true);
+            cardEl.innerHTML = createCardHTML(card, false);
             fan.appendChild(cardEl.firstElementChild);
           });
         }
@@ -1759,7 +1788,7 @@ socket.on('tricks_claimed', ({ seatIndex, playerName, cards, allRevealedHands, r
           item.cards.forEach(card => {
             const cardWrap = document.createElement('div');
             cardWrap.className = 'mini-card-faceup';
-            cardWrap.innerHTML = createCardHTML(card, false, true);
+            cardWrap.innerHTML = createCardHTML(card, false);
             container.appendChild(cardWrap);
           });
         }
@@ -2645,10 +2674,12 @@ function handleModals() {
     if (mitBanner) mitBanner.classList.add('hidden');
   }
 
-  // Restliche Stiche aufdecken Banner (Sichere Meisterkarten/Trümpfe)
+  // Restliche Stiche aufdecken Banner (Sichere Meisterkarten/Trümpfe - nicht in letzter Runde)
   const claimTricksBanner = document.getElementById('claimTricksBanner');
   if (claimTricksBanner) {
-    if (gameState.you && gameState.you.canClaimTricks) {
+    const isLastTrick = (typeof gameState.trickCount === 'number' && gameState.trickCount >= 4);
+    const hasMultipleCards = (gameState.you && Array.isArray(gameState.you.hand) && gameState.you.hand.length > 1);
+    if (gameState.you && gameState.you.canClaimTricks && !isLastTrick && hasMultipleCards) {
       claimTricksBanner.classList.remove('hidden');
     } else {
       claimTricksBanner.classList.add('hidden');
