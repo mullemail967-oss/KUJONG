@@ -884,6 +884,7 @@ function showEmoteBubble(seatIndex, emote) {
 }
 
 function announceMit(announce) {
+  if (isSpectator) return;
   const banner = document.getElementById('mitActionBanner');
   if (banner) banner.classList.add('hidden');
 
@@ -898,12 +899,14 @@ function announceMit(announce) {
 }
 
 function dismissMitBanner() {
+  if (isSpectator) return;
   announceMit(false);
   const banner = document.getElementById('mitActionBanner');
   if (banner) banner.classList.add('hidden');
 }
 
 function announceContra() {
+  if (isSpectator) return;
   socket.emit('announce_contra');
   const btn = document.getElementById('announceContraBtn');
   if (btn) btn.classList.add('hidden');
@@ -911,6 +914,7 @@ function announceContra() {
 }
 
 function announceContraRe() {
+  if (isSpectator) return;
   socket.emit('announce_contra_re');
   const btn = document.getElementById('announceContraReBtn');
   if (btn) btn.classList.add('hidden');
@@ -918,7 +922,7 @@ function announceContraRe() {
 }
 
 function throwCards() {
-  if (!gameState || !gameState.you || !gameState.you.canThrowCards) return;
+  if (isSpectator || !gameState || !gameState.you || !gameState.you.canThrowCards) return;
   socket.emit('throw_cards');
   playSound('card_play');
   const banner = document.getElementById('throwCardsBanner');
@@ -926,7 +930,7 @@ function throwCards() {
 }
 
 function claimTricks() {
-  if (!gameState || !gameState.you || !gameState.you.canClaimTricks) return;
+  if (isSpectator || !gameState || !gameState.you || !gameState.you.canClaimTricks) return;
   if (gameState.trickCount >= 4) return;
   if (gameState.you.hand && gameState.you.hand.length <= 1) return;
   socket.emit('claim_tricks');
@@ -1721,12 +1725,21 @@ socket.on('tricks_claimed', ({ seatIndex, playerName, cards, allRevealedHands, r
 
   const banner = document.getElementById('claimTricksFieldNotification');
   const textEl = document.getElementById('claimPopText');
+  const subtextEl = document.getElementById('claimPopSubtext');
   if (banner && textEl) {
     const isMe = (seatIndex === mySeatIndex);
     const displayName = isMe ? `${playerName} (Du)` : playerName;
     const suitSymbols = { clubs: '♣', spades: '♠', hearts: '♥', diamonds: '♦' };
     const cardStr = Array.isArray(cards) ? cards.map(c => `${suitSymbols[c.suit] || ''}${c.rank}`).join(' ') : '';
-    textEl.textContent = `👑 ${displayName} deckt ${remainingTricksCount} sichere Rest-Trümpfe auf (${cardStr})!`;
+    textEl.textContent = `👑 ${displayName} holt alle Rest-Stiche!`;
+    if (subtextEl) {
+      if (cardStr) {
+        subtextEl.textContent = `Sichere Trümpfe: ${cardStr}`;
+        subtextEl.classList.remove('hidden');
+      } else {
+        subtextEl.classList.add('hidden');
+      }
+    }
     banner.classList.remove('hidden');
     banner.classList.remove('fade-out');
 
@@ -2147,10 +2160,10 @@ function renderGameScreen() {
   if (contraReBadge) contraReBadge.classList.toggle('hidden', !gameState.isContraReAnnounced);
 
   const announceContraBtn = document.getElementById('announceContraBtn');
-  if (announceContraBtn) announceContraBtn.classList.toggle('hidden', !gameState.canAnnounceContra);
+  if (announceContraBtn) announceContraBtn.classList.toggle('hidden', isSpectator || !gameState.canAnnounceContra);
 
   const announceContraReBtn = document.getElementById('announceContraReBtn');
-  if (announceContraReBtn) announceContraReBtn.classList.toggle('hidden', !gameState.canAnnounceContraRe);
+  if (announceContraReBtn) announceContraReBtn.classList.toggle('hidden', isSpectator || !gameState.canAnnounceContraRe);
 
   const hostMenuBtn = document.getElementById('hostMenuBtn');
   const isHost = gameState.you ? gameState.you.isHost : false;
@@ -2454,11 +2467,7 @@ function renderTrickCenter() {
 
     const banner = document.getElementById('trickBanner');
     if (banner) {
-      banner.classList.remove('hidden');
-      const wText = document.getElementById('trickWinnerText');
-      if (wText) {
-        wText.textContent = `👑 ${activeClaimReveal.playerName} holt ${activeClaimReveal.remainingTricksCount} sichere Rest-Stiche!`;
-      }
+      banner.classList.add('hidden'); // Verstecken, damit es nicht mit der zentralen Benachrichtigung kollidiert!
     }
     return;
   }
@@ -2630,12 +2639,12 @@ function handleModals() {
   const gameOverModal = document.getElementById('gameOverModal');
 
   // Trumpfwahl-Modal
-  if (gameState.phase === 'CHOOSE_TRUMP' && gameState.declarerIndex === mySeatIndex) {
+  if (!isSpectator && gameState.phase === 'CHOOSE_TRUMP' && gameState.declarerIndex === mySeatIndex) {
     trumpModal.classList.remove('hidden');
 
     const trumpCardsContainer = document.getElementById('trumpDealtCards');
     trumpCardsContainer.innerHTML = '';
-    const hand = gameState.you.hand || [];
+    const hand = gameState.you ? (gameState.you.hand || []) : [];
     hand.forEach(card => {
       trumpCardsContainer.innerHTML += createCardHTML(card, false, false);
     });
@@ -2644,7 +2653,7 @@ function handleModals() {
   }
 
   // Mit'-Ansage Banner (sofort ausgeblendet, sobald vorgemerkt)
-  if (gameState.canAnnounceMit && (!gameState.you || !gameState.you.isMitPreAnnounced)) {
+  if (!isSpectator && gameState.canAnnounceMit && (!gameState.you || !gameState.you.isMitPreAnnounced)) {
     if (mitBanner) {
       mitBanner.classList.remove('hidden');
       mitBanner.innerHTML = `
@@ -2667,7 +2676,7 @@ function handleModals() {
   if (claimTricksBanner) {
     const isLastTrick = (typeof gameState.trickCount === 'number' && gameState.trickCount >= 4);
     const hasMultipleCards = (gameState.you && Array.isArray(gameState.you.hand) && gameState.you.hand.length > 1);
-    if (gameState.you && gameState.you.canClaimTricks && !isLastTrick && hasMultipleCards) {
+    if (!isSpectator && gameState.you && gameState.you.canClaimTricks && !isLastTrick && hasMultipleCards) {
       claimTricksBanner.classList.remove('hidden');
     } else {
       claimTricksBanner.classList.add('hidden');
@@ -2677,7 +2686,7 @@ function handleModals() {
   // Karten wegschmeißen Banner (Dead Hand Fold)
   const throwCardsBanner = document.getElementById('throwCardsBanner');
   if (throwCardsBanner) {
-    if (gameState.you && gameState.you.canThrowCards) {
+    if (!isSpectator && gameState.you && gameState.you.canThrowCards) {
       throwCardsBanner.classList.remove('hidden');
     } else {
       throwCardsBanner.classList.add('hidden');

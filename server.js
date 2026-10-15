@@ -677,8 +677,10 @@ function sanitizeStateForPlayer(room, seatIndex) {
   // Vorab-Ansage erlaubt, solange der Spieler seine eigene Karte noch nicht gespielt hat (bzw. beim Trumpf drehen bis max. 2 gelegte Karten)
   const hasPlayedInTrick1 = room.currentTrick.some(e => e.playerIndex === seatIndex);
   const isTurnedTrumpDeclarer = Boolean(room.isTurnedTrump && room.declarerIndex === seatIndex);
+  const isSpectatorSeat = (typeof seatIndex !== 'number' || seatIndex < 0);
   let canAnnounceMit = false;
   if (
+    !isSpectatorSeat &&
     room.settings.allowMit !== false &&
     room.phase === 'PLAY_TRICK' &&
     room.trickCount === 0 &&
@@ -694,12 +696,14 @@ function sanitizeStateForPlayer(room, seatIndex) {
 
   // canAnnounceContra: Mit' ist aktiv, Kontra noch nicht gegeben, Zeitfenster offen (Stich 1 ODER vor 1. Karte von Stich 2)
   const mitTeam = room.mitHolderIndex !== -1 ? (room.mitHolderIndex % 2 === 0 ? 0 : 1) : -1;
-  const myTeam = seatIndex % 2 === 0 ? 0 : 1;
+  const myTeam = isSpectatorSeat ? -1 : (seatIndex % 2 === 0 ? 0 : 1);
   const contraWindow = isContraWindowOpen(room);
   const canAnnounceContra = Boolean(
+    !isSpectatorSeat &&
     contraWindow &&
     room.isMitAnnounced &&
     !room.isContraAnnounced &&
+    myTeam !== -1 &&
     myTeam !== mitTeam
   );
 
@@ -707,17 +711,19 @@ function sanitizeStateForPlayer(room, seatIndex) {
   // Spieler ist im HERAUSGEFORDERTEN Team (Gegner des Kontra-Ansagers), und Spieler ist KEIN BOT!
   const contraTeam = room.contraTeam !== -1 ? room.contraTeam : (1 - mitTeam);
   const canAnnounceContraRe = Boolean(
+    !isSpectatorSeat &&
     room.settings.allowContraRe &&
     contraWindow &&
     room.isContraAnnounced &&
     !room.isContraReAnnounced &&
+    myTeam !== -1 &&
     myTeam !== contraTeam &&
     (room.seats[seatIndex] && !room.seats[seatIndex].isBot)
   );
 
-  const isMeHost = (room.seats[seatIndex] && room.seats[seatIndex].socketId === room.hostSocketId);
-  const canThrowCards = canPlayerThrowCards(room, seatIndex);
-  const canClaimTricks = canPlayerClaimTricks(room, seatIndex);
+  const isMeHost = !isSpectatorSeat && (room.seats[seatIndex] && room.seats[seatIndex].socketId === room.hostSocketId);
+  const canThrowCards = isSpectatorSeat ? false : canPlayerThrowCards(room, seatIndex);
+  const canClaimTricks = isSpectatorSeat ? false : canPlayerClaimTricks(room, seatIndex);
 
   return {
     roomCode: room.code,
@@ -738,7 +744,7 @@ function sanitizeStateForPlayer(room, seatIndex) {
     canAnnounceMit: canAnnounceMit,
     canAnnounceContra: canAnnounceContra,
     canAnnounceContraRe: canAnnounceContraRe,
-    isMitPreAnnounced: (room.mitHolderIndex === seatIndex ? Boolean(room.mitPreAnnounced) : false),
+    isMitPreAnnounced: (!isSpectatorSeat && room.mitHolderIndex === seatIndex ? Boolean(room.mitPreAnnounced) : false),
     currentTrick: room.currentTrick,
     currentTurn: room.currentTurn,
     trickCount: room.trickCount,
@@ -755,12 +761,13 @@ function sanitizeStateForPlayer(room, seatIndex) {
     you: {
       seatIndex: seatIndex,
       team: myTeam,
+      isSpectator: isSpectatorSeat,
       isHost: isMeHost,
-      hand: myHand,
-      playableMap: playableMap,
+      hand: isSpectatorSeat ? [] : myHand,
+      playableMap: isSpectatorSeat ? {} : playableMap,
       canThrowCards: canThrowCards,
       canClaimTricks: canClaimTricks,
-      hasThrownCards: Boolean(room.hasThrownCards && room.hasThrownCards[seatIndex])
+      hasThrownCards: !isSpectatorSeat && Boolean(room.hasThrownCards && room.hasThrownCards[seatIndex])
     }
   };
 }
@@ -1033,6 +1040,8 @@ function handleMitAnnouncement(room, playerIndex, announce) {
  * Verarbeitet die Kontra-Ansage des gegnerischen Teams in Stich 1 oder vor 1. Karte von Stich 2.
  */
 function handleContraAnnouncement(room, playerIndex) {
+  if (typeof playerIndex !== 'number' || playerIndex < 0) return;
+  if (!room.seats[playerIndex]) return;
   if (!isContraWindowOpen(room)) return;
   if (!room.isMitAnnounced) return;
   if (room.isContraAnnounced) return;
@@ -1062,6 +1071,8 @@ function handleContraAnnouncement(room, playerIndex) {
  * Bots dürfen niemals Kontra-Re geben.
  */
 function handleContraReAnnouncement(room, playerIndex) {
+  if (typeof playerIndex !== 'number' || playerIndex < 0) return;
+  if (!room.seats[playerIndex]) return;
   if (!isContraWindowOpen(room)) return;
   if (!room.isContraAnnounced) return;
   if (room.isContraReAnnounced) return;
@@ -2284,6 +2295,7 @@ io.on('connection', (socket) => {
     if (!currentRoomCode) return;
     const room = rooms.get(currentRoomCode);
     if (!room) return;
+    if (typeof currentSeatIndex !== 'number' || currentSeatIndex < 0) return;
     if (room.phase !== 'PLAY_TRICK' || room.trickCount !== 0) return;
     if (room.settings.allowMit === false) return;
     if (room.isMitAnnounced) return;
@@ -2322,6 +2334,7 @@ io.on('connection', (socket) => {
     if (!currentRoomCode) return;
     const room = rooms.get(currentRoomCode);
     if (!room) return;
+    if (typeof currentSeatIndex !== 'number' || currentSeatIndex < 0) return;
 
     handleContraAnnouncement(room, currentSeatIndex);
   });
@@ -2331,6 +2344,7 @@ io.on('connection', (socket) => {
     if (!currentRoomCode) return;
     const room = rooms.get(currentRoomCode);
     if (!room) return;
+    if (typeof currentSeatIndex !== 'number' || currentSeatIndex < 0) return;
 
     const seat = room.seats[currentSeatIndex];
     if (!seat || seat.isBot) return;

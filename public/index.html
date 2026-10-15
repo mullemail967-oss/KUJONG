@@ -20,7 +20,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=6.9">
+  <link rel="stylesheet" href="style.css?v=7.0">
 </head>
 <body>
 
@@ -317,7 +317,10 @@
           <!-- AUFFÄLLIGE RESTLICHE-STICHE BENACHRICHTIGUNG IM FREIEN TISCHBEREICH -->
           <div id="claimTricksFieldNotification" class="claim-tricks-field-notification hidden">
             <span class="claim-pop-icon">👑</span>
-            <span id="claimPopText" class="claim-pop-text">Max deckt alle sicheren Stiche auf!</span>
+            <div class="claim-pop-content">
+              <span id="claimPopText" class="claim-pop-title">Max holt alle Rest-Stiche!</span>
+              <span id="claimPopSubtext" class="claim-pop-subtitle hidden"></span>
+            </div>
           </div>
 
           <!-- AUFFÄLLIGE TRUMPF-GEDREHT BENACHRICHTIGUNG IM FREIEN TISCHBEREICH -->
@@ -966,9 +969,10 @@
             <span class="host-code-label">LOBBY-CODE:</span>
             <span id="hostModalRoomCode" class="host-code-val">----</span>
           </div>
-          <button class="btn btn-notify-friends btn-sm" onclick="openFriendsModal(true)" title="Freunde per Push in diese Runde einladen">📣 Freunde per Push</button>
-          <button class="btn btn-share btn-sm" onclick="shareInviteLink()" title="Freunde einladen (WhatsApp / Teilen)">📲 Einladen</button>
-          <button class="btn btn-outline btn-sm btn-copy-host-code" onclick="copyInviteLink()">📋 Link</button>
+          <div class="host-code-actions">
+            <button class="btn btn-outline btn-sm btn-copy-host-code" onclick="copyInviteLink()" title="Einladungslink in die Zwischenablage kopieren">📋 Link</button>
+            <button class="btn btn-share btn-sm" onclick="shareInviteLink()" title="Freunde einladen (WhatsApp / Teilen)">📲 Einladen</button>
+          </div>
         </div>
 
         <!-- Schneller Privatsphäre-Hebel im Menü -->
@@ -996,7 +1000,8 @@
           <div class="host-section-title">⚡ Aktionen & Optionen</div>
           <div class="host-actions-grid">
             <button class="btn btn-menu-friends-large" onclick="openFriendsModal(true)" title="Freunde per Push aufs Smartphone einladen">
-              👥 Freunde & Push-Einladungen (<span id="menuFriendsCount">0</span>)
+              <span class="btn-friends-label">👥 Freunde & Push-Einladungen</span>
+              <span class="badge badge-friends-count" id="menuFriendsCount">0</span>
             </button>
             <button class="btn btn-outline btn-sm" onclick="openSettingsModal()" title="Spielregeln & Optionen ansehen">
               ⚙️ Spielregeln & Einstellungen
@@ -1137,6 +1142,6 @@
   <!-- Socket.io Script -->
   <script src="/socket.io/socket.io.js"></script>
   <!-- Client JavaScript -->
-  <script src="client.js?v=8.4"></script>
+  <script src="client.js?v=8.6"></script>
 </body>
 </html>

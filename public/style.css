@@ -1774,10 +1774,10 @@ input[type="text"]:focus {
   box-shadow: 0 0 12px rgba(245, 158, 11, 0.4);
 }
 
-/* Mehrere weggeworfene Karten im selben Stich-Slot */
+/* Mehrere Karten im selben Stich-Slot (Aufdecken / Wegschmeißen) */
 .trick-slot.has-multi-cards {
   width: auto !important;
-  min-width: 70px;
+  min-width: 80px;
   z-index: 15;
 }
 
@@ -1785,14 +1785,23 @@ input[type="text"]:focus {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 3px;
 }
 
 .trick-multi-cards-group .playing-card {
-  width: 44px !important;
-  height: 64px !important;
-  margin: 0 !important;
-  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.6));
+  width: 58px !important;
+  height: 84px !important;
+  margin: 0 0 0 -14px !important;
+  filter: drop-shadow(0 3px 8px rgba(0, 0, 0, 0.75));
+  transition: transform 0.2s ease;
+}
+
+.trick-multi-cards-group .playing-card:first-child {
+  margin-left: 0 !important;
+}
+
+.trick-multi-cards-group .playing-card:hover {
+  transform: translateY(-4px) scale(1.05);
+  z-index: 5;
 }
 
 /* Dezenter Hinweis in der eigenen Hand nach Wegschmeißen */
@@ -2552,24 +2561,27 @@ input:checked + .slider:before {
 }
 
 .modal-card.host-menu-modal {
-  max-width: 480px;
+  max-width: 440px;
+  width: 92vw;
   max-height: 88vh;
   display: flex;
   flex-direction: column;
-  padding: 20px 22px;
+  padding: 16px 18px;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
 .host-menu-body {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
   overflow-y: auto;
-  max-height: calc(88vh - 130px);
-  padding-right: 6px;
+  max-height: calc(88vh - 110px);
+  padding-right: 4px;
 }
 
 .host-menu-body::-webkit-scrollbar {
-  width: 6px;
+  width: 4px;
 }
 
 .host-menu-body::-webkit-scrollbar-track {
@@ -2578,7 +2590,7 @@ input:checked + .slider:before {
 }
 
 .host-menu-body::-webkit-scrollbar-thumb {
-  background: rgba(245, 158, 11, 0.4);
+  background: rgba(245, 158, 11, 0.35);
   border-radius: 4px;
 }
 
@@ -2590,12 +2602,16 @@ input:checked + .slider:before {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
   background: linear-gradient(135deg, rgba(245, 158, 11, 0.15) 0%, rgba(217, 119, 6, 0.08) 100%);
   border: 1px solid rgba(245, 158, 11, 0.35);
   border-radius: 12px;
-  padding: 10px 14px;
-  margin-bottom: 14px;
+  padding: 8px 12px;
+  margin-bottom: 6px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  box-sizing: border-box;
+  max-width: 100%;
 }
 
 .host-code-display-group {
@@ -2605,7 +2621,7 @@ input:checked + .slider:before {
 }
 
 .host-code-label {
-  font-size: 0.74rem;
+  font-size: 0.72rem;
   font-weight: 700;
   color: var(--team-we-gold);
   letter-spacing: 0.06em;
@@ -2613,16 +2629,30 @@ input:checked + .slider:before {
 
 .host-code-val {
   font-family: 'Cinzel', serif;
-  font-size: 1.4rem;
+  font-size: 1.3rem;
   font-weight: 700;
   color: #fff;
-  letter-spacing: 2.5px;
+  letter-spacing: 2px;
   text-shadow: 0 0 10px rgba(245, 158, 11, 0.4);
 }
 
+.host-code-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
 .btn-copy-host-code {
-  padding: 4px 10px;
+  padding: 4px 8px;
   font-size: 0.76rem;
+  white-space: nowrap;
+}
+
+.btn-share-modal {
+  padding: 4px 8px;
+  font-size: 0.76rem;
+  white-space: nowrap;
 }
 
 .host-section {
@@ -3423,6 +3453,21 @@ input:checked + .slider:before {
     max-width: 90%;
   }
 
+  .claim-tricks-field-notification {
+    top: 44px;
+    padding: 3px 10px;
+    gap: 6px;
+    max-width: 92%;
+  }
+
+  .claim-pop-title {
+    font-size: 0.75rem;
+  }
+
+  .claim-pop-subtitle {
+    font-size: 0.67rem;
+  }
+
   .player-left .thrown-pill,
   .player-right .thrown-pill,
   .player-top-left .thrown-pill,
@@ -3448,8 +3493,24 @@ input:checked + .slider:before {
   }
 
   .trick-multi-cards-group .playing-card {
-    width: 36px !important;
-    height: 52px !important;
+    width: 50px !important;
+    height: 72px !important;
+    margin: 0 0 0 -12px !important;
+  }
+  .trick-multi-cards-group .playing-card:first-child {
+    margin-left: 0 !important;
+  }
+  .trick-multi-cards-group[data-count="3"] .playing-card {
+    width: 44px !important;
+    height: 64px !important;
+    margin: 0 0 0 -14px !important;
+  }
+  .trick-multi-cards-group[data-count="4"] .playing-card,
+  .trick-multi-cards-group[data-count="5"] .playing-card,
+  .trick-multi-cards-group[data-count="6"] .playing-card {
+    width: 38px !important;
+    height: 56px !important;
+    margin: 0 0 0 -16px !important;
   }
 
   .trick-slot.slot-top {
@@ -3594,6 +3655,21 @@ input:checked + .slider:before {
     max-width: 92%;
   }
 
+  .claim-tricks-field-notification {
+    top: 40px;
+    padding: 2px 8px;
+    gap: 5px;
+    max-width: 94%;
+  }
+
+  .claim-pop-title {
+    font-size: 0.70rem;
+  }
+
+  .claim-pop-subtitle {
+    font-size: 0.63rem;
+  }
+
   .player-meta .name {
     font-size: 0.65rem;
     max-width: 55px;
@@ -3644,8 +3720,24 @@ input:checked + .slider:before {
   }
 
   .trick-multi-cards-group .playing-card {
-    width: 30px !important;
-    height: 44px !important;
+    width: 46px !important;
+    height: 66px !important;
+    margin: 0 0 0 -10px !important;
+  }
+  .trick-multi-cards-group .playing-card:first-child {
+    margin-left: 0 !important;
+  }
+  .trick-multi-cards-group[data-count="3"] .playing-card {
+    width: 40px !important;
+    height: 58px !important;
+    margin: 0 0 0 -11px !important;
+  }
+  .trick-multi-cards-group[data-count="4"] .playing-card,
+  .trick-multi-cards-group[data-count="5"] .playing-card,
+  .trick-multi-cards-group[data-count="6"] .playing-card {
+    width: 34px !important;
+    height: 50px !important;
+    margin: 0 0 0 -12px !important;
   }
 
   .trick-slot.slot-top {
@@ -4631,20 +4723,44 @@ input:checked + .slider:before {
   font-weight: 700 !important;
   display: flex !important;
   align-items: center !important;
-  justify-content: center !important;
-  gap: 8px !important;
-  padding: 10px 14px !important;
-  font-size: 0.92rem !important;
+  justify-content: space-between !important;
+  gap: 10px !important;
+  padding: 8px 14px !important;
+  font-size: 0.88rem !important;
   border-radius: 10px !important;
   box-shadow: 0 2px 10px rgba(37, 99, 235, 0.3) !important;
   cursor: pointer !important;
   transition: all 0.2s ease !important;
+  box-sizing: border-box !important;
+  max-width: 100% !important;
+  width: 100% !important;
 }
 
 .btn-menu-friends-large:hover {
   background: linear-gradient(135deg, #2563eb, #1d4ed8) !important;
   transform: translateY(-1px) !important;
   box-shadow: 0 4px 14px rgba(37, 99, 235, 0.45) !important;
+}
+
+.btn-friends-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  font-size: 0.86rem;
+}
+
+.badge-friends-count {
+  background: rgba(255, 255, 255, 0.22);
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  color: #fff;
+  font-size: 0.76rem;
+  font-weight: 800;
+  padding: 2px 8px;
+  border-radius: 12px;
+  min-width: 18px;
+  text-align: center;
+  flex-shrink: 0;
 }
 
 .claim-tricks-banner {
@@ -4691,30 +4807,49 @@ input:checked + .slider:before {
 
 .claim-tricks-field-notification {
   position: absolute;
-  top: 54px;
+  top: 48px;
   left: 50%;
   transform: translateX(-50%);
-  background: linear-gradient(135deg, rgba(70, 45, 5, 0.97) 0%, rgba(120, 75, 10, 0.98) 100%);
-  border: 2px solid #fbbf24;
-  color: #fef08a;
-  font-weight: 800;
-  padding: 6px 18px;
-  border-radius: 20px;
-  font-size: 0.86rem;
-  white-space: nowrap;
-  max-width: 90%;
-  box-sizing: border-box;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  z-index: 50;
-  pointer-events: none;
-  box-shadow: 0 0 25px rgba(251, 191, 36, 0.9), 0 8px 30px rgba(0, 0, 0, 0.95);
+  background: linear-gradient(135deg, rgba(30, 20, 5, 0.96) 0%, rgba(60, 38, 8, 0.97) 100%);
+  border: 1.5px solid #fbbf24;
+  border-radius: 14px;
+  padding: 5px 14px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.85), 0 0 16px rgba(251, 191, 36, 0.45);
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
+  max-width: 90%;
+  box-sizing: border-box;
+  z-index: 50;
+  pointer-events: none;
   animation: mitNotificationPop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
   transition: opacity 0.5s ease, transform 0.5s ease;
+}
+
+.claim-pop-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 1px;
+}
+
+.claim-pop-title {
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: #fef08a;
+  letter-spacing: 0.02em;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+  white-space: normal;
+}
+
+.claim-pop-subtitle {
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: #fed7aa;
+  letter-spacing: 0.01em;
+  white-space: normal;
 }
 
 .claim-tricks-field-notification.fade-out {
