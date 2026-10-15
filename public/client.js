@@ -3454,13 +3454,25 @@ function renderFriendsList(isFromWaitingRoom = false) {
 
   // Live-Online-Status beim Server anfragen
   const friendCodes = savedFriends.map(f => f.code);
-  socket.emit('check_friends_status', { friendCodes }, (response) => {
+  const friendsData = savedFriends.map(f => ({
+    code: f.code,
+    name: f.name,
+    pushSub: f.pushSub || null
+  }));
+  socket.emit('check_friends_status', { friendCodes, friendsData }, (response) => {
     let hasChanges = false;
     let html = '';
     savedFriends.forEach(friend => {
       const details = response?.statusMap?.[friend.code];
       const isOnline = !!(response && (response[friend.code] === true || details?.online));
-      const hasPush = !!(details?.hasPush);
+
+      // Falls der Server ein Push-Abo für den Freund hat, das wir lokal noch nicht hatten: speichern!
+      if (details && details.pushSub && (!friend.pushSub || !friend.pushSub.endpoint)) {
+        friend.pushSub = details.pushSub;
+        hasChanges = true;
+      }
+
+      const hasPush = Boolean(details?.hasPush || (friend.pushSub && friend.pushSub.endpoint));
 
       // Falls der Server den echten Namen des Freundes kennt und wir bisher nur einen Platzhalter haben: aktualisieren!
       if (details && details.name && details.name !== friend.name && !details.name.startsWith('Spieler ')) {
@@ -3532,11 +3544,12 @@ function addFriendByCodeInput() {
     const friendName = (res && res.found && res.name && !res.name.startsWith('Spieler ')) 
       ? res.name 
       : `Freund ${code.substring(4)}`;
+    const pushSub = (res && res.pushSub && res.pushSub.endpoint) ? res.pushSub : null;
     
     savedFriends.push({
       code: code,
       name: friendName,
-      pushSub: null,
+      pushSub: pushSub,
       addedAt: Date.now()
     });
 

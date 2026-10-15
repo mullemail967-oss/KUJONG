@@ -81,7 +81,13 @@ function getFriendCodeForSocket(socketId) {
 
 // Dauerhaftes Freundes- und Push-Verzeichnis (friendCode -> { friendCode, playerName, pushSub, lastSeen })
 const friendRegistry = new Map();
-const REGISTRY_FILE = path.join(__dirname, 'data', 'friend_registry.json');
+const getRegistryDir = () => {
+  if (process.env.DATA_DIR) return process.env.DATA_DIR;
+  if (fs.existsSync('/app/.data')) return '/app/.data';
+  if (fs.existsSync(path.join(__dirname, '.data'))) return path.join(__dirname, '.data');
+  return path.join(__dirname, 'data');
+};
+const REGISTRY_FILE = path.join(getRegistryDir(), 'friend_registry.json');
 
 function loadFriendRegistry() {
   try {
@@ -2736,13 +2742,15 @@ io.on('connection', (socket) => {
 
     if (profile || active) {
       const name = (profile && profile.playerName) || (active && active.playerName) || `Freund ${code.substring(4)}`;
-      const hasPush = !!(profile && profile.pushSub && profile.pushSub.endpoint);
+      const pushSub = (profile && profile.pushSub && profile.pushSub.endpoint) ? profile.pushSub : null;
+      const hasPush = Boolean(pushSub);
       const isOnline = !!(active && active.socketId);
       return cb({
         found: true,
         friendCode: code,
         name: name,
         hasPush: hasPush,
+        pushSub: pushSub,
         isOnline: isOnline
       });
     }
@@ -2754,9 +2762,30 @@ io.on('connection', (socket) => {
     });
   });
 
-  socket.on('check_friends_status', ({ friendCodes }, callback) => {
+  socket.on('check_friends_status', ({ friendCodes, friendsData }, callback) => {
     const cb = (typeof callback === 'function') ? callback : () => {};
     if (!Array.isArray(friendCodes)) return cb({});
+
+    // Client-seitige Rehydrierung: Falls der Server nach einem Neustart/Redeploy das Push-Abo vergessen hat,
+    // aber ein Mitspieler das Push-Abo noch lokal gespeichert hat: sofort im Server-Register wiederherstellen!
+    if (Array.isArray(friendsData)) {
+      for (const item of friendsData) {
+        if (item && item.code && typeof item.code === 'string') {
+          const c = item.code.trim().toUpperCase();
+          const existing = friendRegistry.get(c);
+          if (item.pushSub && item.pushSub.endpoint && (!existing || !existing.pushSub || !existing.pushSub.endpoint)) {
+            friendRegistry.set(c, {
+              friendCode: c,
+              playerName: (existing && existing.playerName) || item.name || 'Spieler',
+              pushSub: item.pushSub,
+              lastSeen: Date.now()
+            });
+            saveFriendRegistryDebounced();
+          }
+        }
+      }
+    }
+
     const result = {};
     const statusMap = {};
     for (const code of friendCodes) {
@@ -2766,13 +2795,15 @@ io.on('connection', (socket) => {
         const profile = friendRegistry.get(c);
         const isOnline = !!(active && active.socketId);
         const name = (active && active.playerName) || (profile && profile.playerName) || null;
-        const hasPush = !!(profile && profile.pushSub && profile.pushSub.endpoint);
+        const pushSub = (profile && profile.pushSub && profile.pushSub.endpoint) ? profile.pushSub : null;
+        const hasPush = Boolean(pushSub);
 
         result[c] = isOnline;
         statusMap[c] = {
           online: isOnline,
           name: name,
-          hasPush: hasPush
+          hasPush: hasPush,
+          pushSub: pushSub
         };
       }
     }
