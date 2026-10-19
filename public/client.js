@@ -396,6 +396,7 @@ document.addEventListener('DOMContentLoaded', () => {
   checkUrlParams();
   syncVibrationUI();
   updateMyAvatarUI(getMyPlayerAvatar());
+  initCreateRoomNotifyUI();
 
   document.addEventListener('visibilitychange', () => {
     const isHidden = document.visibilityState === 'hidden';
@@ -508,6 +509,7 @@ function setupEventListeners() {
 function updateLobbyButtonsState() {
   const codeInput = document.getElementById('roomCodeInput');
   const createBtn = document.getElementById('createRoomBtn');
+  const notifyBtn = document.getElementById('createRoomNotifyToggleBtn');
   const joinBtn = document.getElementById('joinRoomBtn');
   if (!codeInput || !createBtn || !joinBtn) return;
 
@@ -516,12 +518,20 @@ function updateLobbyButtonsState() {
     createBtn.disabled = true;
     createBtn.classList.add('btn-create-disabled');
     createBtn.title = 'Raumcode eingegeben: Klicke auf "Beitreten"';
+    if (notifyBtn) {
+      notifyBtn.disabled = true;
+      notifyBtn.classList.add('btn-create-disabled');
+    }
     joinBtn.classList.remove('btn-secondary');
     joinBtn.classList.add('btn-primary', 'btn-glow');
   } else {
     createBtn.disabled = false;
     createBtn.classList.remove('btn-create-disabled');
     createBtn.title = 'Neuen Raum erstellen';
+    if (notifyBtn) {
+      notifyBtn.disabled = false;
+      notifyBtn.classList.remove('btn-create-disabled');
+    }
     joinBtn.classList.remove('btn-primary', 'btn-glow');
     joinBtn.classList.add('btn-secondary');
   }
@@ -713,6 +723,51 @@ window.handleAvatarFileUpload = handleAvatarFileUpload;
 // --------------------------------------------------------------------------
 let isCreatingRoom = false;
 let pendingCreateRoomName = null;
+let createRoomNotifyEnabled = true;
+
+function initCreateRoomNotifyUI() {
+  try {
+    const saved = localStorage.getItem('kujong_create_room_notify');
+    if (saved !== null) {
+      createRoomNotifyEnabled = saved === 'true';
+    } else {
+      createRoomNotifyEnabled = true;
+    }
+  } catch (e) {
+    createRoomNotifyEnabled = true;
+  }
+  syncCreateRoomNotifyUI();
+}
+
+function syncCreateRoomNotifyUI() {
+  const btn = document.getElementById('createRoomNotifyToggleBtn');
+  const icon = document.getElementById('createRoomNotifyIcon');
+  if (!btn || !icon) return;
+
+  if (createRoomNotifyEnabled) {
+    btn.classList.remove('muted');
+    icon.textContent = '🔔';
+    btn.title = 'Runden-Alarm aktiv: Spieler mit aktiviertem Alarm werden benachrichtigt';
+  } else {
+    btn.classList.add('muted');
+    icon.textContent = '🔕';
+    btn.title = 'Runden-Alarm deaktiviert: Keine automatische Benachrichtigung';
+  }
+}
+
+function toggleCreateRoomNotify() {
+  createRoomNotifyEnabled = !createRoomNotifyEnabled;
+  try {
+    localStorage.setItem('kujong_create_room_notify', String(createRoomNotifyEnabled));
+  } catch (e) {}
+  syncCreateRoomNotifyUI();
+  if (createRoomNotifyEnabled) {
+    showToast('🔔 Runden-Alarm aktiv: Spieler werden beim Erstellen benachrichtigt.');
+  } else {
+    showToast('🔕 Runden-Alarm aus: Niemand wird über diesen Raum benachrichtigt.');
+  }
+}
+window.toggleCreateRoomNotify = toggleCreateRoomNotify;
 
 function isPushActive() {
   try {
@@ -799,7 +854,8 @@ function executeCreateRoom(playerName) {
     playerName,
     settings: currentSettings,
     friendCode: myFriendCode,
-    avatar: getMyPlayerAvatar()
+    avatar: getMyPlayerAvatar(),
+    notifyGlobalAlert: createRoomNotifyEnabled
   });
 }
 
@@ -816,7 +872,8 @@ function handleQuickBotGame() {
       settings: { ...currentSettings, isPublic: true },
       friendCode: myFriendCode,
       avatar: getMyPlayerAvatar(),
-      quickBotStart: true
+      quickBotStart: true,
+      notifyGlobalAlert: createRoomNotifyEnabled
     });
   });
 }
@@ -1078,29 +1135,6 @@ function showEmoteBubble(seatIndex, emote) {
     }, 2200);
   }
 
-  // Wenn das Rundenergebnis- oder Spielende-Fenster offen ist, Emote auch direkt im Modal einblenden!
-  const roundModal = document.getElementById('roundSummaryModal');
-  const gameOverModal = document.getElementById('gameOverModal');
-  let activeStream = null;
-  if (roundModal && !roundModal.classList.contains('hidden')) {
-    activeStream = document.getElementById('roundModalEmoteStream');
-  } else if (gameOverModal && !gameOverModal.classList.contains('hidden')) {
-    activeStream = document.getElementById('gameOverModalEmoteStream');
-  }
-
-  if (activeStream) {
-    const sender = (gameState && Array.isArray(gameState.players)) ? gameState.players[seatIndex] : null;
-    const isMe = (!isSpectator && seatIndex === mySeatIndex);
-    const senderName = sender ? (isMe ? `${sender.name} (Du)` : sender.name) : `Spieler ${seatIndex + 1}`;
-    const pill = document.createElement('div');
-    pill.className = 'modal-emote-pill';
-    pill.innerHTML = `<span class="modal-emote-sender">${escapeHtml(senderName)}:</span> <span class="modal-emote-emoji">${emote}</span>`;
-    activeStream.appendChild(pill);
-    setTimeout(() => {
-      pill.remove();
-    }, 2400);
-  }
-
   SoundManager.play('emote');
 }
 
@@ -1293,7 +1327,18 @@ function playCard(cardId) {
   playSound('card_play');
 }
 
+let roundAdvanceCountdownTimer = null;
+let roundAdvanceRemaining = 5;
+
+function clearRoundAdvanceCountdown() {
+  if (roundAdvanceCountdownTimer) {
+    clearInterval(roundAdvanceCountdownTimer);
+    roundAdvanceCountdownTimer = null;
+  }
+}
+
 function nextRound() {
+  clearRoundAdvanceCountdown();
   socket.emit('next_round');
   document.getElementById('roundSummaryModal').classList.add('hidden');
 }
@@ -3194,6 +3239,7 @@ function handleModals() {
     renderRoundSummary(gameState.roundSummary);
   } else {
     roundModal.classList.add('hidden');
+    clearRoundAdvanceCountdown();
   }
 
   // Game Over Modal
@@ -3320,9 +3366,11 @@ function renderRoundSummary(summary) {
   // Runden-Verlauf aktualisieren
   renderRoundHistoryUI();
 
-  // Host vs Mitspieler Weiter-Button Steuerung
+  // Host vs Mitspieler Weiter-Button Steuerung mit 5s-Countdown für Mitspieler
   const nextBtn = document.getElementById('nextRoundBtn');
   const waitingNote = document.getElementById('waitingForHostNote');
+  clearRoundAdvanceCountdown();
+
   if (nextBtn && waitingNote) {
     if (isHost) {
       nextBtn.classList.remove('hidden');
@@ -3331,6 +3379,20 @@ function renderRoundSummary(summary) {
     } else {
       nextBtn.classList.add('hidden');
       waitingNote.classList.remove('hidden');
+      roundAdvanceRemaining = 5;
+      waitingNote.textContent = `⏳ Warte auf den Spielleiter (oder Weiter in ${roundAdvanceRemaining}s)...`;
+
+      roundAdvanceCountdownTimer = setInterval(() => {
+        roundAdvanceRemaining--;
+        if (roundAdvanceRemaining <= 0) {
+          clearRoundAdvanceCountdown();
+          waitingNote.classList.add('hidden');
+          nextBtn.classList.remove('hidden');
+          nextBtn.disabled = false;
+        } else {
+          waitingNote.textContent = `⏳ Warte auf den Spielleiter (oder Weiter in ${roundAdvanceRemaining}s)...`;
+        }
+      }, 1000);
     }
   }
 }
@@ -3380,17 +3442,6 @@ function renderRoundHistoryUI() {
       `;
     }).join('');
   };
-
-  const summaryBox = document.getElementById('summaryRoundHistoryBox');
-  const summaryList = document.getElementById('summaryRoundHistoryList');
-  if (summaryBox && summaryList) {
-    if (history.length > 0) {
-      summaryList.innerHTML = buildHistoryHTML();
-      summaryBox.classList.remove('hidden');
-    } else {
-      summaryBox.classList.add('hidden');
-    }
-  }
 
   const hostSec = document.getElementById('hostRoundHistorySection');
   const hostList = document.getElementById('hostRoundHistoryList');

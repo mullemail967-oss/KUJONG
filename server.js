@@ -847,6 +847,7 @@ function startNewRound(room) {
   room.trickHistory = [];
   room.trickWinnerInfo = null;
   room.roundSummary = null;
+  room.roundEndedAt = null;
   room.hasThrownCards = {};
   if (room.claimTimer) {
     clearTimeout(room.claimTimer);
@@ -1444,6 +1445,15 @@ function resolveTrick(room, result) {
   const maxPlayers = room.settings.playerCount || 4;
   const anyCardsLeft = room.hands.some((h, idx) => idx < maxPlayers && h && h.length > 0);
 
+  // Bot-Reaktion bei Stichen mit hohen Punkten (>= 7 Augen) während des Spiels
+  if (result && result.points >= 7 && room.trickCount < 5 && anyCardsLeft) {
+    const winnerSeat = room.seats[winnerIndex];
+    if (winnerSeat && winnerSeat.isBot && Math.random() < 0.7) {
+      const pool = ['😎', '🎯', '💰', '💪', '🔥'];
+      triggerBotEmote(room, winnerIndex, pool[Math.floor(Math.random() * pool.length)], 350 + Math.floor(Math.random() * 450));
+    }
+  }
+
   // Wurden alle 5 Stiche gespielt oder hat niemand mehr Karten?
   if (room.trickCount === 5 || !anyCardsLeft) {
     resolveRound(room);
@@ -1671,6 +1681,9 @@ function resolveRound(room) {
     room.phase = 'ROUND_END';
   }
 
+  room.roundEndedAt = Date.now();
+  triggerBotRoundEmotes(room, evaluation);
+
   broadcastGameState(room);
   checkBotAction(room);
 }
@@ -1811,6 +1824,89 @@ function checkBotAction(room) {
   }
 }
 
+/**
+ * Sendet ein Emote für einen Bot zeitverzögert an alle Clients im Raum.
+ */
+function triggerBotEmote(room, seatIndex, emote, delayMs = 600) {
+  if (!room || !room.code) return;
+  const roomCode = room.code;
+  setTimeout(() => {
+    const activeRoom = rooms.get(roomCode);
+    if (!activeRoom) return;
+    const seat = activeRoom.seats[seatIndex];
+    if (!seat || !seat.isBot) return;
+    io.to(roomCode).emit('player_emote', {
+      seatIndex,
+      emote
+    });
+  }, delayMs);
+}
+
+/**
+ * Löst situationsabhängige Bot-Reaktionen (Emotes) am Runden- oder Spielende aus.
+ */
+function triggerBotRoundEmotes(room, evaluation) {
+  if (!room || !room.code) return;
+  const maxPlayers = room.settings.playerCount || 4;
+  const bots = room.seats.slice(0, maxPlayers).filter(s => s && s.isBot);
+  if (bots.length === 0) return;
+
+  const isGameOver = room.scores.teamA <= 0 || room.scores.teamB <= 0;
+  const winningTeam = (room.scores.teamA <= 0 && (room.scores.teamB > 0 || room.scores.teamA <= room.scores.teamB)) ? 0 : 1;
+
+  bots.forEach((bot, idx) => {
+    const delay = 600 + idx * 450 + Math.floor(Math.random() * 400);
+
+    if (isGameOver) {
+      if (bot.team === winningTeam) {
+        const pool = ['🏆', '👑', '🥳', '🍻', '🎉'];
+        triggerBotEmote(room, bot.index, pool[Math.floor(Math.random() * pool.length)], delay);
+      } else {
+        if (Math.random() < 0.65) {
+          const pool = ['😭', '👏', '🤝', '💀'];
+          triggerBotEmote(room, bot.index, pool[Math.floor(Math.random() * pool.length)], delay);
+        }
+      }
+      return;
+    }
+
+    // Durchmarsch (5 Stiche gewonnen)
+    const sweepWinner = room.tricksTeamA === 5 ? 0 : (room.tricksTeamB === 5 ? 1 : -1);
+    if (sweepWinner !== -1) {
+      if (bot.team === sweepWinner) {
+        const pool = ['🧹', '👑', '😎', '🔥'];
+        triggerBotEmote(room, bot.index, pool[Math.floor(Math.random() * pool.length)], delay);
+      } else if (Math.random() < 0.65) {
+        const pool = ['💀', '😱', '🤦‍♂️'];
+        triggerBotEmote(room, bot.index, pool[Math.floor(Math.random() * pool.length)], delay);
+      }
+      return;
+    }
+
+    // Ansager-Team macht 0 Stiche
+    const declarerTricks = room.declarerTeam === 0 ? room.tricksTeamA : room.tricksTeamB;
+    if (declarerTricks === 0) {
+      if (bot.team !== room.declarerTeam) {
+        const pool = ['🤡', '🍼', '🤦‍♂️', '😂'];
+        triggerBotEmote(room, bot.index, pool[Math.floor(Math.random() * pool.length)], delay);
+      } else if (bot.index === room.declarerIndex) {
+        const pool = ['😭', '🙈', '🤦‍♂️'];
+        triggerBotEmote(room, bot.index, pool[Math.floor(Math.random() * pool.length)], delay);
+      }
+      return;
+    }
+
+    // Kontra-Runde
+    if (room.isContraAnnounced) {
+      const roundWinningTeam = (evaluation && evaluation.deltaTeamA < 0) ? 0 : ((evaluation && evaluation.deltaTeamB < 0) ? 1 : -1);
+      if (roundWinningTeam !== -1 && bot.team === roundWinningTeam && Math.random() < 0.75) {
+        const pool = ['👑', '🍻', '💪', '🎯'];
+        triggerBotEmote(room, bot.index, pool[Math.floor(Math.random() * pool.length)], delay);
+      }
+    }
+  });
+}
+
 // Socket.io Verbindungs- und Event-Handling
 io.on('connection', (socket) => {
   let currentRoomCode = null;
@@ -1818,7 +1914,7 @@ io.on('connection', (socket) => {
   let myFriendCode = null;
 
   // Raum erstellen (optional direkt als Schnellrunde mit Bots starten)
-  socket.on('create_room', ({ playerName, settings, friendCode, avatar, quickBotStart }) => {
+  socket.on('create_room', ({ playerName, settings, friendCode, avatar, quickBotStart, notifyGlobalAlert }) => {
     // Falls dieser Client bereits in einem Raum war: den alten Raum vorher sauber auflösen/verlassen!
     if (currentRoomCode) {
       handlePlayerLeave();
@@ -1888,7 +1984,7 @@ io.on('connection', (socket) => {
       logAction(room, `🤖 Schnellrunde mit Bots gestartet!`);
       startNewRound(room);
       broadcastPublicRooms();
-      if (room.settings && room.settings.isPublic !== false) {
+      if (room.settings && room.settings.isPublic !== false && notifyGlobalAlert !== false) {
         broadcastNewPublicRoomAlert(room, playerName || 'Ein Spieler', socket.id, cleanFCode);
       }
       return;
@@ -1897,7 +1993,7 @@ io.on('connection', (socket) => {
     broadcastGameState(room);
     broadcastPublicRooms();
 
-    if (room.settings && room.settings.isPublic !== false) {
+    if (room.settings && room.settings.isPublic !== false && notifyGlobalAlert !== false) {
       broadcastNewPublicRoomAlert(room, playerName || 'Ein Spieler', socket.id, cleanFCode);
     }
   });
@@ -2560,14 +2656,22 @@ io.on('connection', (socket) => {
     handleClaimTricks(room, currentSeatIndex);
   });
 
-  // Nächste Runde starten (Nur Host / Spielleiter)
+  // Nächste Runde starten (Host / Spielleiter ODER nach 3.8s alle menschlichen Mitspieler)
   socket.on('next_round', () => {
     if (!currentRoomCode) return;
     const room = rooms.get(currentRoomCode);
     if (!room || room.phase !== 'ROUND_END') return;
 
-    if (!isPlayerHost(room, socket)) {
-      return socket.emit('error_message', 'Nur der Spielleiter kann die nächste Runde starten.');
+    const isHost = isPlayerHost(room, socket);
+    const roundElapsed = room.roundEndedAt ? (Date.now() - room.roundEndedAt) : 99999;
+
+    // Wenn nicht Host: Erlaubt, wenn der Socket ein sitzender menschlicher Mitspieler ist und mindestens 3.8s vergangen sind
+    if (!isHost) {
+      syncCurrentSeatIndex(room);
+      const isSeatedPlayer = currentSeatIndex >= 0 && room.seats[currentSeatIndex] && room.seats[currentSeatIndex].socketId === socket.id;
+      if (!isSeatedPlayer || roundElapsed < 3800) {
+        return socket.emit('error_message', 'Nur der Spielleiter kann die nächste Runde sofort starten.');
+      }
     }
 
     startNewRound(room);

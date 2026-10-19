@@ -169,6 +169,62 @@ input[type="text"]:focus {
   gap: 14px;
 }
 
+.create-room-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.create-room-row #createRoomBtn {
+  flex: 1;
+  min-width: 0;
+}
+
+.btn-room-notify-toggle {
+  flex-shrink: 0;
+  width: 52px;
+  background: rgba(245, 158, 11, 0.16);
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.35rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  color: #fbbf24;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.btn-room-notify-toggle:hover {
+  background: rgba(245, 158, 11, 0.28);
+  border-color: rgba(245, 158, 11, 0.7);
+  transform: translateY(-1px);
+}
+
+.btn-room-notify-toggle.muted {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.18);
+  color: var(--text-muted, #94a3b8);
+  opacity: 0.75;
+}
+
+.btn-room-notify-toggle.muted:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.3);
+  opacity: 1;
+}
+
+.btn-room-notify-toggle:disabled {
+  opacity: 0.3 !important;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 .join-box {
   display: flex;
   gap: 8px;

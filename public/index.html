@@ -41,7 +41,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=9.4">
+  <link rel="stylesheet" href="style.css?v=9.6">
 </head>
 <body>
 
@@ -90,9 +90,14 @@
           </div>
 
           <div class="lobby-action-buttons">
-            <button id="createRoomBtn" class="btn btn-primary btn-large">
-              <span>🏰 Raum erstellen</span>
-            </button>
+            <div class="create-room-row">
+              <button id="createRoomBtn" class="btn btn-primary btn-large">
+                <span>🏰 Raum erstellen</span>
+              </button>
+              <button type="button" id="createRoomNotifyToggleBtn" class="btn-room-notify-toggle" onclick="toggleCreateRoomNotify()" title="Runden-Alarm aktiv: Spieler mit Alarm-Einstellung werden beim Erstellen benachrichtigt" aria-label="Runden-Alarm beim Erstellen umschalten">
+                <span id="createRoomNotifyIcon">🔔</span>
+              </button>
+            </div>
             <button id="quickBotGameBtn" type="button" class="btn btn-quick-bot" onclick="handleQuickBotGame()">
               <span>🤖 Schnellrunde (mit Bots)</span>
             </button>
@@ -818,25 +823,7 @@
           <span class="stock-title">Im verdeckten Stock lagen (4 Karten):</span>
           <div class="stock-cards-row" id="summaryStockCards"></div>
         </div>
-
-        <!-- RUNDEN-VERLAUF (BIERDECKEL-HISTORIE) -->
-        <div class="round-history-box hidden" id="summaryRoundHistoryBox">
-          <div class="round-history-title">📜 Runden-Verlauf dieser Partie</div>
-          <div class="round-history-list" id="summaryRoundHistoryList"></div>
-        </div>
       </div>
-
-      <!-- SCHNELL-EMOTES DIREKT IM ERGEBNIS-FENSTER -->
-      <div class="modal-quick-emotes">
-        <span class="modal-emote-label">Reaktion:</span>
-        <button type="button" class="btn-modal-emote" onclick="sendEmote('🍻')" title="Prost!">🍻</button>
-        <button type="button" class="btn-modal-emote" onclick="sendEmote('🤡')" title="Clown">🤡</button>
-        <button type="button" class="btn-modal-emote" onclick="sendEmote('🧹')" title="Durchmarsch / Besen">🧹</button>
-        <button type="button" class="btn-modal-emote" onclick="sendEmote('😭')" title="Heulsuse">😭</button>
-        <button type="button" class="btn-modal-emote" onclick="sendEmote('👑')" title="König">👑</button>
-        <button type="button" class="btn-modal-emote" onclick="sendEmote('😎')" title="Eiskalt">😎</button>
-      </div>
-      <div id="roundModalEmoteStream" class="modal-emote-stream"></div>
 
       <div class="modal-actions">
         <button id="nextRoundBtn" class="btn btn-primary btn-large btn-glow" onclick="nextRound()">
@@ -860,18 +847,6 @@
         <div class="score-divider">vs</div>
         <div class="score-col" id="finalColThey">SIE: <strong id="finalScoreThey">13</strong></div>
       </div>
-
-      <!-- SCHNELL-EMOTES IM SPIELENDE-FENSTER -->
-      <div class="modal-quick-emotes">
-        <span class="modal-emote-label">Reaktion:</span>
-        <button type="button" class="btn-modal-emote" onclick="sendEmote('🍻')" title="Prost!">🍻</button>
-        <button type="button" class="btn-modal-emote" onclick="sendEmote('🤡')" title="Clown">🤡</button>
-        <button type="button" class="btn-modal-emote" onclick="sendEmote('🧹')" title="Durchmarsch / Besen">🧹</button>
-        <button type="button" class="btn-modal-emote" onclick="sendEmote('😭')" title="Heulsuse">😭</button>
-        <button type="button" class="btn-modal-emote" onclick="sendEmote('👑')" title="König">👑</button>
-        <button type="button" class="btn-modal-emote" onclick="sendEmote('😎')" title="Eiskalt">😎</button>
-      </div>
-      <div id="gameOverModalEmoteStream" class="modal-emote-stream"></div>
 
       <div class="modal-actions game-over-actions">
         <button id="restartGameBtn" class="btn btn-primary btn-large btn-glow" onclick="restartGame(false)">
@@ -1447,6 +1422,6 @@
   <!-- Socket.io Script -->
   <script src="/socket.io/socket.io.js"></script>
   <!-- Client JavaScript -->
-  <script src="client.js?v=9.7"></script>
+  <script src="client.js?v=9.9"></script>
 </body>
 </html>
