@@ -650,6 +650,7 @@ function sanitizeStateForPlayer(room, seatIndex) {
       name: seat.name,
       team: idx % 2 === 0 ? 0 : 1, // 0 = Team A, 1 = Team B
       isBot: seat.isBot,
+      isAutoBot: Boolean(seat.isAutoBot),
       connected: seat.connected,
       cardCount: room.hands[idx] ? room.hands[idx].length : 0,
       isDealer: room.dealerIndex === idx,
@@ -662,11 +663,14 @@ function sanitizeStateForPlayer(room, seatIndex) {
     };
   });
 
+  const isSpectatorSeat = (typeof seatIndex !== 'number' || seatIndex < 0);
+  const mySeatObj = (!isSpectatorSeat && room.seats[seatIndex]) ? room.seats[seatIndex] : null;
+  const isMyAutoBot = Boolean(mySeatObj && mySeatObj.isAutoBot);
   const myHand = room.hands[seatIndex] ? [...room.hands[seatIndex]] : [];
 
   // Berechne für jede Karte in der eigenen Hand, ob sie im aktuellen Stich spielbar ist
   const playableMap = {};
-  if (room.phase === 'PLAY_TRICK' && room.currentTurn === seatIndex) {
+  if (!isSpectatorSeat && !isMyAutoBot && room.phase === 'PLAY_TRICK' && room.currentTurn === seatIndex) {
     for (const card of myHand) {
       playableMap[card.id] = isCardPlayable(
         card,
@@ -683,10 +687,10 @@ function sanitizeStateForPlayer(room, seatIndex) {
   // Vorab-Ansage erlaubt, solange der Spieler seine eigene Karte noch nicht gespielt hat (bzw. beim Trumpf drehen bis max. 2 gelegte Karten)
   const hasPlayedInTrick1 = room.currentTrick.some(e => e.playerIndex === seatIndex);
   const isTurnedTrumpDeclarer = Boolean(room.isTurnedTrump && room.declarerIndex === seatIndex);
-  const isSpectatorSeat = (typeof seatIndex !== 'number' || seatIndex < 0);
   let canAnnounceMit = false;
   if (
     !isSpectatorSeat &&
+    !isMyAutoBot &&
     room.settings.allowMit !== false &&
     room.phase === 'PLAY_TRICK' &&
     room.trickCount === 0 &&
@@ -706,6 +710,7 @@ function sanitizeStateForPlayer(room, seatIndex) {
   const contraWindow = isContraWindowOpen(room);
   const canAnnounceContra = Boolean(
     !isSpectatorSeat &&
+    !isMyAutoBot &&
     contraWindow &&
     room.isMitAnnounced &&
     !room.isContraAnnounced &&
@@ -718,6 +723,7 @@ function sanitizeStateForPlayer(room, seatIndex) {
   const contraTeam = room.contraTeam !== -1 ? room.contraTeam : (1 - mitTeam);
   const canAnnounceContraRe = Boolean(
     !isSpectatorSeat &&
+    !isMyAutoBot &&
     room.settings.allowContraRe &&
     contraWindow &&
     room.isContraAnnounced &&
@@ -728,8 +734,8 @@ function sanitizeStateForPlayer(room, seatIndex) {
   );
 
   const isMeHost = !isSpectatorSeat && (room.seats[seatIndex] && room.seats[seatIndex].socketId === room.hostSocketId);
-  const canThrowCards = isSpectatorSeat ? false : canPlayerThrowCards(room, seatIndex);
-  const canClaimTricks = isSpectatorSeat ? false : canPlayerClaimTricks(room, seatIndex);
+  const canThrowCards = (isSpectatorSeat || isMyAutoBot) ? false : canPlayerThrowCards(room, seatIndex);
+  const canClaimTricks = (isSpectatorSeat || isMyAutoBot) ? false : canPlayerClaimTricks(room, seatIndex);
 
   return {
     roomCode: room.code,
@@ -769,6 +775,7 @@ function sanitizeStateForPlayer(room, seatIndex) {
       team: myTeam,
       isSpectator: isSpectatorSeat,
       isHost: isMeHost,
+      isAutoBot: isMyAutoBot,
       hand: isSpectatorSeat ? [] : myHand,
       playableMap: isSpectatorSeat ? {} : playableMap,
       canThrowCards: canThrowCards,
@@ -1613,10 +1620,15 @@ function resolveRound(room) {
   }
 
   broadcastGameState(room);
+  checkBotAction(room);
+}
+
+function isSeatBotControlled(seat) {
+  return Boolean(seat && (seat.isBot || seat.isAutoBot));
 }
 
 /**
- * Führt automatische Züge für Bots aus (mit taktischer KI).
+ * Führt automatische Züge für Bots und pausierte Spieler aus (mit taktischer KI).
  */
 function checkBotAction(room) {
   if (room.botTimer) {
@@ -1625,14 +1637,38 @@ function checkBotAction(room) {
   }
 
   const maxPlayers = room.settings.playerCount || 4;
+
+  // Wenn alle menschlichen Spieler gegangen sind und nur noch Bots UND keine Zuschauer im Raum sind,
+  // brauchen die Bots nicht endlos im Hintergrund weiterzuspielen
+  const hasHumans = room.seats.slice(0, maxPlayers).some(s => s && !s.isBot && s.connected);
+  const hasSpectators = room.spectators && room.spectators.length > 0;
+  if (!hasHumans && !hasSpectators) return;
+
+  // Wenn eine Runde beendet ist (ROUND_END) und der Spielleiter (Host) im Pause-Modus (isAutoBot) ist
+  // (oder kein aktiver menschlicher Host ohne Pause existiert), startet der Bot nach 3.5s automatisch die nächste Runde!
+  if (room.phase === 'ROUND_END') {
+    const hostSeat = room.seats.slice(0, maxPlayers).find(s => s && !s.isBot && s.socketId === room.hostSocketId);
+    const shouldAutoAdvanceRound = !hostSeat || Boolean(hostSeat.isAutoBot);
+    if (shouldAutoAdvanceRound) {
+      room.botTimer = setTimeout(() => {
+        if (room.phase !== 'ROUND_END') return;
+        startNewRound(room);
+      }, 3500);
+    }
+    return;
+  }
+
   const turnDelay = (room.settings && typeof room.settings.dealAndTurnDelaySeconds === 'number')
     ? room.settings.dealAndTurnDelaySeconds * 1000
     : 1000;
 
   if (room.phase === 'CHOOSE_TRUMP') {
     const declarer = room.seats[room.declarerIndex];
-    if (declarer && declarer.isBot) {
+    if (isSeatBotControlled(declarer)) {
       room.botTimer = setTimeout(() => {
+        if (room.phase !== 'CHOOSE_TRUMP') return;
+        const currentDeclarer = room.seats[room.declarerIndex];
+        if (!isSeatBotControlled(currentDeclarer)) return;
         const hand = room.hands[room.declarerIndex];
         const botOpts = { ...room.settings, playerCount: maxPlayers, scores: room.scores, declarerIndex: room.declarerIndex, declarerTeam: room.declarerTeam };
         if (shouldBotTurnTrump(hand, botOpts)) {
@@ -1644,13 +1680,13 @@ function checkBotAction(room) {
       }, turnDelay);
     }
   } else if (room.phase === 'PLAY_TRICK') {
-    // 1. Taktische Kontra-Prüfung für gegnerische Bots (in Stich 1 ODER in Stich 2 vor der 1. Karte)
+    // 1. Taktische Kontra-Prüfung für gegnerische Bots / pausierte Spieler (in Stich 1 ODER in Stich 2 vor der 1. Karte)
     if (isContraWindowOpen(room) && room.isMitAnnounced && !room.isContraAnnounced) {
       const mitTeam = room.mitHolderIndex !== -1 ? (room.mitHolderIndex % 2 === 0 ? 0 : 1) : -1;
       for (let s = 0; s < maxPlayers; s++) {
         const seat = room.seats[s];
         const sTeam = s % 2 === 0 ? 0 : 1;
-        if (seat && seat.isBot && sTeam !== mitTeam) {
+        if (isSeatBotControlled(seat) && sTeam !== mitTeam) {
           const hand = room.hands[s];
           if (shouldAnnounceContra(hand, room.mitHolderIndex, s, room.trumpSuit, { ...room.settings, playerCount: maxPlayers, scores: room.scores, declarerIndex: room.declarerIndex, declarerTeam: room.declarerTeam })) {
             handleContraAnnouncement(room, s);
@@ -1661,7 +1697,7 @@ function checkBotAction(room) {
     }
 
     const currentSeat = room.seats[room.currentTurn];
-    if (currentSeat && currentSeat.isBot) {
+    if (isSeatBotControlled(currentSeat)) {
       // Wenn Stich 2 beginnt, Mit' vom letzten Spieler gesagt wurde und Kontra noch offen ist,
       // geben wir menschlichen Spielern etwas Bedenkzeit, bevor der Bot aufspielt!
       let effectiveTurnDelay = turnDelay;
@@ -1670,6 +1706,10 @@ function checkBotAction(room) {
       }
 
       room.botTimer = setTimeout(() => {
+        if (room.phase !== 'PLAY_TRICK') return;
+        const seat = room.seats[room.currentTurn];
+        if (!isSeatBotControlled(seat)) return;
+
         // 2. Taktische Mit'-Prüfung (in Stich 1, wenn Bot ♠Q hält)
         if (room.settings.allowMit !== false && room.trickCount === 0 && room.mitHolderIndex === room.currentTurn && !room.isMitAnnounced) {
           const botHand = room.hands[room.currentTurn];
@@ -1679,7 +1719,7 @@ function checkBotAction(room) {
         }
 
         // 2b. Restliche Stiche abkürzen / aufdecken (wenn Bot unschlagbare Meisterkarten/Trümpfe hält)
-        if (canPlayerClaimTricks(room, room.currentTurn)) {
+        if (room.trickCount < 4 && room.hands[room.currentTurn] && room.hands[room.currentTurn].length > 1 && canPlayerClaimTricks(room, room.currentTurn)) {
           handleClaimTricks(room, room.currentTurn);
           return;
         }
@@ -1779,6 +1819,10 @@ io.on('connection', (socket) => {
     socket.emit('room_created', { roomCode: code, seatIndex: 0 });
     broadcastGameState(room);
     broadcastPublicRooms();
+
+    if (room.settings && room.settings.isPublic !== false) {
+      broadcastNewPublicRoomAlert(room, playerName || 'Ein Spieler', socket.id, cleanFCode);
+    }
   });
 
   // Öffentliche Räume für Startseite anfordern
@@ -2528,6 +2572,31 @@ io.on('connection', (socket) => {
   socket.on('leave_room', handlePlayerLeave);
   socket.on('leave_game', handlePlayerLeave);
 
+  // Temporäre Bot-Übernahme ("Kurz weg / Pause"-Modus) im laufenden Spiel ein-/ausschalten
+  socket.on('toggle_auto_bot', () => {
+    if (!currentRoomCode || currentSeatIndex < 0) return;
+    const room = rooms.get(currentRoomCode);
+    if (!room || room.phase === 'LOBBY') return;
+
+    const seat = room.seats[currentSeatIndex];
+    if (!seat || seat.isBot) return;
+
+    seat.isAutoBot = !seat.isAutoBot;
+
+    if (seat.isAutoBot) {
+      logAction(room, `🤖 ${seat.name} hat auf Pause geschaltet (Bot übernimmt vorübergehend).`);
+    } else {
+      if (room.botTimer) {
+        clearTimeout(room.botTimer);
+        room.botTimer = null;
+      }
+      logAction(room, `▶️ ${seat.name} ist zurück und spielt wieder selbst!`);
+    }
+
+    broadcastGameState(room);
+    checkBotAction(room);
+  });
+
   // Zurück zur Lobby (während des Spiels, nur für den Spielleiter)
   socket.on('return_to_lobby', () => {
     if (!currentRoomCode) return;
@@ -2546,6 +2615,10 @@ io.on('connection', (socket) => {
       clearTimeout(room.claimTimer);
       room.claimTimer = null;
     }
+
+    room.seats.forEach(s => {
+      if (s) s.isAutoBot = false;
+    });
 
     const maxPlayers = room.settings.playerCount || 4;
     room.phase = 'LOBBY';
@@ -2676,7 +2749,7 @@ io.on('connection', (socket) => {
   // ------------------------------------------------------------------------
   // FREUNDES- & PUSH-BENACHRICHTIGUNGSSYSTEM
   // ------------------------------------------------------------------------
-  socket.on('register_friend_code', ({ friendCode, playerName, pushSub }) => {
+  socket.on('register_friend_code', ({ friendCode, playerName, pushSub, notifyAllRooms }) => {
     if (!friendCode || typeof friendCode !== 'string') return;
     myFriendCode = friendCode.trim().toUpperCase().slice(0, 16);
     const cleanName = (playerName || 'Spieler').trim().slice(0, 20);
@@ -2692,6 +2765,7 @@ io.on('connection', (socket) => {
       friendCode: myFriendCode,
       playerName: cleanName,
       pushSub: (pushSub && pushSub.endpoint) ? pushSub : (existing.pushSub || null),
+      notifyAllRooms: typeof notifyAllRooms === 'boolean' ? notifyAllRooms : Boolean(existing.notifyAllRooms),
       lastSeen: Date.now()
     });
     saveFriendRegistryDebounced();
@@ -2718,7 +2792,7 @@ io.on('connection', (socket) => {
     cb({ success: Boolean(code), friendCode: code, playerName: seat.name });
   });
 
-  socket.on('save_push_subscription', ({ friendCode, pushSub, playerName }) => {
+  socket.on('save_push_subscription', ({ friendCode, pushSub, playerName, notifyAllRooms }) => {
     if (!friendCode || !pushSub || !pushSub.endpoint) return;
     const code = friendCode.trim().toUpperCase().slice(0, 16);
     const cleanName = (playerName || 'Spieler').trim().slice(0, 20);
@@ -2728,9 +2802,29 @@ io.on('connection', (socket) => {
       friendCode: code,
       playerName: cleanName || existing.playerName || 'Spieler',
       pushSub: pushSub,
+      notifyAllRooms: typeof notifyAllRooms === 'boolean' ? notifyAllRooms : Boolean(existing.notifyAllRooms),
       lastSeen: Date.now()
     });
     saveFriendRegistryDebounced();
+  });
+
+  // Globaler Runden-Alarm ("Benachrichtigt werden, wenn irgendjemand eine Runde startet")
+  socket.on('set_global_room_alert', ({ friendCode, enabled, pushSub, playerName }, callback) => {
+    const cb = (typeof callback === 'function') ? callback : () => {};
+    const code = (friendCode || myFriendCode || '').trim().toUpperCase().slice(0, 16);
+    if (!code) return cb({ success: false });
+    myFriendCode = code;
+    const cleanName = (playerName || 'Spieler').trim().slice(0, 20);
+    const existing = friendRegistry.get(code) || {};
+    friendRegistry.set(code, {
+      friendCode: code,
+      playerName: cleanName || existing.playerName || 'Spieler',
+      pushSub: (pushSub && pushSub.endpoint) ? pushSub : (existing.pushSub || null),
+      notifyAllRooms: Boolean(enabled),
+      lastSeen: Date.now()
+    });
+    saveFriendRegistryDebounced();
+    cb({ success: true, enabled: Boolean(enabled) });
   });
 
   socket.on('lookup_friend_code', ({ friendCode }, callback) => {
@@ -2912,6 +3006,61 @@ io.on('connection', (socket) => {
     }
   });
 });
+
+/**
+ * Sendet Push & Live-Banner an alle Spieler, die globalen Runden-Alarm ("notifyAllRooms") aktiviert haben
+ */
+async function broadcastNewPublicRoomAlert(room, creatorName, creatorSocketId, creatorFriendCode) {
+  if (!room || !room.code) return;
+  const hostName = (creatorName || 'Jemand').trim().slice(0, 20);
+  const cleanRoom = room.code;
+  const now = Date.now();
+
+  for (const [code, profile] of friendRegistry.entries()) {
+    if (!profile || !profile.notifyAllRooms) continue;
+    if (creatorFriendCode && code === creatorFriendCode) continue;
+
+    const activeSession = activePlayerCodes.get(code);
+    if (activeSession && activeSession.socketId === creatorSocketId) continue;
+
+    // 1. Falls der Spieler gerade online auf der Startseite ist: Live-Banner senden
+    if (activeSession && activeSession.socketId) {
+      const targetSock = io.sockets.sockets.get(activeSession.socketId);
+      if (targetSock && !targetSock.rooms.has(cleanRoom)) {
+        targetSock.emit('incoming_game_invite', {
+          roomCode: cleanRoom,
+          fromName: hostName,
+          isGlobalAlert: true,
+          timestamp: now
+        });
+      }
+    }
+
+    // 2. Web-Push aufs Smartphone senden (falls Push-Abo vorhanden)
+    const pushSub = profile.pushSub;
+    if (pushSub && pushSub.endpoint) {
+      const rateLimitKey = `global_${pushSub.endpoint}`;
+      const lastPush = pushRateLimits.get(rateLimitKey) || 0;
+      if (now - lastPush < 30000) continue; // Max 1 Global-Push alle 30 Sek. pro Gerät
+      pushRateLimits.set(rateLimitKey, now);
+
+      const payload = JSON.stringify({
+        title: 'Kujong – Neue Runde gestartet!',
+        body: `🃏 ${hostName} hat eine Runde gestartet, möchtest du beitreten?`,
+        url: `/?room=${encodeURIComponent(cleanRoom)}`
+      });
+
+      try {
+        await webpush.sendNotification(pushSub, payload, { TTL: 300, urgency: 'high' });
+      } catch (pushErr) {
+        if (pushErr.statusCode === 404 || pushErr.statusCode === 410) {
+          profile.pushSub = null;
+          saveFriendRegistryDebounced();
+        }
+      }
+    }
+  }
+}
 
 // Server starten
 server.listen(PORT, () => {

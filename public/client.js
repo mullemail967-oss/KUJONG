@@ -784,6 +784,7 @@ function chooseTrump(suit) {
 
 function turnTrump() {
   socket.emit('turn_trump');
+  if (typeof incrementPlayerStat === 'function') incrementPlayerStat('trumpsTurned');
   document.getElementById('trumpModal').classList.add('hidden');
   playSound('trump_fanfare');
 }
@@ -890,6 +891,7 @@ function announceMit(announce) {
 
   socket.emit('announce_mit', { announce });
   if (announce) {
+    if (typeof incrementPlayerStat === 'function') incrementPlayerStat('mitAnnounced');
     if (gameState && gameState.currentTurn === mySeatIndex) {
       playSound('trump_fanfare');
     } else {
@@ -908,6 +910,7 @@ function dismissMitBanner() {
 function announceContra() {
   if (isSpectator) return;
   socket.emit('announce_contra');
+  if (typeof incrementPlayerStat === 'function') incrementPlayerStat('contraGiven');
   const btn = document.getElementById('announceContraBtn');
   if (btn) btn.classList.add('hidden');
   playSound('trump_fanfare');
@@ -934,6 +937,7 @@ function claimTricks() {
   if (gameState.trickCount >= 4) return;
   if (gameState.you.hand && gameState.you.hand.length <= 1) return;
   socket.emit('claim_tricks');
+  if (typeof incrementPlayerStat === 'function') incrementPlayerStat('claimsMade');
   playSound('trump_fanfare');
   const banner = document.getElementById('claimTricksBanner');
   if (banner) banner.classList.add('hidden');
@@ -1634,6 +1638,7 @@ socket.on('mit_announced', ({ playerName, seatIndex }) => {
     }, 2800);
   }
   playSound('trump_fanfare');
+  if (typeof triggerVibration === 'function') triggerVibration([60, 50, 80]);
 });
 
 // Auffälliges Banner im Spielfeld, wenn jemand Kontra gibt
@@ -1658,6 +1663,7 @@ socket.on('contra_announced', ({ playerName, seatIndex }) => {
     }, 2800);
   }
   playSound('contra_sound');
+  if (typeof triggerVibration === 'function') triggerVibration([60, 50, 80]);
 });
 
 // Auffälliges Banner im Spielfeld, wenn jemand Kontra-Re (Re) gibt
@@ -1682,6 +1688,7 @@ socket.on('contra_re_announced', ({ playerName, seatIndex }) => {
     }, 2800);
   }
   playSound('contra_sound');
+  if (typeof triggerVibration === 'function') triggerVibration([60, 50, 80]);
 });
 
 // Auffälliges Banner im Spielfeld, wenn jemand Karten wegschmeißt (Dead Hand Fold)
@@ -1885,8 +1892,12 @@ function handleGameState(state) {
   }
 
   // Sound-Effekte bei Phasen-/Zugwechsel
-  if (!isSpectator && state.phase === 'PLAY_TRICK' && state.currentTurn === mySeatIndex && previousTurn !== mySeatIndex) {
+  if (!isSpectator && !(state.you && state.you.isAutoBot) && state.phase === 'PLAY_TRICK' && state.currentTurn === mySeatIndex && previousTurn !== mySeatIndex) {
     SoundManager.play('turn');
+    if (typeof triggerVibration === 'function') triggerVibration([35]);
+  }
+  if (!isSpectator && !(state.you && state.you.isAutoBot) && state.phase === 'CHOOSE_TRUMP' && state.declarerIndex === mySeatIndex && previousPhase !== 'CHOOSE_TRUMP') {
+    if (typeof triggerVibration === 'function') triggerVibration([40, 60, 40]);
   }
 
   // Wurfanimation für neue gegnerische/Bot Karten im Stich
@@ -1912,6 +1923,9 @@ function handleGameState(state) {
   }
 
   renderUI();
+  if (typeof checkAndRecordRoundStats === 'function') {
+    checkAndRecordRoundStats(state);
+  }
 
   // Stich-Auflösung & Gewinner-Highlight mit konfigurierbarer Pause
   if (state.phase === 'EVALUATING_TRICK' && currentEvaluatingTrickNumber !== state.trickCount) {
@@ -2181,6 +2195,22 @@ function renderGameScreen() {
     renderHostPlayerList();
   }
 
+  // Auto-Bot Pause Button & Banner
+  const isMyAutoBot = Boolean(!isSpectator && gameState.you && gameState.you.isAutoBot);
+  const autoBotBtn = document.getElementById('autoBotToggleBtn');
+  if (autoBotBtn) {
+    autoBotBtn.classList.toggle('hidden', isSpectator);
+    autoBotBtn.classList.toggle('active', isMyAutoBot);
+    autoBotBtn.innerHTML = isMyAutoBot ? '▶️ Weiterspielen' : '⏸️ Pause (Bot)';
+    autoBotBtn.title = isMyAutoBot
+      ? 'Pause beenden und sofort wieder selbst Karten legen'
+      : 'Kurz weg? Bot spielt vorübergehend für dich weiter';
+  }
+  const autoBotBanner = document.getElementById('autoBotBanner');
+  if (autoBotBanner) {
+    autoBotBanner.classList.toggle('hidden', !isMyAutoBot);
+  }
+
   // Zuschauer-Banner & Kontrollen
   const specBanner = document.getElementById('spectatorBanner');
   if (specBanner) {
@@ -2313,7 +2343,12 @@ function renderTablePlayers() {
     const declarerPill = document.getElementById(`declarerPill${key}`);
 
     if (nameEl) {
-      if (isMe || player.isBot) {
+      if (player.isAutoBot) {
+        nameEl.textContent = isMe ? `${player.name} (Du • 🤖 Pause)` : `🤖 ${player.name} (Pause)`;
+        nameEl.classList.remove('clickable-friend-name');
+        nameEl.removeAttribute('title');
+        nameEl.onclick = null;
+      } else if (isMe || player.isBot) {
         nameEl.textContent = isMe ? `${player.name} (Du)` : player.name;
         nameEl.classList.remove('clickable-friend-name');
         nameEl.removeAttribute('title');
@@ -2382,11 +2417,15 @@ function renderTablePlayers() {
     const dealerBadge = document.getElementById(`dealer${key}`);
     if (dealerBadge) dealerBadge.classList.toggle('hidden', !player.isDealer);
 
-    // Turn Glow am Avatar
+    // Turn Glow & Avatar Icon
     const playerBox = document.getElementById(`player${key}`);
     const avatarBox = playerBox ? playerBox.querySelector('.player-avatar-box') : null;
+    const avatarIcon = playerBox ? playerBox.querySelector('.avatar-icon') : null;
     if (avatarBox) {
       avatarBox.classList.toggle('player-turn-glow', player.isTurn);
+    }
+    if (avatarIcon) {
+      avatarIcon.textContent = (player.isBot || player.isAutoBot) ? '🤖' : '👤';
     }
 
     // Mini Card Backs für Gegner & Partner (Karten liegen während des Spiels auf der Hand)
@@ -2409,8 +2448,15 @@ function renderTablePlayers() {
   });
 
   // Turn Indicator für Spieler unten
+  const isMyAutoBot = Boolean(gameState.you && gameState.you.isAutoBot);
   const isMyTurn = (gameState.currentTurn === mySeatIndex && gameState.phase === 'PLAY_TRICK' && (!gameState.you || !gameState.you.hasThrownCards));
-  document.getElementById('turnIndicator').classList.toggle('hidden', !isMyTurn);
+  const turnInd = document.getElementById('turnIndicator');
+  if (turnInd) {
+    turnInd.classList.toggle('hidden', !isMyTurn);
+    if (isMyTurn) {
+      turnInd.textContent = isMyAutoBot ? '🤖 Bot legt für dich...' : '⚡ Du bist am Zug!';
+    }
+  }
 }
 
 function renderTrickCenter() {
@@ -2557,7 +2603,8 @@ function renderMyHand() {
   const hand = (gameState.you && gameState.you.hand) ? gameState.you.hand : [];
   const total = hand.length;
   fan.setAttribute('data-card-count', total);
-  const isMyTurn = (gameState.currentTurn === mySeatIndex && gameState.phase === 'PLAY_TRICK');
+  const isMyAutoBot = Boolean(gameState.you && gameState.you.isAutoBot);
+  const isMyTurn = !isMyAutoBot && (gameState.currentTurn === mySeatIndex && gameState.phase === 'PLAY_TRICK');
 
   // Bei 3 oder weniger Karten flacher Fächer mit extra Abstand
   const useRotation = total > 3;
@@ -2569,11 +2616,13 @@ function renderMyHand() {
     const rot = useRotation ? ((index - (total - 1) / 2) * 4) : 0;
     const ty = useRotation ? (Math.abs(index - (total - 1) / 2) * 2) : 0;
 
-    cardEl.innerHTML = createCardHTML(card, !isPlayable && isMyTurn, true);
+    cardEl.innerHTML = createCardHTML(card, (!isPlayable && isMyTurn) || isMyAutoBot, true);
     const cardChild = cardEl.firstElementChild;
     cardChild.style.transform = `rotate(${rot}deg) translateY(${ty}px)`;
 
-    if (isPlayable && isMyTurn) {
+    if (isMyAutoBot) {
+      cardChild.classList.add('auto-bot-disabled');
+    } else if (isPlayable && isMyTurn) {
       cardChild.addEventListener('click', () => playCardWithAnimation(card.id, cardChild));
     }
 
@@ -2637,9 +2686,10 @@ function handleModals() {
   const mitBanner = document.getElementById('mitActionBanner');
   const roundModal = document.getElementById('roundSummaryModal');
   const gameOverModal = document.getElementById('gameOverModal');
+  const isMyAutoBot = Boolean(gameState.you && gameState.you.isAutoBot);
 
   // Trumpfwahl-Modal
-  if (!isSpectator && gameState.phase === 'CHOOSE_TRUMP' && gameState.declarerIndex === mySeatIndex) {
+  if (!isSpectator && !isMyAutoBot && gameState.phase === 'CHOOSE_TRUMP' && gameState.declarerIndex === mySeatIndex) {
     trumpModal.classList.remove('hidden');
 
     const trumpCardsContainer = document.getElementById('trumpDealtCards');
@@ -2652,8 +2702,8 @@ function handleModals() {
     trumpModal.classList.add('hidden');
   }
 
-  // Mit'-Ansage Banner (sofort ausgeblendet, sobald vorgemerkt)
-  if (!isSpectator && gameState.canAnnounceMit && (!gameState.you || !gameState.you.isMitPreAnnounced)) {
+  // Mit'-Ansage Banner (sofort ausgeblendet, sobald vorgemerkt oder Bot übernimmt)
+  if (!isSpectator && !isMyAutoBot && gameState.canAnnounceMit && (!gameState.you || !gameState.you.isMitPreAnnounced)) {
     if (mitBanner) {
       mitBanner.classList.remove('hidden');
       mitBanner.innerHTML = `
@@ -2676,7 +2726,7 @@ function handleModals() {
   if (claimTricksBanner) {
     const isLastTrick = (typeof gameState.trickCount === 'number' && gameState.trickCount >= 4);
     const hasMultipleCards = (gameState.you && Array.isArray(gameState.you.hand) && gameState.you.hand.length > 1);
-    if (!isSpectator && gameState.you && gameState.you.canClaimTricks && !isLastTrick && hasMultipleCards) {
+    if (!isSpectator && !isMyAutoBot && gameState.you && gameState.you.canClaimTricks && !isLastTrick && hasMultipleCards) {
       claimTricksBanner.classList.remove('hidden');
     } else {
       claimTricksBanner.classList.add('hidden');
@@ -2686,7 +2736,7 @@ function handleModals() {
   // Karten wegschmeißen Banner (Dead Hand Fold)
   const throwCardsBanner = document.getElementById('throwCardsBanner');
   if (throwCardsBanner) {
-    if (!isSpectator && gameState.you && gameState.you.canThrowCards) {
+    if (!isSpectator && !isMyAutoBot && gameState.you && gameState.you.canThrowCards) {
       throwCardsBanner.classList.remove('hidden');
     } else {
       throwCardsBanner.classList.add('hidden');
@@ -3219,6 +3269,11 @@ function initFriendSystem() {
 
   // Prüfen, ob iOS Safari vorliegt (für Home-Screen Hinweis)
   checkIosSafariPrompt();
+
+  // Globalen Runden-Alarm UI synchronisieren
+  if (typeof syncGlobalRoomAlertUI === 'function') {
+    syncGlobalRoomAlertUI();
+  }
 }
 
 // Socket mit meinem Code und Push-Abo registrieren
@@ -3234,7 +3289,8 @@ function registerFriendSocket() {
   socket.emit('register_friend_code', {
     friendCode: myFriendCode,
     playerName: playerName,
-    pushSub: pushSub
+    pushSub: pushSub,
+    notifyAllRooms: (typeof isGlobalRoomAlertEnabled === 'function') ? isGlobalRoomAlertEnabled() : false
   });
 }
 
@@ -3767,15 +3823,31 @@ function showIncomingInviteBanner(invite) {
   const banner = document.getElementById('incomingInviteBanner');
   const hostElem = document.getElementById('inviteHostName');
   const roomElem = document.getElementById('inviteRoomCode');
+  const titleElem = banner ? banner.querySelector('.invite-banner-title') : null;
+  const subElem = banner ? banner.querySelector('.invite-banner-subtitle') : null;
 
-  if (hostElem) hostElem.textContent = invite.fromName || invite.hostName || 'Ein Freund';
+  const hostName = invite.fromName || invite.hostName || 'Ein Spieler';
+  if (hostElem) hostElem.textContent = hostName;
   if (roomElem) roomElem.textContent = invite.roomCode;
+
+  if (titleElem) {
+    if (invite.isGlobalAlert) {
+      titleElem.innerHTML = `🃏 <span>${escapeHtml(hostName)}</span> hat eine Runde gestartet!`;
+    } else {
+      titleElem.innerHTML = `🃏 <span>${escapeHtml(hostName)}</span> lädt dich ein!`;
+    }
+  }
+
+  if (subElem) {
+    subElem.innerHTML = invite.isGlobalAlert
+      ? `Partie in Raum <strong id="inviteRoomCode">${escapeHtml(invite.roomCode)}</strong> – Möchtest du beitreten?`
+      : `Partie in Raum <strong id="inviteRoomCode">${escapeHtml(invite.roomCode)}</strong> beitreten?`;
+  }
+
   if (banner) banner.classList.remove('hidden');
 
   // Leichtes Vibrieren auf Mobilgeräten
-  if ('vibrate' in navigator) {
-    try { navigator.vibrate([100, 50, 100]); } catch (e) {}
-  }
+  triggerVibration([100, 50, 100]);
 }
 
 function acceptIncomingInvite() {
@@ -3834,4 +3906,488 @@ window.removeFriend = removeFriend;
 window.acceptIncomingInvite = acceptIncomingInvite;
 window.dismissIncomingInvite = dismissIncomingInvite;
 window.changeMyPlayerNamePrompt = changeMyPlayerNamePrompt;
+
+/* ==========================================================================
+   PAUSEN-MODUS (AUTO-BOT), GLOBALER RUNDEN-ALARM, VIBRATION, STATISTIK, SPICKZETTEL & TUTORIAL
+   ========================================================================== */
+
+// 1. Temporäre Bot-Vertretung ("Kurz weg / Pause")
+function toggleAutoBot() {
+  if (isSpectator || !currentRoomCode || !gameState || gameState.phase === 'LOBBY') return;
+  socket.emit('toggle_auto_bot');
+}
+window.toggleAutoBot = toggleAutoBot;
+
+// 2. Globaler Runden-Alarm ("Benachrichtigt werden, wenn irgendjemand eine Runde startet")
+const GLOBAL_ALERT_STORAGE_KEY = 'kujong_notify_all_rooms';
+
+function isGlobalRoomAlertEnabled() {
+  try {
+    return localStorage.getItem(GLOBAL_ALERT_STORAGE_KEY) === 'true';
+  } catch (e) {
+    return false;
+  }
+}
+
+function syncGlobalRoomAlertUI() {
+  const enabled = isGlobalRoomAlertEnabled();
+  const btn = document.getElementById('globalRoomAlertBtn');
+  const icon = document.getElementById('globalRoomAlertIcon');
+  const title = document.getElementById('globalRoomAlertTitle');
+  const badge = document.getElementById('globalRoomAlertBadge');
+  const desc = document.getElementById('globalRoomAlertDesc');
+
+  if (btn) btn.classList.toggle('active', enabled);
+  if (icon) icon.textContent = enabled ? '🔔' : '🔕';
+  if (title) {
+    title.textContent = enabled
+      ? 'Benachrichtigung bei neuen Runden ist AKTIV'
+      : 'Benachrichtigt werden, wenn irgendjemand eine Runde startet';
+  }
+  if (badge) {
+    badge.textContent = enabled ? 'EIN' : 'AUS';
+    badge.className = `global-alert-status-pill ${enabled ? 'on' : 'off'}`;
+  }
+  if (desc) {
+    desc.textContent = enabled
+      ? 'Du erhältst sofort eine Nachricht („Hat eine Runde gestartet, möchtest du beitreten?“), sobald egal wer eine öffentliche Runde aufmacht.'
+      : 'Tippe hier, um eine Handy-Benachrichtigung zu erhalten, sobald egal welche Person (auch Nicht-Freunde) eine neue Runde aufmacht.';
+  }
+}
+
+async function toggleGlobalRoomAlert() {
+  const currentlyEnabled = isGlobalRoomAlertEnabled();
+  const nextState = !currentlyEnabled;
+
+  // Wenn der Nutzer den Runden-Alarm einschaltet, sicherstellen, dass Push-Benachrichtigungen erlaubt sind!
+  if (nextState && 'Notification' in window && Notification.permission !== 'granted') {
+    await requestPushPermission();
+  }
+
+  try {
+    localStorage.setItem(GLOBAL_ALERT_STORAGE_KEY, nextState ? 'true' : 'false');
+  } catch (e) {}
+
+  syncGlobalRoomAlertUI();
+
+  let pushSub = null;
+  try {
+    const rawSub = localStorage.getItem('kujong_push_sub');
+    if (rawSub) pushSub = JSON.parse(rawSub);
+  } catch (e) {}
+
+  if (socket && socket.connected && myFriendCode) {
+    socket.emit('set_global_room_alert', {
+      friendCode: myFriendCode,
+      enabled: nextState,
+      pushSub: pushSub,
+      playerName: getPlayerName() || 'Spieler'
+    });
+  }
+
+  if (nextState) {
+    showToast('🔔 Runden-Alarm aktiviert! Du wirst benachrichtigt, sobald jemand eine Runde startet.');
+    triggerVibration([40, 60]);
+  } else {
+    showToast('🔕 Runden-Alarm für fremde Runden deaktiviert.');
+  }
+}
+window.toggleGlobalRoomAlert = toggleGlobalRoomAlert;
+
+// 3. Smartphone Vibrations-Feedback
+function triggerVibration(pattern) {
+  if (!soundEnabled) return;
+  try {
+    if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+      navigator.vibrate(pattern);
+    }
+  } catch (e) {}
+}
+window.triggerVibration = triggerVibration;
+
+// 4. Persönliche Spieler-Statistik & Erfolge (localStorage)
+const STATS_STORAGE_KEY = 'kujong_player_stats';
+let lastRecordedRoundKey = null;
+let lastRecordedMatchKey = null;
+
+function getDefaultPlayerStats() {
+  return {
+    roundsPlayed: 0,
+    roundsWon: 0,
+    matchesPlayed: 0,
+    matchesWon: 0,
+    mitAnnounced: 0,
+    contraGiven: 0,
+    contraWon: 0,
+    trumpsTurned: 0,
+    sweepsWon: 0,
+    claimsMade: 0,
+    unlockedAchievements: []
+  };
+}
+
+function loadPlayerStats() {
+  try {
+    const raw = localStorage.getItem(STATS_STORAGE_KEY);
+    if (!raw) return getDefaultPlayerStats();
+    const parsed = JSON.parse(raw);
+    return { ...getDefaultPlayerStats(), ...parsed };
+  } catch (e) {
+    return getDefaultPlayerStats();
+  }
+}
+
+function savePlayerStats(stats) {
+  try {
+    localStorage.setItem(STATS_STORAGE_KEY, JSON.stringify(stats));
+  } catch (e) {}
+}
+
+const ACHIEVEMENTS_DEFINITIONS = [
+  {
+    id: 'first_round_win',
+    icon: '🏅',
+    title: 'Erster Streich',
+    desc: 'Gewinne deine erste Runde Kujong.',
+    target: 1,
+    getValue: (s) => s.roundsWon
+  },
+  {
+    id: 'first_match_win',
+    icon: '🏆',
+    title: 'Partien-Sieger',
+    desc: 'Spiele ein komplettes Match von 13 auf 0 Punkte herunter und gewinne.',
+    target: 1,
+    getValue: (s) => s.matchesWon
+  },
+  {
+    id: 'mit_master',
+    icon: '⭐',
+    title: "Mit'-Meister",
+    desc: "Sage insgesamt 5-mal die Mit' (Pik-Dame) an.",
+    target: 5,
+    getValue: (s) => s.mitAnnounced
+  },
+  {
+    id: 'contra_king',
+    icon: '⚡',
+    title: 'Kontra-König',
+    desc: 'Gewinne 3 Runden, in denen Kontra gegeben wurde.',
+    target: 3,
+    getValue: (s) => s.contraWon
+  },
+  {
+    id: 'blind_gambler',
+    icon: '🎲',
+    title: 'Blinder Zocker',
+    desc: 'Drehe 5-mal blind den Trumpf aus deinen letzten 2 Karten.',
+    target: 5,
+    getValue: (s) => s.trumpsTurned
+  },
+  {
+    id: 'sweep_machine',
+    icon: '🧹',
+    title: 'Durchmarsch-Maschine',
+    desc: 'Hole mit deinem Team in 3 Runden alle 5 Stiche (Durchmarsch).',
+    target: 3,
+    getValue: (s) => s.sweepsWon
+  },
+  {
+    id: 'claim_boss',
+    icon: '👑',
+    title: 'Karten auf den Tisch!',
+    desc: 'Decke 3-mal deine unschlagbaren Meisterkarten vorzeitig auf.',
+    target: 3,
+    getValue: (s) => s.claimsMade
+  },
+  {
+    id: 'kujong_legend',
+    icon: '🔥',
+    title: 'Kujong-Legende',
+    desc: 'Gewinne insgesamt 10 komplette Partien.',
+    target: 10,
+    getValue: (s) => s.matchesWon
+  }
+];
+
+function incrementPlayerStat(key, amount = 1) {
+  if (isSpectator) return;
+  const stats = loadPlayerStats();
+  stats[key] = (Number(stats[key]) || 0) + amount;
+  checkAchievementsUnlock(stats);
+  savePlayerStats(stats);
+}
+
+function checkAchievementsUnlock(stats) {
+  if (!Array.isArray(stats.unlockedAchievements)) {
+    stats.unlockedAchievements = [];
+  }
+  ACHIEVEMENTS_DEFINITIONS.forEach(ach => {
+    if (!stats.unlockedAchievements.includes(ach.id)) {
+      const val = ach.getValue(stats);
+      if (val >= ach.target) {
+        stats.unlockedAchievements.push(ach.id);
+        showToast(`🎖️ Erfolg freigeschaltet: ${ach.icon} ${ach.title}!`);
+        triggerVibration([50, 60, 100]);
+      }
+    }
+  });
+}
+
+function checkAndRecordRoundStats(state) {
+  if (!state || isSpectator || !state.you) return;
+  if ((state.phase === 'ROUND_END' || state.phase === 'GAME_OVER') && state.roundSummary) {
+    const summary = state.roundSummary;
+    const roundKey = `${state.roomCode}_R${summary.roundNumber}`;
+    if (lastRecordedRoundKey !== roundKey) {
+      lastRecordedRoundKey = roundKey;
+
+      const myTeam = state.you.team;
+      const deltaWe = myTeam === 0 ? summary.deltaTeamA : summary.deltaTeamB;
+      const tricksWe = myTeam === 0 ? summary.tricksTeamA : summary.tricksTeamB;
+      const weWonRound = deltaWe < 0;
+
+      const stats = loadPlayerStats();
+      stats.roundsPlayed = (stats.roundsPlayed || 0) + 1;
+      if (weWonRound) {
+        stats.roundsWon = (stats.roundsWon || 0) + 1;
+        triggerVibration([50, 50, 50, 50, 120]);
+      }
+      if (weWonRound && tricksWe >= 5) {
+        stats.sweepsWon = (stats.sweepsWon || 0) + 1;
+      }
+      if (weWonRound && state.isContraAnnounced) {
+        stats.contraWon = (stats.contraWon || 0) + 1;
+      }
+
+      if (state.phase === 'GAME_OVER') {
+        const matchKey = `${state.roomCode}_M_${summary.roundNumber}`;
+        if (lastRecordedMatchKey !== matchKey) {
+          lastRecordedMatchKey = matchKey;
+          const weWonMatch = (state.scores.teamA <= 0 && myTeam === 0) || (state.scores.teamB <= 0 && myTeam === 1);
+          stats.matchesPlayed = (stats.matchesPlayed || 0) + 1;
+          if (weWonMatch) {
+            stats.matchesWon = (stats.matchesWon || 0) + 1;
+          }
+        }
+      }
+
+      checkAchievementsUnlock(stats);
+      savePlayerStats(stats);
+    }
+  }
+}
+
+function openStatsModal() {
+  renderStatsModal();
+  const modal = document.getElementById('statsModal');
+  if (modal) modal.classList.remove('hidden');
+}
+
+function closeStatsModal() {
+  const modal = document.getElementById('statsModal');
+  if (modal) modal.classList.add('hidden');
+}
+
+function renderStatsModal() {
+  const stats = loadPlayerStats();
+  const grid = document.getElementById('playerStatsGrid');
+  const achContainer = document.getElementById('achievementsListContainer');
+  const achCountEl = document.getElementById('achievementsUnlockedCount');
+
+  const winRateMatch = stats.matchesPlayed > 0
+    ? Math.round((stats.matchesWon / stats.matchesPlayed) * 100)
+    : 0;
+  const winRateRound = stats.roundsPlayed > 0
+    ? Math.round((stats.roundsWon / stats.roundsPlayed) * 100)
+    : 0;
+
+  if (grid) {
+    grid.innerHTML = `
+      <div class="stat-card highlight">
+        <span class="stat-val">${stats.matchesWon} / ${stats.matchesPlayed}</span>
+        <span class="stat-label">🏆 Partien gewonnen (${winRateMatch}%)</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-val">${stats.roundsWon} / ${stats.roundsPlayed}</span>
+        <span class="stat-label">🃏 Runden gewonnen (${winRateRound}%)</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-val">${stats.sweepsWon || 0}</span>
+        <span class="stat-label">🧹 Durchmärsche (5 Stiche)</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-val">${stats.mitAnnounced || 0}</span>
+        <span class="stat-label">⭐ Mit' angesagt</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-val">${stats.contraWon || 0} / ${stats.contraGiven || 0}</span>
+        <span class="stat-label">⚡ Kontra gewonnen / gegeben</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-val">${stats.trumpsTurned || 0}</span>
+        <span class="stat-label">🎲 Trumpf blind gedreht</span>
+      </div>
+    `;
+  }
+
+  if (achCountEl) {
+    achCountEl.textContent = `${(stats.unlockedAchievements || []).length} / ${ACHIEVEMENTS_DEFINITIONS.length}`;
+  }
+
+  if (achContainer) {
+    achContainer.innerHTML = ACHIEVEMENTS_DEFINITIONS.map(ach => {
+      const currentVal = Math.min(ach.target, ach.getValue(stats) || 0);
+      const isUnlocked = (stats.unlockedAchievements || []).includes(ach.id) || currentVal >= ach.target;
+      const pct = Math.min(100, Math.round((currentVal / ach.target) * 100));
+      return `
+        <div class="achievement-item ${isUnlocked ? 'unlocked' : 'locked'}">
+          <div class="achievement-icon">${ach.icon}</div>
+          <div class="achievement-info">
+            <div class="achievement-title-row">
+              <span class="achievement-title">${ach.title}</span>
+              <span class="achievement-progress-text">${currentVal} / ${ach.target}</span>
+            </div>
+            <p class="achievement-desc">${ach.desc}</p>
+            <div class="achievement-bar-bg">
+              <div class="achievement-bar-fill" style="width: ${pct}%;"></div>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+}
+
+window.openStatsModal = openStatsModal;
+window.closeStatsModal = closeStatsModal;
+
+// 5. Spickzettel-Modal am Spieltisch
+function openCheatSheetModal() {
+  const modal = document.getElementById('cheatSheetModal');
+  if (modal) modal.classList.remove('hidden');
+}
+
+function closeCheatSheetModal() {
+  const modal = document.getElementById('cheatSheetModal');
+  if (modal) modal.classList.add('hidden');
+}
+
+window.openCheatSheetModal = openCheatSheetModal;
+window.closeCheatSheetModal = closeCheatSheetModal;
+
+// 6. Interaktives 4-Schritte-Tutorial
+let currentTutorialStep = 0;
+const TUTORIAL_STEPS = [
+  {
+    tag: 'Schritt 1 von 4 • Das Ziel',
+    title: '🏆 Von 13 auf 0 Punkte',
+    html: `
+      <div class="tutorial-slide">
+        <p>Bei <strong>Kujong</strong> spielt ihr in 2 festen Teams gegeneinander: <strong>WIR</strong> gegen <strong>SIE</strong> (2 gegen 2 im 4er-Modus oder 3 gegen 3 im 6er-Modus).</p>
+        <div class="tutorial-highlight-box">
+          <strong>🎯 Spielziel:</strong> Beide Teams starten bei <strong>13 Punkten</strong>. Durch gewonnene Runden zieht ihr eurem Punktestand Punkte ab. Wer zuerst <strong>0 Punkte</strong> erreicht, gewinnt die Partie!
+        </div>
+        <p>Jeder Spieler erhält pro Runde <strong>5 Handkarten</strong> (4 Karten liegen verdeckt im „Stock“ und zählen am Ende zu den Stichen des Ansager-Teams, falls es mindestens einen Stich macht).</p>
+      </div>
+    `
+  },
+  {
+    tag: 'Schritt 2 von 4 • Trumpfwahl & Drehen',
+    title: '👑 Der Ansager bestimmt den Trumpf',
+    html: `
+      <div class="tutorial-slide">
+        <p>Vor jeder Runde sieht der <strong>Ansager</strong> (links vom Geber) zuerst seine <strong>ersten 3 Karten</strong>.</p>
+        <ul class="tutorial-list">
+          <li><strong>Farbe ansagen:</strong> Er wählt anhand der 3 Karten die Trumpffarbe (♥ Herz, ♦ Karo, ♠ Pik oder ♣ Kreuz).</li>
+          <li><strong>🎲 Blind drehen:</strong> Sind die ersten 3 Karten schlecht, kann er <em>„Trumpf drehen“</em> – dann bestimmt die erste seiner 2 restlichen Karten automatisch die Trumpffarbe!</li>
+        </ul>
+      </div>
+    `
+  },
+  {
+    tag: 'Schritt 3 von 4 • Die Damen & Ansagen',
+    title: "⭐ Kreuz-Dame, Mit' (♠Q) & Kontra",
+    html: `
+      <div class="tutorial-slide">
+        <p>In Kujong gibt es zwei besondere Damen, die fast immer stechen:</p>
+        <div class="tutorial-highlight-box">
+          <strong>1. Trumpf-Ass</strong> (höchste Karte)<br>
+          <strong>2. Pik-Dame (♠Q)</strong> – wenn im 1. Stich <strong>„Mit'“</strong> angesagt wurde (verdoppelt den Rundenwert auf 2 Punkte!)<br>
+          <strong>3. Kreuz-Dame (♣Q)</strong> – ist <strong>immer</strong> fester Trumpf!<br>
+          <strong>4. Übrige Trümpfe:</strong> König ➔ Dame ➔ Bauer ➔ 10 ➔ 9
+        </div>
+        <p><strong>⚡ Kontra:</strong> Glaubt das Gegner-Team, dass der Ansager verliert, kann es vor dem 2. Stich <strong>Kontra</strong> geben (Runde zählt dann 4 bzw. 3 Punkte!).</p>
+      </div>
+    `
+  },
+  {
+    tag: 'Schritt 4 von 4 • Stichregeln & Augen',
+    title: '🔢 Farbzwang & 40 Augen',
+    html: `
+      <div class="tutorial-slide">
+        <p><strong>Farbzwang:</strong> Die zuerst ausgespielte Farbe muss bedient werden. Nur wer die angespielte Farbe <em>nicht</em> hat, darf mit Trumpf stechen oder eine andere Karte abwerfen.</p>
+        <div class="tutorial-highlight-box">
+          <strong>Augen zählen (insgesamt 40 Augen im Spiel):</strong><br>
+          Ass = <strong>4</strong> • König = <strong>3</strong> • Dame = <strong>2</strong> • Bauer = <strong>1</strong> • 10 & 9 = <strong>0</strong>
+        </div>
+        <p>Wer am Rundenende <strong>mindestens 21 Augen</strong> hat, gewinnt die Runde! Bei <strong>20 : 20 Augen</strong> gewinnt das Gegner-Team des Ansagers.</p>
+      </div>
+    `
+  }
+];
+
+function openTutorialModal() {
+  currentTutorialStep = 0;
+  renderTutorialStep();
+  const modal = document.getElementById('tutorialModal');
+  if (modal) modal.classList.remove('hidden');
+}
+
+function closeTutorialModal() {
+  const modal = document.getElementById('tutorialModal');
+  if (modal) modal.classList.add('hidden');
+}
+
+function changeTutorialStep(delta) {
+  const next = currentTutorialStep + delta;
+  if (next < 0) return;
+  if (next >= TUTORIAL_STEPS.length) {
+    closeTutorialModal();
+    return;
+  }
+  currentTutorialStep = next;
+  renderTutorialStep();
+}
+
+function renderTutorialStep() {
+  const step = TUTORIAL_STEPS[currentTutorialStep];
+  const tagEl = document.getElementById('tutorialStepTag');
+  const titleEl = document.getElementById('tutorialStepTitle');
+  const contentEl = document.getElementById('tutorialStepContent');
+  const dotsRow = document.getElementById('tutorialDotsRow');
+  const prevBtn = document.getElementById('tutorialPrevBtn');
+  const nextBtn = document.getElementById('tutorialNextBtn');
+
+  if (tagEl) tagEl.textContent = step.tag;
+  if (titleEl) titleEl.textContent = step.title;
+  if (contentEl) contentEl.innerHTML = step.html;
+
+  if (dotsRow) {
+    dotsRow.innerHTML = TUTORIAL_STEPS.map((_, idx) =>
+      `<span class="tutorial-dot ${idx === currentTutorialStep ? 'active' : ''}" onclick="currentTutorialStep=${idx}; renderTutorialStep();"></span>`
+    ).join('');
+  }
+
+  if (prevBtn) {
+    prevBtn.style.visibility = currentTutorialStep === 0 ? 'hidden' : 'visible';
+  }
+  if (nextBtn) {
+    nextBtn.textContent = currentTutorialStep === TUTORIAL_STEPS.length - 1 ? "✓ Los geht's!" : 'Weiter ➔';
+  }
+}
+
+window.openTutorialModal = openTutorialModal;
+window.closeTutorialModal = closeTutorialModal;
+window.changeTutorialStep = changeTutorialStep;
 

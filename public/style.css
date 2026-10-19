@@ -4972,3 +4972,447 @@ input:checked + .slider:before {
   0% { transform: scale(1); }
   100% { transform: scale(1.05); }
 }
+
+/* ==========================================================================
+   PAUSE-MODUS (AUTO-BOT), GLOBALER RUNDEN-ALARM, STATISTIK, SPICKZETTEL & TUTORIAL
+   ========================================================================== */
+
+/* 1. Globaler Runden-Alarm Button auf der Startseite */
+.global-room-alert-box {
+  margin-top: 10px;
+  width: 100%;
+}
+
+.btn-global-room-alert {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1.5px solid rgba(255, 255, 255, 0.15);
+  border-radius: 12px;
+  padding: 10px 12px;
+  color: #e2e8f0;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  transition: all 0.2s ease;
+  box-sizing: border-box;
+}
+
+.btn-global-room-alert:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(245, 158, 11, 0.45);
+}
+
+.btn-global-room-alert.active {
+  background: rgba(16, 185, 129, 0.14);
+  border-color: rgba(16, 185, 129, 0.6);
+  box-shadow: 0 0 14px rgba(16, 185, 129, 0.2);
+}
+
+.global-alert-btn-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+}
+
+.global-alert-icon {
+  font-size: 1.15rem;
+  flex-shrink: 0;
+}
+
+.global-alert-title {
+  flex: 1;
+  font-size: 0.84rem;
+  font-weight: 800;
+  color: #fff;
+  line-height: 1.25;
+}
+
+.global-alert-status-pill {
+  font-size: 0.68rem;
+  font-weight: 800;
+  padding: 2px 8px;
+  border-radius: 999px;
+  flex-shrink: 0;
+  letter-spacing: 0.04em;
+}
+
+.global-alert-status-pill.off {
+  background: rgba(148, 163, 184, 0.2);
+  color: #94a3b8;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+}
+
+.global-alert-status-pill.on {
+  background: rgba(16, 185, 129, 0.28);
+  color: #6ee7b7;
+  border: 1px solid rgba(52, 211, 153, 0.55);
+}
+
+.global-alert-desc {
+  font-size: 0.72rem;
+  color: #94a3b8;
+  line-height: 1.35;
+}
+
+/* 2. Lobby Zusatz-Buttons (Statistik & Anleitung) */
+.lobby-extra-tools-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 10px;
+  width: 100%;
+}
+
+.btn-lobby-extra {
+  font-size: 0.82rem;
+  font-weight: 700;
+  padding: 9px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: #e2e8f0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.btn-lobby-extra:hover {
+  background: rgba(245, 158, 11, 0.14);
+  border-color: rgba(245, 158, 11, 0.45);
+  color: #fff;
+}
+
+/* 3. Auto-Bot / Pause-Button & Banner */
+.btn-auto-bot {
+  background: rgba(245, 158, 11, 0.16);
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  color: #fde68a;
+  font-weight: 700;
+}
+
+.btn-auto-bot.active {
+  background: linear-gradient(135deg, #10b981, #059669);
+  border-color: #6ee7b7;
+  color: #fff;
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.5);
+  animation: pulseResumeBtn 1.6s infinite ease-in-out;
+}
+
+@keyframes pulseResumeBtn {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.04); }
+}
+
+.auto-bot-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 14px;
+  margin: 0 8px 6px 8px;
+  background: linear-gradient(90deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.95));
+  border: 1.5px solid rgba(245, 158, 11, 0.65);
+  border-radius: 12px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+  z-index: 45;
+}
+
+.auto-bot-banner-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.auto-bot-badge {
+  background: rgba(245, 158, 11, 0.25);
+  border: 1px solid rgba(245, 158, 11, 0.6);
+  color: #fef08a;
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 2px 8px;
+  border-radius: 6px;
+}
+
+.auto-bot-sub {
+  font-size: 0.78rem;
+  color: #e2e8f0;
+}
+
+.btn-auto-bot-resume {
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: #fff;
+  font-weight: 800;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 8px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+/* Eigene Handkarten im Pause-Modus ausgegraut, aber gut erkennbar */
+.my-hand-fan .playing-card.auto-bot-disabled {
+  opacity: 0.52 !important;
+  filter: grayscale(68%) contrast(0.92) !important;
+  pointer-events: none !important;
+  cursor: default !important;
+  transform: translateY(4px) scale(0.97) !important;
+}
+
+/* 4. Statistik & Erfolge Modal */
+.stats-modal-card,
+.cheat-sheet-card,
+.tutorial-modal-card {
+  max-width: 520px;
+  width: 95%;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.stats-modal-body,
+.cheat-sheet-body,
+.tutorial-modal-body {
+  overflow-y: auto;
+  padding: 8px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+.stat-card {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 3px;
+}
+
+.stat-card.highlight {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.4);
+}
+
+.stat-val {
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: #fef08a;
+}
+
+.stat-label {
+  font-size: 0.74rem;
+  color: #cbd5e1;
+}
+
+.achievements-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.achievement-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.achievement-item.unlocked {
+  background: rgba(16, 185, 129, 0.1);
+  border-color: rgba(16, 185, 129, 0.4);
+}
+
+.achievement-item.locked {
+  opacity: 0.68;
+}
+
+.achievement-icon {
+  font-size: 1.7rem;
+  flex-shrink: 0;
+}
+
+.achievement-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.achievement-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+.achievement-progress-text {
+  font-size: 0.74rem;
+  color: #fef08a;
+}
+
+.achievement-desc {
+  margin: 2px 0 6px 0;
+  font-size: 0.74rem;
+  color: #94a3b8;
+}
+
+.achievement-bar-bg {
+  width: 100%;
+  height: 6px;
+  background: rgba(0, 0, 0, 0.4);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.achievement-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #f59e0b, #10b981);
+  border-radius: 999px;
+}
+
+/* 5. Spickzettel & Tutorial Styles */
+.cheat-section {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.cheat-section h3 {
+  margin: 0 0 8px 0;
+  font-size: 0.92rem;
+  color: #fef08a;
+}
+
+.cheat-note {
+  font-size: 0.78rem;
+  color: #cbd5e1;
+  margin: 4px 0 8px 0;
+  line-height: 1.35;
+}
+
+.cheat-rank-chain {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+}
+
+.cheat-pill {
+  background: rgba(255, 255, 255, 0.09);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  padding: 3px 8px;
+  border-radius: 8px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+.cheat-pill.pill-gold {
+  background: rgba(245, 158, 11, 0.22);
+  border-color: #fbbf24;
+  color: #fef08a;
+}
+
+.cheat-pill.pill-mit {
+  background: rgba(59, 130, 246, 0.22);
+  border-color: #60a5fa;
+  color: #bfdbfe;
+}
+
+.cheat-pill.pill-club {
+  background: rgba(16, 185, 129, 0.2);
+  border-color: #34d399;
+  color: #a7f3d0;
+}
+
+.cheat-arrow {
+  color: #64748b;
+  font-size: 0.75rem;
+}
+
+.cheat-eyes-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.cheat-eye-box {
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-size: 0.76rem;
+}
+
+.cheat-eye-box.highlight {
+  border-color: rgba(16, 185, 129, 0.5);
+  color: #6ee7b7;
+}
+
+.cheat-points-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 0.78rem;
+  color: #e2e8f0;
+  line-height: 1.45;
+}
+
+.tutorial-highlight-box {
+  background: rgba(245, 158, 11, 0.12);
+  border-left: 3px solid #f59e0b;
+  padding: 10px 12px;
+  border-radius: 8px;
+  margin: 10px 0;
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.tutorial-dots-row {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.tutorial-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.22);
+  cursor: pointer;
+}
+
+.tutorial-dot.active {
+  background: #fbbf24;
+  transform: scale(1.2);
+}
+
+.tutorial-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}

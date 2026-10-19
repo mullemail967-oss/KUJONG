@@ -41,7 +41,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=7.0">
+  <link rel="stylesheet" href="style.css?v=8.8">
 </head>
 <body>
 
@@ -94,6 +94,14 @@
             </div>
           </div>
 
+          <!-- FREUNDE BUTTON IM HAUPTMENÜ -->
+          <div class="friends-entry-row">
+            <button id="openFriendsModalBtn" class="btn btn-secondary btn-friends-main" onclick="openFriendsModal()">
+              👥 Freunde & Einladungen
+              <span id="friendsCountBadge" class="friends-counter-badge hidden">0</span>
+            </button>
+          </div>
+
           <!-- AKTIVE ÖFFENTLICHE RUNDEN & LOBBYS -->
           <div id="activeRoomsSection" class="active-rooms-section">
             <div class="active-rooms-header">
@@ -106,6 +114,30 @@
             <div id="activeRoomsList" class="active-rooms-list">
               <div class="active-rooms-empty">Lade aktive Runden...</div>
             </div>
+
+            <!-- GLOBALER RUNDEN-ALARM KNOPF (Egal wer eine Runde startet) -->
+            <div class="global-room-alert-box">
+              <button type="button" id="globalRoomAlertBtn" class="btn-global-room-alert" onclick="toggleGlobalRoomAlert()">
+                <div class="global-alert-btn-top">
+                  <span id="globalRoomAlertIcon" class="global-alert-icon">🔕</span>
+                  <span id="globalRoomAlertTitle" class="global-alert-title">Benachrichtigt werden, wenn irgendjemand eine Runde startet</span>
+                  <span id="globalRoomAlertBadge" class="global-alert-status-pill off">AUS</span>
+                </div>
+                <span id="globalRoomAlertDesc" class="global-alert-desc">
+                  Tippe hier, um eine Handy-Benachrichtigung zu erhalten, sobald egal welche Person (auch Nicht-Freunde) eine neue Runde aufmacht.
+                </span>
+              </button>
+            </div>
+          </div>
+
+          <!-- STATISTIK & ERFOLGE SOWIE INTERAKTIVES TUTORIAL -->
+          <div class="lobby-extra-tools-row">
+            <button type="button" class="btn btn-outline btn-lobby-extra" onclick="openStatsModal()">
+              📊 Statistik & Erfolge
+            </button>
+            <button type="button" class="btn btn-outline btn-lobby-extra" onclick="openTutorialModal()">
+              📖 Spielanleitung
+            </button>
           </div>
         </div>
 
@@ -273,13 +305,16 @@
           </div>
         </div>
 
-        <!-- HEADER SUB-TOOLS (Verlassen, Spielleiter-Menü, Kontra-Knopf, Letzter Stich, Ton, Freunde, Emotes) -->
+        <!-- HEADER SUB-TOOLS (Verlassen, Spielleiter-Menü, Pause-Bot, Kontra-Knopf, Letzter Stich, Spickzettel, Ton) -->
         <div class="header-tools">
           <button id="leaveGameBtn" class="btn-tool btn-leave-game" onclick="confirmLeaveGame()" title="Partie verlassen (wird durch Bot ersetzt)">
             🚪 Verlassen
           </button>
-          <button id="hostMenuBtn" class="btn-tool btn-host-menu" onclick="openHostMenu()" title="Spiel-Menü (Freunde, Regeln, Optionen)">
+          <button id="hostMenuBtn" class="btn-tool btn-host-menu" onclick="openHostMenu()" title="Spiel-Menü (Freunde, Verwaltung)">
             <span id="hostMenuIcon">👑</span> Menü<span id="hostMenuReqBadge" class="host-req-badge hidden">0</span>
+          </button>
+          <button id="autoBotToggleBtn" class="btn-tool btn-auto-bot" onclick="toggleAutoBot()" title="Kurz weg? Bot spielt vorübergehend für dich weiter">
+            ⏸️ Pause (Bot)
           </button>
           <button id="announceContraBtn" class="btn-tool btn-contra hidden" onclick="announceContra()" title="Kontra ansagen">
             ⚡ KONTRA GEBEN!
@@ -290,6 +325,7 @@
           <button id="viewLastTrickBtn" class="btn-tool hidden" onclick="openLastTrickModal()" title="Letzten Stich ansehen">
             👁️ Stich
           </button>
+          <button id="cheatSheetBtn" class="btn-tool btn-tool-icon" onclick="openCheatSheetModal()" title="Spickzettel (Trumpf-Reihenfolge & Augen)">❓</button>
           <button id="soundToggleBtn" class="btn-tool btn-tool-icon" title="Ton ein/ausschalten">🔊</button>
         </div>
       </header>
@@ -305,6 +341,17 @@
             🎮 Mitspielen anfragen
           </button>
         </div>
+      </div>
+
+      <!-- AUTO-BOT PAUSE BANNER (WENN BOT VORÜBERGEHEND FÜR DICH SPIELT) -->
+      <div id="autoBotBanner" class="auto-bot-banner hidden">
+        <div class="auto-bot-banner-info">
+          <span class="auto-bot-badge">🤖 PAUSE AKTIV</span>
+          <span class="auto-bot-sub">Der Bot legt gerade für dich. Deine Karten sind ausgegraut.</span>
+        </div>
+        <button type="button" class="btn btn-xs btn-primary btn-auto-bot-resume" onclick="toggleAutoBot()">
+          ▶️ Jetzt weiterspielen
+        </button>
       </div>
 
       <!-- VIRTUELLER FILZTISCH -->
@@ -1024,11 +1071,11 @@
               <span class="btn-friends-label">👥 Freunde & Push-Einladungen</span>
               <span class="badge badge-friends-count" id="menuFriendsCount">0</span>
             </button>
-            <button class="btn btn-outline btn-sm" onclick="openSettingsModal()" title="Spielregeln & Optionen ansehen">
-              ⚙️ Spielregeln & Einstellungen
+            <button class="btn btn-outline btn-sm" onclick="closeHostMenu(); openCheatSheetModal();" title="Trumpf-Reihenfolge & Kartenwerte nachschlagen">
+              ❓ Spickzettel & Kartenwerte
             </button>
-            <button class="btn btn-outline btn-sm" onclick="copyInviteLink()">
-              📋 Einladungslink kopieren
+            <button class="btn btn-outline btn-sm" onclick="closeHostMenu(); openStatsModal();" title="Deine persönliche Statistik & Erfolge ansehen">
+              📊 Meine Statistik & Erfolge
             </button>
             <button id="hostReturnLobbyBtn" class="btn btn-outline btn-sm btn-return-lobby" onclick="returnToLobby()">
               🏠 Partie beenden & Zurück zur Lobby
@@ -1157,12 +1204,117 @@
     </div>
   </div>
 
+  <!-- MODAL: PERSÖNLICHE STATISTIK & ERFOLGE -->
+  <div id="statsModal" class="modal-overlay hidden">
+    <div class="modal-card stats-modal-card">
+      <div class="modal-header">
+        <span class="modal-tag">🏆 Spieler-Profil</span>
+        <h2>Statistik & Erfolge</h2>
+        <button class="modal-close-btn" onclick="closeStatsModal()">✕</button>
+      </div>
+      <div class="modal-body stats-modal-body">
+        <div class="stats-grid" id="playerStatsGrid">
+          <!-- Dynamisch via renderStatsModal() befüllt -->
+        </div>
+        <div class="achievements-section">
+          <div class="achievements-header-row">
+            <h3>🎖️ Erfolge (<span id="achievementsUnlockedCount">0/8</span>)</h3>
+          </div>
+          <div class="achievements-list" id="achievementsListContainer">
+            <!-- Dynamisch via renderStatsModal() befüllt -->
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer stats-modal-footer">
+        <button type="button" class="btn btn-primary" onclick="closeStatsModal()">Schließen</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: KOMPAKTER SPICKZETTEL AM TISCH -->
+  <div id="cheatSheetModal" class="modal-overlay hidden">
+    <div class="modal-card cheat-sheet-card">
+      <div class="modal-header">
+        <span class="modal-tag">❓ Kurz-Übersicht</span>
+        <h2>Kujong Spickzettel</h2>
+        <button class="modal-close-btn" onclick="closeCheatSheetModal()">✕</button>
+      </div>
+      <div class="modal-body cheat-sheet-body">
+        <div class="cheat-section">
+          <h3>👑 1. Trumpf-Reihenfolge (von hoch nach niedrig)</h3>
+          <p class="cheat-note">Die <strong>Kreuz-Dame (♣Q)</strong> ist immer Trumpf. Wird <strong>Mit'</strong> angesagt, ist auch die <strong>Pik-Dame (♠Q)</strong> fester Obertrumpf:</p>
+          <div class="cheat-rank-chain">
+            <span class="cheat-pill pill-gold">1. Trumpf-Ass (A)</span>
+            <span class="cheat-arrow">➔</span>
+            <span class="cheat-pill pill-mit">2. ♠ Dame (bei Mit')</span>
+            <span class="cheat-arrow">➔</span>
+            <span class="cheat-pill pill-club">3. ♣ Dame (immer)</span>
+            <span class="cheat-arrow">➔</span>
+            <span class="cheat-pill">4. Trumpf-K</span>
+            <span class="cheat-arrow">➔</span>
+            <span class="cheat-pill">5. Trumpf-D</span>
+            <span class="cheat-arrow">➔</span>
+            <span class="cheat-pill">6. Trumpf-B</span>
+            <span class="cheat-arrow">➔</span>
+            <span class="cheat-pill">7. Trumpf-10 / 9 (8 / 7)</span>
+          </div>
+        </div>
+
+        <div class="cheat-section">
+          <h3>🔢 2. Augenwerte der Karten (Gesamt: 40 Augen)</h3>
+          <div class="cheat-eyes-grid">
+            <div class="cheat-eye-box"><strong>Ass (A)</strong><span>4 Augen</span></div>
+            <div class="cheat-eye-box"><strong>König (K)</strong><span>3 Augen</span></div>
+            <div class="cheat-eye-box"><strong>Dame (Q)</strong><span>2 Augen</span></div>
+            <div class="cheat-eye-box"><strong>Bauer (J)</strong><span>1 Auge</span></div>
+            <div class="cheat-eye-box muted"><strong>10, 9, 8, 7</strong><span>0 Augen</span></div>
+            <div class="cheat-eye-box highlight"><strong>Ab 21 Augen</strong><span>Runde gewonnen!</span></div>
+          </div>
+          <p class="cheat-note">💡 Bei <strong>20 : 20 Augen</strong> (Unentschieden) gewinnt das <strong>Gegner-Team des Ansagers</strong>!</p>
+        </div>
+
+        <div class="cheat-section">
+          <h3>⚡ 3. Punkte-Abzug (Von 13 auf 0 Punkte)</h3>
+          <ul class="cheat-points-list">
+            <li><strong>Normale Runde:</strong> 1 Punkt Abzug für das Sieger-Team</li>
+            <li><strong>Mit' (♠Q angesagt):</strong> 2 Punkte Abzug</li>
+            <li><strong>Kontra gegeben:</strong> 4 Punkte (bzw. 3 Punkte je nach Einstellung)</li>
+            <li><strong>Durchmarsch (alle 5 Stiche):</strong> +1 Zusatzpunkt Abzug</li>
+            <li><strong>Ansager-Team macht 0 Stiche:</strong> Ansager-Team erhält Strafpunkte (+2 bzw. +1)!</li>
+          </ul>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-primary" onclick="closeCheatSheetModal()">Verstanden</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: INTERAKTIVES 4-SCHRITTE TUTORIAL -->
+  <div id="tutorialModal" class="modal-overlay hidden">
+    <div class="modal-card tutorial-modal-card">
+      <div class="modal-header">
+        <span class="modal-tag" id="tutorialStepTag">Schritt 1 von 4</span>
+        <h2 id="tutorialStepTitle">Willkommen bei Kujong!</h2>
+        <button class="modal-close-btn" onclick="closeTutorialModal()">✕</button>
+      </div>
+      <div class="modal-body tutorial-modal-body" id="tutorialStepContent">
+        <!-- Dynamisch via renderTutorialStep() befüllt -->
+      </div>
+      <div class="tutorial-dots-row" id="tutorialDotsRow"></div>
+      <div class="modal-footer tutorial-footer">
+        <button type="button" class="btn btn-outline" id="tutorialPrevBtn" onclick="changeTutorialStep(-1)">⬅ Zurück</button>
+        <button type="button" class="btn btn-primary" id="tutorialNextBtn" onclick="changeTutorialStep(1)">Weiter ➔</button>
+      </div>
+    </div>
+  </div>
+
   <!-- TOAST NOTIFICATIONS -->
   <div id="toastContainer" class="toast-container"></div>
 
   <!-- Socket.io Script -->
   <script src="/socket.io/socket.io.js"></script>
   <!-- Client JavaScript -->
-  <script src="client.js?v=8.7"></script>
+  <script src="client.js?v=8.8"></script>
 </body>
 </html>
