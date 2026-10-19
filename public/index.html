@@ -41,7 +41,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=9.1">
+  <link rel="stylesheet" href="style.css?v=9.4">
 </head>
 <body>
 
@@ -92,6 +92,9 @@
           <div class="lobby-action-buttons">
             <button id="createRoomBtn" class="btn btn-primary btn-large">
               <span>🏰 Raum erstellen</span>
+            </button>
+            <button id="quickBotGameBtn" type="button" class="btn btn-quick-bot" onclick="handleQuickBotGame()">
+              <span>🤖 Schnellrunde (mit Bots)</span>
             </button>
             <div class="divider"><span>ODER</span></div>
             <div class="join-box">
@@ -290,7 +293,7 @@
               <div id="scoreBarWe" class="score-progress-fill fill-we" style="width: 100%;"></div>
             </div>
             <div class="round-stats">
-              <span>St:<strong id="tricksWe">0</strong></span>
+              <span class="tricks-stat-wrap">St:<strong id="tricksWe">0</strong><span id="trickPilesWe" class="trick-piles-visual"></span></span>
               <span>Aug:<strong id="eyesWe">0</strong></span>
             </div>
           </div>
@@ -331,7 +334,7 @@
               <div id="scoreBarThey" class="score-progress-fill fill-they" style="width: 100%;"></div>
             </div>
             <div class="round-stats">
-              <span>St:<strong id="tricksThey">0</strong></span>
+              <span class="tricks-stat-wrap">St:<strong id="tricksThey">0</strong><span id="trickPilesThey" class="trick-piles-visual"></span></span>
               <span>Aug:<strong id="eyesThey">0</strong></span>
             </div>
           </div>
@@ -381,6 +384,9 @@
           ▶️ Jetzt weiterspielen
         </button>
       </div>
+
+      <!-- 1-KLICK BEITRITTSANFRAGE-BANNER FÜR DEN SPIELLEITER -->
+      <div id="hostQuickJoinBanner" class="host-quick-join-banner hidden"></div>
 
       <!-- VIRTUELLER FILZTISCH -->
       <main class="felt-table-wrapper">
@@ -812,7 +818,26 @@
           <span class="stock-title">Im verdeckten Stock lagen (4 Karten):</span>
           <div class="stock-cards-row" id="summaryStockCards"></div>
         </div>
+
+        <!-- RUNDEN-VERLAUF (BIERDECKEL-HISTORIE) -->
+        <div class="round-history-box hidden" id="summaryRoundHistoryBox">
+          <div class="round-history-title">📜 Runden-Verlauf dieser Partie</div>
+          <div class="round-history-list" id="summaryRoundHistoryList"></div>
+        </div>
       </div>
+
+      <!-- SCHNELL-EMOTES DIREKT IM ERGEBNIS-FENSTER -->
+      <div class="modal-quick-emotes">
+        <span class="modal-emote-label">Reaktion:</span>
+        <button type="button" class="btn-modal-emote" onclick="sendEmote('🍻')" title="Prost!">🍻</button>
+        <button type="button" class="btn-modal-emote" onclick="sendEmote('🤡')" title="Clown">🤡</button>
+        <button type="button" class="btn-modal-emote" onclick="sendEmote('🧹')" title="Durchmarsch / Besen">🧹</button>
+        <button type="button" class="btn-modal-emote" onclick="sendEmote('😭')" title="Heulsuse">😭</button>
+        <button type="button" class="btn-modal-emote" onclick="sendEmote('👑')" title="König">👑</button>
+        <button type="button" class="btn-modal-emote" onclick="sendEmote('😎')" title="Eiskalt">😎</button>
+      </div>
+      <div id="roundModalEmoteStream" class="modal-emote-stream"></div>
+
       <div class="modal-actions">
         <button id="nextRoundBtn" class="btn btn-primary btn-large btn-glow" onclick="nextRound()">
           Nächste Runde starten ➜
@@ -835,9 +860,25 @@
         <div class="score-divider">vs</div>
         <div class="score-col" id="finalColThey">SIE: <strong id="finalScoreThey">13</strong></div>
       </div>
-      <div class="modal-actions">
-        <button id="restartGameBtn" class="btn btn-primary btn-large btn-glow" onclick="restartGame()">
+
+      <!-- SCHNELL-EMOTES IM SPIELENDE-FENSTER -->
+      <div class="modal-quick-emotes">
+        <span class="modal-emote-label">Reaktion:</span>
+        <button type="button" class="btn-modal-emote" onclick="sendEmote('🍻')" title="Prost!">🍻</button>
+        <button type="button" class="btn-modal-emote" onclick="sendEmote('🤡')" title="Clown">🤡</button>
+        <button type="button" class="btn-modal-emote" onclick="sendEmote('🧹')" title="Durchmarsch / Besen">🧹</button>
+        <button type="button" class="btn-modal-emote" onclick="sendEmote('😭')" title="Heulsuse">😭</button>
+        <button type="button" class="btn-modal-emote" onclick="sendEmote('👑')" title="König">👑</button>
+        <button type="button" class="btn-modal-emote" onclick="sendEmote('😎')" title="Eiskalt">😎</button>
+      </div>
+      <div id="gameOverModalEmoteStream" class="modal-emote-stream"></div>
+
+      <div class="modal-actions game-over-actions">
+        <button id="restartGameBtn" class="btn btn-primary btn-large btn-glow" onclick="restartGame(false)">
           🔄 Neues Spiel starten
+        </button>
+        <button id="restartShuffleTeamsBtn" class="btn btn-secondary btn-outline btn-large" onclick="restartGame(true)">
+          🔀 Teams mischen &amp; Neues Spiel
         </button>
         <div id="gameOverWaitingNote" class="waiting-host-note hidden">
           ⏳ Warte auf den Spielleiter...
@@ -1131,6 +1172,12 @@
           </div>
         </div>
 
+        <!-- Runden-Verlauf im Spiel-Menü -->
+        <div class="host-section hidden" id="hostRoundHistorySection">
+          <div class="host-section-title">📜 Bisheriger Runden-Verlauf</div>
+          <div class="round-history-list" id="hostRoundHistoryList"></div>
+        </div>
+
         <!-- Spieler-Verwaltung & Kick -->
         <div class="host-section">
           <div class="host-section-title" id="hostPlayerSectionTitle">👥 Spieler-Verwaltung</div>
@@ -1229,22 +1276,22 @@
     </div>
   </div>
 
-  <!-- PUSH-BENACHRICHTIGUNGEN ABFRAGE VOR RAUM-ERSTELLUNG -->
+  <!-- PUSH-BENACHRICHTIGUNGEN ABFRAGE BEIM BETRETEN & VOR RUNDEN -->
   <div id="pushPromptModal" class="modal-overlay hidden">
     <div class="modal-card push-prompt-card">
       <div class="modal-header">
         <div class="push-prompt-icon">🔔</div>
         <h3 class="modal-title">Benachrichtigungen aktivieren?</h3>
         <p class="modal-subtitle">
-          Erhalte eine Push-Mitteilung direkt auf dein Handy, wenn Freunde eine neue Runde starten oder dich einladen!
+          Aktiviere Push-Benachrichtigungen auf deinem Handy, damit deine Freunde dich direkt zu einer Runde einladen können!
         </p>
       </div>
       <div class="push-prompt-actions">
         <button id="pushPromptEnableBtn" class="btn btn-primary btn-lg" onclick="handlePushPromptAccept()">
-          🔔 Jetzt aktivieren
+          🔔 Ja, aktivieren!
         </button>
         <button class="btn btn-secondary btn-outline" onclick="handlePushPromptSkip()">
-          Ohne Benachrichtigungen spielen
+          Ablehnen
         </button>
       </div>
     </div>
@@ -1400,6 +1447,6 @@
   <!-- Socket.io Script -->
   <script src="/socket.io/socket.io.js"></script>
   <!-- Client JavaScript -->
-  <script src="client.js?v=9.1"></script>
+  <script src="client.js?v=9.7"></script>
 </body>
 </html>

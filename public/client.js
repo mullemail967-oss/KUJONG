@@ -313,6 +313,19 @@ const SoundManager = {
         gain.connect(ctx.destination);
         osc.start(now);
         osc.stop(now + 0.12);
+      } else if (type === 'turn_reminder') {
+        [659.25, 880].forEach((freq, i) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(freq, now + i * 0.14);
+          gain.gain.setValueAtTime(0.28, now + i * 0.14);
+          gain.gain.exponentialRampToValueAtTime(0.01, now + i * 0.14 + 0.22);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(now + i * 0.14);
+          osc.stop(now + i * 0.14 + 0.22);
+        });
       }
     } catch (e) {
       console.warn('Audio play error:', e);
@@ -355,12 +368,42 @@ async function initSvgSprite() {
 // --------------------------------------------------------------------------
 // DOM & EVENT INITIALISIERUNG
 // --------------------------------------------------------------------------
+let activeWakeLock = null;
+
+async function updateScreenWakeLock() {
+  if (!('wakeLock' in navigator)) return;
+  try {
+    if (currentRoomCode && document.visibilityState === 'visible') {
+      if (!activeWakeLock) {
+        activeWakeLock = await navigator.wakeLock.request('screen');
+        activeWakeLock.addEventListener('release', () => {
+          activeWakeLock = null;
+        });
+      }
+    } else if (!currentRoomCode && activeWakeLock) {
+      await activeWakeLock.release();
+      activeWakeLock = null;
+    }
+  } catch (e) {
+    // Wake Lock kann fehlschlagen, wenn Akku-Sparmodus aktiv ist
+  }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   initSvgSprite();
+  loadSavedRuleSettings();
   setupEventListeners();
   checkUrlParams();
   syncVibrationUI();
   updateMyAvatarUI(getMyPlayerAvatar());
+
+  document.addEventListener('visibilitychange', () => {
+    const isHidden = document.visibilityState === 'hidden';
+    if (socket && socket.connected && currentRoomCode) {
+      socket.emit('set_player_away', { isAway: isHidden });
+    }
+    updateScreenWakeLock();
+  });
 
   // PWA Service Worker für schnelles Laden & Homescreen-Installation
   if ('serviceWorker' in navigator && (window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
@@ -680,6 +723,14 @@ function isPushActive() {
   }
 }
 
+function isNotificationsFullyActive() {
+  const supportsPush = ('Notification' in window && 'serviceWorker' in navigator && 'PushManager' in window);
+  if (supportsPush && Notification.permission !== 'denied') {
+    return isPushActive();
+  }
+  return true;
+}
+
 function handleCreateRoom() {
   if (isCreatingRoom) return;
   const codeInput = document.getElementById('roomCodeInput');
@@ -698,8 +749,7 @@ function handleCreateRoom() {
 let pendingPushCallback = null;
 
 function promptPushIfInactive(onProceed) {
-  const supportsPush = ('Notification' in window && 'serviceWorker' in navigator && 'PushManager' in window);
-  if (supportsPush && !isPushActive()) {
+  if (!isNotificationsFullyActive()) {
     pendingPushCallback = onProceed;
     const promptModal = document.getElementById('pushPromptModal');
     if (promptModal) {
@@ -707,7 +757,9 @@ function promptPushIfInactive(onProceed) {
       return;
     }
   }
-  onProceed();
+  if (typeof onProceed === 'function') {
+    onProceed();
+  }
 }
 
 async function handlePushPromptAccept() {
@@ -750,6 +802,25 @@ function executeCreateRoom(playerName) {
     avatar: getMyPlayerAvatar()
   });
 }
+
+function handleQuickBotGame() {
+  if (isCreatingRoom) return;
+  const playerName = requirePlayerName();
+  if (!playerName) return;
+
+  promptPushIfInactive(() => {
+    isCreatingRoom = true;
+    setTimeout(() => { isCreatingRoom = false; }, 2500);
+    socket.emit('create_room', {
+      playerName,
+      settings: { ...currentSettings, isPublic: true },
+      friendCode: myFriendCode,
+      avatar: getMyPlayerAvatar(),
+      quickBotStart: true
+    });
+  });
+}
+window.handleQuickBotGame = handleQuickBotGame;
 
 let isJoiningRoom = false;
 function handleJoinRoom() {
@@ -996,18 +1067,41 @@ function showEmoteBubble(seatIndex, emote) {
   const relativePos = getRelativePosition(seatIndex, mySeat); // 'Bottom', 'Left', 'Top', 'Right'
   const containerId = 'emoteBubble' + relativePos;
   const container = document.getElementById(containerId);
-  if (!container) return;
 
-  const bubble = document.createElement('div');
-  bubble.className = 'clash-emote-bubble';
-  bubble.textContent = emote;
-  container.appendChild(bubble);
+  if (container) {
+    const bubble = document.createElement('div');
+    bubble.className = 'clash-emote-bubble';
+    bubble.textContent = emote;
+    container.appendChild(bubble);
+    setTimeout(() => {
+      bubble.remove();
+    }, 2200);
+  }
+
+  // Wenn das Rundenergebnis- oder Spielende-Fenster offen ist, Emote auch direkt im Modal einblenden!
+  const roundModal = document.getElementById('roundSummaryModal');
+  const gameOverModal = document.getElementById('gameOverModal');
+  let activeStream = null;
+  if (roundModal && !roundModal.classList.contains('hidden')) {
+    activeStream = document.getElementById('roundModalEmoteStream');
+  } else if (gameOverModal && !gameOverModal.classList.contains('hidden')) {
+    activeStream = document.getElementById('gameOverModalEmoteStream');
+  }
+
+  if (activeStream) {
+    const sender = (gameState && Array.isArray(gameState.players)) ? gameState.players[seatIndex] : null;
+    const isMe = (!isSpectator && seatIndex === mySeatIndex);
+    const senderName = sender ? (isMe ? `${sender.name} (Du)` : sender.name) : `Spieler ${seatIndex + 1}`;
+    const pill = document.createElement('div');
+    pill.className = 'modal-emote-pill';
+    pill.innerHTML = `<span class="modal-emote-sender">${escapeHtml(senderName)}:</span> <span class="modal-emote-emoji">${emote}</span>`;
+    activeStream.appendChild(pill);
+    setTimeout(() => {
+      pill.remove();
+    }, 2400);
+  }
 
   SoundManager.play('emote');
-
-  setTimeout(() => {
-    bubble.remove();
-  }, 2200);
 }
 
 function announceMit(announce) {
@@ -1204,8 +1298,8 @@ function nextRound() {
   document.getElementById('roundSummaryModal').classList.add('hidden');
 }
 
-function restartGame() {
-  socket.emit('restart_game');
+function restartGame(shuffleTeams = false) {
+  socket.emit('restart_game', { shuffleTeams: Boolean(shuffleTeams) });
   document.getElementById('gameOverModal').classList.add('hidden');
 }
 
@@ -1215,6 +1309,7 @@ function leaveLobby() {
   currentRoomCode = null;
   mySeatIndex = -1;
   gameState = null;
+  updateScreenWakeLock();
   document.getElementById('lobbyWaitingRoom').classList.add('hidden');
   document.getElementById('lobbyInitialOptions').classList.remove('hidden');
   document.getElementById('gameScreen').classList.remove('active');
@@ -1229,6 +1324,7 @@ function confirmLeaveGame() {
     currentRoomCode = null;
     mySeatIndex = -1;
     gameState = null;
+    updateScreenWakeLock();
     document.getElementById('lobbyWaitingRoom').classList.add('hidden');
     document.getElementById('lobbyInitialOptions').classList.remove('hidden');
     document.getElementById('gameScreen').classList.remove('active');
@@ -1244,6 +1340,7 @@ function confirmLeaveGame() {
     currentRoomCode = null;
     mySeatIndex = -1;
     gameState = null;
+    updateScreenWakeLock();
     document.getElementById('lobbyWaitingRoom').classList.add('hidden');
     document.getElementById('lobbyInitialOptions').classList.remove('hidden');
     document.getElementById('gameScreen').classList.remove('active');
@@ -1295,6 +1392,7 @@ function openHostMenu() {
     renderHostPendingRequests();
   }
   renderHostPlayerList();
+  renderRoundHistoryUI();
   document.getElementById('hostControlModal').classList.remove('hidden');
 }
 
@@ -1438,6 +1536,7 @@ socket.on('room_disbanded', ({ message }) => {
   currentRoomCode = null;
   mySeatIndex = -1;
   gameState = null;
+  updateScreenWakeLock();
   document.getElementById('lobbyWaitingRoom').classList.add('hidden');
   document.getElementById('lobbyInitialOptions').classList.remove('hidden');
   document.getElementById('gameScreen').classList.remove('active');
@@ -1453,6 +1552,7 @@ socket.on('left_room', () => {
   currentRoomCode = null;
   mySeatIndex = -1;
   gameState = null;
+  updateScreenWakeLock();
   document.getElementById('lobbyWaitingRoom').classList.add('hidden');
   document.getElementById('lobbyInitialOptions').classList.remove('hidden');
   document.getElementById('gameScreen').classList.remove('active');
@@ -1465,6 +1565,7 @@ socket.on('kicked_from_room', ({ message }) => {
   currentRoomCode = null;
   mySeatIndex = -1;
   gameState = null;
+  updateScreenWakeLock();
   document.getElementById('lobbyWaitingRoom').classList.add('hidden');
   document.getElementById('lobbyInitialOptions').classList.remove('hidden');
   document.getElementById('gameScreen').classList.remove('active');
@@ -1523,14 +1624,19 @@ socket.on('join_request_accepted', ({ roomCode, seatIndex }) => {
   renderUI();
 });
 
-// Beim Spielleiter: Dezent registrierte Beitrittsanfragen (kein blockierendes Riesen-Popup)
+socket.on('teams_shuffled', () => {
+  showToast('🔀 Teams wurden für die neue Partie neu gemischt!');
+});
+
+// Beim Spielleiter: 1-Klick-Sofortbanner oben am Tisch + Eintrag im Spielleiter-Menü
 const pendingJoinRequests = new Map();
 
 socket.on('join_request_received', ({ requestId, playerName, availableBots }) => {
   pendingJoinRequests.set(requestId, { requestId, playerName, availableBots });
   playSound('trump_fanfare');
-  showToast(`🙋 ${playerName} möchte mitspielen (siehe 👑 Menü)`);
+  if (typeof triggerVibration === 'function') triggerVibration([80, 50, 80]);
   updateHostMenuBadge();
+  renderHostQuickJoinBanner();
   const hostModal = document.getElementById('hostControlModal');
   if (hostModal && !hostModal.classList.contains('hidden')) {
     renderHostPendingRequests();
@@ -1540,11 +1646,64 @@ socket.on('join_request_received', ({ requestId, playerName, availableBots }) =>
 socket.on('join_request_resolved', ({ requestId }) => {
   pendingJoinRequests.delete(requestId);
   updateHostMenuBadge();
+  renderHostQuickJoinBanner();
   const hostModal = document.getElementById('hostControlModal');
   if (hostModal && !hostModal.classList.contains('hidden')) {
     renderHostPendingRequests();
   }
 });
+
+function renderHostQuickJoinBanner() {
+  const banner = document.getElementById('hostQuickJoinBanner');
+  if (!banner) return;
+  const isHost = Boolean(gameState && gameState.you && gameState.you.isHost);
+  if (!isHost || pendingJoinRequests.size === 0) {
+    banner.classList.add('hidden');
+    banner.innerHTML = '';
+    return;
+  }
+
+  const myTeam = gameState && gameState.you ? gameState.you.team : 0;
+  banner.classList.remove('hidden');
+  banner.innerHTML = '';
+
+  pendingJoinRequests.forEach(req => {
+    const row = document.createElement('div');
+    row.className = 'quick-join-req-row';
+
+    const label = document.createElement('span');
+    label.className = 'quick-join-req-label';
+    label.innerHTML = `🙋 <strong>${escapeHtml(req.playerName)}</strong> möchte mitspielen:`;
+    row.appendChild(label);
+
+    const btnsWrap = document.createElement('div');
+    btnsWrap.className = 'quick-join-req-btns';
+
+    (req.availableBots || []).forEach(bot => {
+      const isMyTeam = (bot.team === myTeam);
+      const teamRole = isMyTeam ? 'Partner (WIR)' : 'Gegner (SIE)';
+      const teamClass = isMyTeam ? 'qjb-we' : 'qjb-they';
+
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = `btn btn-xs btn-quick-join-bot ${teamClass}`;
+      btn.innerHTML = `✓ ${teamRole}: <strong>${escapeHtml(bot.name)}</strong>`;
+      btn.onclick = () => resolveJoinRequest(req.requestId, true, bot.seatIndex);
+      btnsWrap.appendChild(btn);
+    });
+
+    const rejectBtn = document.createElement('button');
+    rejectBtn.type = 'button';
+    rejectBtn.className = 'btn btn-xs btn-quick-join-reject';
+    rejectBtn.title = 'Anfrage ablehnen';
+    rejectBtn.textContent = '✕';
+    rejectBtn.onclick = () => resolveJoinRequest(req.requestId, false);
+    btnsWrap.appendChild(rejectBtn);
+
+    row.appendChild(btnsWrap);
+    banner.appendChild(row);
+  });
+}
 
 function refreshPublicRooms() {
   socket.emit('get_public_rooms');
@@ -1603,7 +1762,9 @@ function renderPublicRooms(rooms) {
 function spectatePublicRoom(code) {
   const name = requirePlayerName();
   if (!name) return;
-  socket.emit('join_as_spectator', { roomCode: code, playerName: name });
+  promptPushIfInactive(() => {
+    socket.emit('join_as_spectator', { roomCode: code, playerName: name, avatar: getMyPlayerAvatar() });
+  });
 }
 
 function handleSpectateRoom() {
@@ -1614,7 +1775,9 @@ function handleSpectateRoom() {
   }
   const name = requirePlayerName();
   if (!name) return;
-  socket.emit('join_as_spectator', { roomCode: code, playerName: name });
+  promptPushIfInactive(() => {
+    socket.emit('join_as_spectator', { roomCode: code, playerName: name, avatar: getMyPlayerAvatar() });
+  });
 }
 
 function joinPublicRoom(code, isMidGame) {
@@ -1642,12 +1805,14 @@ function requestPlayFromSpectator() {
   const name = requirePlayerName();
   if (!name) return;
 
-  const joinBtn = document.getElementById('spectatorJoinGameBtn');
-  if (joinBtn) {
-    joinBtn.disabled = true;
-    joinBtn.textContent = '⏳ Anfrage senden...';
-  }
-  socket.emit('request_join_room', { roomCode: currentRoomCode, playerName: name, avatar: getMyPlayerAvatar() });
+  promptPushIfInactive(() => {
+    const joinBtn = document.getElementById('spectatorJoinGameBtn');
+    if (joinBtn) {
+      joinBtn.disabled = true;
+      joinBtn.textContent = '⏳ Anfrage senden...';
+    }
+    socket.emit('request_join_room', { roomCode: currentRoomCode, playerName: name, avatar: getMyPlayerAvatar() });
+  });
 }
 window.requestPlayFromSpectator = requestPlayFromSpectator;
 
@@ -1741,6 +1906,7 @@ function resolveJoinRequest(requestId, accept, seatIndex) {
   });
   pendingJoinRequests.delete(requestId);
   updateHostMenuBadge();
+  renderHostQuickJoinBanner();
   renderHostPendingRequests();
 }
 
@@ -1947,6 +2113,7 @@ socket.on('room_created', ({ roomCode, seatIndex }) => {
   isJoiningRoom = false;
   currentRoomCode = roomCode;
   mySeatIndex = seatIndex;
+  updateScreenWakeLock();
   document.getElementById('lobbyInitialOptions').classList.add('hidden');
   document.getElementById('lobbyWaitingRoom').classList.remove('hidden');
   document.getElementById('displayRoomCode').textContent = roomCode;
@@ -1987,6 +2154,7 @@ socket.on('joined_spectator', ({ roomCode }) => {
   isSpectator = true;
   mySeatIndex = -1;
   currentRoomCode = roomCode;
+  updateScreenWakeLock();
   document.getElementById('lobbyInitialOptions').classList.add('hidden');
   document.getElementById('lobbyWaitingRoom').classList.add('hidden');
   document.getElementById('lobbyScreen').classList.remove('active');
@@ -2014,6 +2182,7 @@ function handleGameState(state) {
     mySeatIndex = state.you.seatIndex;
   }
   currentRoomCode = state.roomCode;
+  updateScreenWakeLock();
 
   if (state.phase !== 'EVALUATING_TRICK') {
     currentEvaluatingTrickNumber = -1;
@@ -2178,11 +2347,11 @@ function renderLobby() {
         nameEl.onclick = null;
       } else {
         const isFriend = seat.friendCode && savedFriends.some(f => f.code === seat.friendCode);
-        const icon = isFriend ? ' ✅' : ' ❌';
+        const icon = isFriend ? ' ✅' : ' ➕';
         nameEl.textContent = `${seat.name}${icon}`;
         nameEl.title = isFriend
           ? `✅ ${seat.name} ist bereits mit dir befreundet`
-          : `❌ Klicke hier, um ${seat.name} als Freund hinzuzufügen`;
+          : `➕ Klicke hier, um ${seat.name} als Freund hinzuzufügen`;
         nameEl.classList.add('clickable-friend-name');
         nameEl.onclick = () => {
           if (seat.friendCode) {
@@ -2199,7 +2368,13 @@ function renderLobby() {
         };
       }
 
-      joinBtn.classList.add('hidden');
+      if (!isMe && !isSpectator && mySeatIndex >= 0) {
+        joinBtn.classList.remove('hidden');
+        joinBtn.textContent = '⇄ Tauschen';
+        joinBtn.title = 'Platz & Team direkt mit diesem Sitz tauschen';
+      } else {
+        joinBtn.classList.add('hidden');
+      }
       botBtn.textContent = seat.isBot ? '✕ Bot' : '';
       botBtn.classList.toggle('hidden', !seat.isBot);
 
@@ -2219,6 +2394,8 @@ function renderLobby() {
       nameEl.removeAttribute('title');
       nameEl.onclick = null;
       joinBtn.classList.remove('hidden');
+      joinBtn.textContent = 'Hier sitzen';
+      joinBtn.title = 'Auf diesen freien Platz wechseln';
       botBtn.textContent = '+ Bot';
       botBtn.classList.remove('hidden');
       if (kickBtn) kickBtn.classList.add('hidden');
@@ -2282,6 +2459,8 @@ function renderGameScreen() {
   document.getElementById('scoreThey').textContent = scoreThey;
   document.getElementById('tricksWe').textContent = tricksWe;
   document.getElementById('tricksThey').textContent = tricksThey;
+  renderScoreboardTrickPiles('trickPilesWe', tricksWe, 'we');
+  renderScoreboardTrickPiles('trickPilesThey', tricksThey, 'they');
 
   const barWe = document.getElementById('scoreBarWe');
   if (barWe) {
@@ -2383,7 +2562,9 @@ function renderGameScreen() {
   const hostModal = document.getElementById('hostControlModal');
   if (hostModal && !hostModal.classList.contains('hidden')) {
     renderHostPlayerList();
+    renderRoundHistoryUI();
   }
+  renderHostQuickJoinBanner();
 
   // Auto-Bot Pause Button & Banner
   const isMyAutoBot = Boolean(!isSpectator && gameState.you && gameState.you.isAutoBot);
@@ -2438,21 +2619,16 @@ function renderGameScreen() {
   renderMyHand();
 }
 
-function renderWonTricksPile(teamKey, trickCount) {
-  const stack = document.getElementById(`pileStack${teamKey}`);
-  const count = document.getElementById(`pileCount${teamKey}`);
-  if (!stack || !count) return;
-
-  count.textContent = `${trickCount} ${trickCount === 1 ? 'Stich' : 'Stiche'}`;
-  stack.innerHTML = '';
-
-  for (let i = 0; i < trickCount; i++) {
-    const offset = i * 3;
-    const mini = document.createElement('div');
-    mini.className = 'pile-mini-card';
-    mini.style.left = `${offset}px`;
-    mini.style.top = `${offset}px`;
-    stack.appendChild(mini);
+function renderScoreboardTrickPiles(containerId, trickCount, teamType) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  container.innerHTML = '';
+  const count = Math.max(0, Math.min(5, Number(trickCount) || 0));
+  for (let i = 0; i < count; i++) {
+    const packet = document.createElement('span');
+    packet.className = `mini-trick-packet packet-${teamType}`;
+    packet.title = `${count} ${count === 1 ? 'gewonnener Stich' : 'gewonnene Stiche'}`;
+    container.appendChild(packet);
   }
 }
 
@@ -2531,10 +2707,12 @@ function renderTablePlayers() {
     // Name & Ansager-Pill
     const nameEl = document.getElementById(`name${key}`);
     const declarerPill = document.getElementById(`declarerPill${key}`);
+    const isDisconnected = Boolean(!player.isBot && !isMe && (player.connected === false || player.isAway === true));
+    const connPrefix = isDisconnected ? '📡 ' : '';
 
     if (nameEl) {
       if (player.isAutoBot) {
-        nameEl.textContent = `🤖 ${player.name}`;
+        nameEl.textContent = `${connPrefix}🤖 ${player.name}`;
         nameEl.classList.remove('clickable-friend-name');
         nameEl.removeAttribute('title');
         nameEl.onclick = null;
@@ -2550,11 +2728,12 @@ function renderTablePlayers() {
         nameEl.onclick = null;
       } else {
         const isFriend = player.friendCode && savedFriends.some(f => f.code === player.friendCode);
-        const icon = isFriend ? ' ✅' : ' ❌';
-        nameEl.textContent = `${player.name}${icon}`;
-        nameEl.title = isFriend
+        const icon = isFriend ? ' ✅' : ' ➕';
+        nameEl.textContent = `${connPrefix}${player.name}${icon}`;
+        const connNote = isDisconnected ? ' (📡 App im Hintergrund / Verbindungsunterbrechung)' : '';
+        nameEl.title = (isFriend
           ? `✅ ${player.name} ist bereits mit dir befreundet`
-          : `❌ Klicke hier, um ${player.name} als Freund hinzuzufügen`;
+          : `➕ Klicke hier, um ${player.name} als Freund hinzuzufügen`) + connNote;
         nameEl.classList.add('clickable-friend-name');
         nameEl.onclick = () => {
           if (player.friendCode) {
@@ -2613,10 +2792,14 @@ function renderTablePlayers() {
     if (dealerBadge) dealerBadge.classList.toggle('hidden', !player.isDealer);
 
     // Turn Glow & Avatar
+    const isActiveTurnPlayer = (gameState.phase === 'CHOOSE_TRUMP' && seatIdx === gameState.declarerIndex) ||
+                               (gameState.phase === 'PLAY_TRICK' && player.isTurn);
     const playerBox = document.getElementById(`player${key}`);
     const avatarBox = playerBox ? playerBox.querySelector('.player-avatar-box') : null;
     if (avatarBox) {
-      avatarBox.classList.toggle('player-turn-glow', player.isTurn);
+      avatarBox.classList.toggle('player-turn-glow', isActiveTurnPlayer);
+      avatarBox.classList.toggle('turn-slow-pulse', Boolean(isActiveTurnPlayer && isCurrentTurnSlow));
+      avatarBox.classList.toggle('player-disconnected', isDisconnected);
       const playerAvatar = isMe ? (player.avatar || getMyPlayerAvatar()) : player.avatar;
       renderAvatarElement(avatarBox, playerAvatar, player.isBot);
     }
@@ -2640,16 +2823,85 @@ function renderTablePlayers() {
     }
   });
 
+  // Sanfter 15s Zug-Countdown / Schlafmützen-Hinweis für echte Spieler
+  updateSlowTurnReminder();
+
   // Turn Indicator für Spieler unten
   const isMyAutoBot = Boolean(gameState.you && gameState.you.isAutoBot);
   const isMyTurn = (gameState.currentTurn === mySeatIndex && gameState.phase === 'PLAY_TRICK' && (!gameState.you || !gameState.you.hasThrownCards));
   const turnInd = document.getElementById('turnIndicator');
   if (turnInd) {
     turnInd.classList.toggle('hidden', !isMyTurn);
+    turnInd.classList.toggle('turn-slow-badge', Boolean(isMyTurn && isCurrentTurnSlow));
     if (isMyTurn) {
-      turnInd.textContent = isMyAutoBot ? '🤖 Bot legt für dich...' : '⚡ Du bist am Zug!';
+      turnInd.textContent = isMyAutoBot ? '🤖 Bot legt für dich...' : (isCurrentTurnSlow ? '⏳ Du bist am Zug!' : '⚡ Du bist am Zug!');
     }
   }
+}
+
+let currentTurnWatchKey = null;
+let slowTurnTimer = null;
+let isCurrentTurnSlow = false;
+
+function updateSlowTurnReminder() {
+  if (!gameState || (gameState.phase !== 'CHOOSE_TRUMP' && gameState.phase !== 'PLAY_TRICK')) {
+    if (slowTurnTimer) {
+      clearTimeout(slowTurnTimer);
+      slowTurnTimer = null;
+    }
+    currentTurnWatchKey = null;
+    isCurrentTurnSlow = false;
+    return;
+  }
+
+  const activeSeat = gameState.phase === 'CHOOSE_TRUMP' ? gameState.declarerIndex : gameState.currentTurn;
+  const activePlayer = (gameState.players && typeof activeSeat === 'number') ? gameState.players[activeSeat] : null;
+  const trickLen = Array.isArray(gameState.currentTrick) ? gameState.currentTrick.length : 0;
+  const turnKey = `${gameState.roomCode}_${gameState.roundNumber}_${gameState.phase}_${activeSeat}_${gameState.trickCount}_${trickLen}`;
+
+  if (turnKey === currentTurnWatchKey) {
+    return;
+  }
+
+  currentTurnWatchKey = turnKey;
+  isCurrentTurnSlow = false;
+  if (slowTurnTimer) {
+    clearTimeout(slowTurnTimer);
+    slowTurnTimer = null;
+  }
+
+  document.querySelectorAll('.player-avatar-box.turn-slow-pulse').forEach(el => el.classList.remove('turn-slow-pulse'));
+
+  // Nur bei echten menschlichen Spielern (nicht Bot, nicht im Pause-Modus)
+  if (!activePlayer || activePlayer.isBot || activePlayer.isAutoBot) {
+    return;
+  }
+
+  slowTurnTimer = setTimeout(() => {
+    if (!gameState || currentTurnWatchKey !== turnKey) return;
+    isCurrentTurnSlow = true;
+
+    const relPos = getRelativePosition(activeSeat, mySeatIndex);
+    const pBox = document.getElementById(`player${relPos}`);
+    const avBox = pBox ? pBox.querySelector('.player-avatar-box') : null;
+    if (avBox) {
+      avBox.classList.add('turn-slow-pulse');
+    }
+
+    playSound('turn_reminder');
+
+    if (!isSpectator && activeSeat === mySeatIndex) {
+      if (typeof triggerHaptic === 'function') {
+        triggerHaptic([160, 80, 160]);
+      }
+      const turnInd = document.getElementById('turnIndicator');
+      if (turnInd && !turnInd.classList.contains('hidden')) {
+        turnInd.classList.add('turn-slow-badge');
+        turnInd.textContent = '⏳ Du bist am Zug!';
+      }
+      showToast('⏳ Du bist dran!');
+    }
+  }, 12000);
 }
 
 function renderTrickCenter() {
@@ -2964,14 +3216,20 @@ function handleModals() {
     document.getElementById('finalScoreThey').textContent = scoreThey;
 
     const restartBtn = document.getElementById('restartGameBtn');
+    const shuffleBtn = document.getElementById('restartShuffleTeamsBtn');
     const goWaitingNote = document.getElementById('gameOverWaitingNote');
     if (restartBtn && goWaitingNote) {
       if (isHost) {
         restartBtn.classList.remove('hidden');
         restartBtn.disabled = false;
+        if (shuffleBtn) {
+          shuffleBtn.classList.remove('hidden');
+          shuffleBtn.disabled = false;
+        }
         goWaitingNote.classList.add('hidden');
       } else {
         restartBtn.classList.add('hidden');
+        if (shuffleBtn) shuffleBtn.classList.add('hidden');
         goWaitingNote.classList.remove('hidden');
       }
     }
@@ -3059,6 +3317,9 @@ function renderRoundSummary(summary) {
     stockContainer.innerHTML += createCardHTML(card, false, false);
   });
 
+  // Runden-Verlauf aktualisieren
+  renderRoundHistoryUI();
+
   // Host vs Mitspieler Weiter-Button Steuerung
   const nextBtn = document.getElementById('nextRoundBtn');
   const waitingNote = document.getElementById('waitingForHostNote');
@@ -3070,6 +3331,75 @@ function renderRoundSummary(summary) {
     } else {
       nextBtn.classList.add('hidden');
       waitingNote.classList.remove('hidden');
+    }
+  }
+}
+
+function renderRoundHistoryUI() {
+  const history = (gameState && Array.isArray(gameState.roundHistory)) ? gameState.roundHistory : [];
+  const myTeam = (gameState && gameState.you && typeof gameState.you.team === 'number' && !isSpectator) ? gameState.you.team : 0;
+  const suitIcons = { clubs: '♣', spades: '♠', hearts: '♥', diamonds: '♦' };
+
+  const buildHistoryHTML = () => {
+    return history.map(item => {
+      const sIcon = item.trumpSuit ? (suitIcons[item.trumpSuit] || '?') : '?';
+      const isRedSuit = item.trumpSuit === 'hearts' || item.trumpSuit === 'diamonds';
+      const deltaWe = myTeam === 0 ? item.deltaTeamA : item.deltaTeamB;
+      const deltaThey = myTeam === 0 ? item.deltaTeamB : item.deltaTeamA;
+      const scoreWeAfter = myTeam === 0 ? item.newScoreA : item.newScoreB;
+      const scoreTheyAfter = myTeam === 0 ? item.newScoreB : item.newScoreA;
+      const eyesWe = myTeam === 0 ? item.eyesTeamA : item.eyesTeamB;
+      const eyesThey = myTeam === 0 ? item.eyesTeamB : item.eyesTeamA;
+
+      let tags = '';
+      if (item.isTurnedTrump) tags += `<span class="rh-tag rh-turned" title="Trumpf gedreht">🎲</span>`;
+      if (item.isMitAnnounced) tags += `<span class="rh-tag rh-mit">⭐ Mit'</span>`;
+      if (item.isContraReAnnounced) tags += `<span class="rh-tag rh-re">⚡⚡ Re</span>`;
+      else if (item.isContraAnnounced) tags += `<span class="rh-tag rh-contra">⚡ Kontra</span>`;
+
+      const fmtD = (d) => (d > 0 ? `+${d}` : `${d}`);
+      const dWeClass = deltaWe < 0 ? 'rh-delta-good' : (deltaWe > 0 ? 'rh-delta-bad' : 'rh-delta-zero');
+      const dTheyClass = deltaThey < 0 ? 'rh-delta-good' : (deltaThey > 0 ? 'rh-delta-bad' : 'rh-delta-zero');
+
+      return `
+        <div class="round-history-row">
+          <div class="rh-left">
+            <span class="rh-round">R${item.roundNumber}</span>
+            <span class="rh-suit ${isRedSuit ? 'suit-red' : 'suit-black'}">${sIcon}</span>
+            <span class="rh-declarer" title="Ansager">👑 ${escapeHtml(item.declarerName || '')}</span>
+            ${tags}
+          </div>
+          <div class="rh-right">
+            <span class="rh-eyes" title="Augen">${eyesWe}:${eyesThey} Aug.</span>
+            <span class="rh-deltas">
+              <strong class="${dWeClass}">${fmtD(deltaWe)}</strong> / <strong class="${dTheyClass}">${fmtD(deltaThey)}</strong>
+            </span>
+            <span class="rh-scores-after">➔ ${scoreWeAfter}:${scoreTheyAfter}</span>
+          </div>
+        </div>
+      `;
+    }).join('');
+  };
+
+  const summaryBox = document.getElementById('summaryRoundHistoryBox');
+  const summaryList = document.getElementById('summaryRoundHistoryList');
+  if (summaryBox && summaryList) {
+    if (history.length > 0) {
+      summaryList.innerHTML = buildHistoryHTML();
+      summaryBox.classList.remove('hidden');
+    } else {
+      summaryBox.classList.add('hidden');
+    }
+  }
+
+  const hostSec = document.getElementById('hostRoundHistorySection');
+  const hostList = document.getElementById('hostRoundHistoryList');
+  if (hostSec && hostList) {
+    if (history.length > 0) {
+      hostList.innerHTML = buildHistoryHTML();
+      hostSec.classList.remove('hidden');
+    } else {
+      hostSec.classList.add('hidden');
     }
   }
 }
@@ -3089,6 +3419,7 @@ let currentSettings = {
   alwaysClubQueenTrump: true,
   allowMit: true,
   contraPoints: 4,
+  allowContraRe: true,
   ansagerZeroTricksPenalty: 2,
   allowClaimTricks: true,
   startScoreA: 13,
@@ -3098,6 +3429,31 @@ let currentSettings = {
   dealAndTurnDelaySeconds: 1.0,
   isPublic: true
 };
+
+function loadSavedRuleSettings() {
+  try {
+    const raw = localStorage.getItem('kujong_saved_rule_settings');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        currentSettings = {
+          ...currentSettings,
+          ...parsed,
+          playerCount: parsed.playerCount === 6 ? 6 : 4,
+          contraPoints: parsed.contraPoints === 3 ? 3 : 4,
+          ansagerZeroTricksPenalty: parsed.ansagerZeroTricksPenalty === 1 ? 1 : 2
+        };
+      }
+    }
+  } catch (e) {}
+  syncSettingsUI();
+}
+
+function persistRuleSettingsToStorage() {
+  try {
+    localStorage.setItem('kujong_saved_rule_settings', JSON.stringify(currentSettings));
+  } catch (e) {}
+}
 
 function openSettingsModal() {
   if (gameState && gameState.settings) {
@@ -3385,6 +3741,7 @@ function saveRuleSettings() {
   };
 
   currentSettings = { ...settingsPayload };
+  persistRuleSettingsToStorage();
   if (currentRoomCode) {
     socket.emit('update_settings', { settings: settingsPayload });
   }
@@ -3457,8 +3814,13 @@ function initFriendSystem() {
   // URL-Parameter prüfen (?add_friend=... oder ?room=...)
   checkUrlParamsForFriendsAndRooms();
 
-  // Prüfen, ob Push bereits aktiviert ist
-  checkExistingPushSubscription();
+  // Prüfen, ob Push bereits aktiviert ist, und falls inaktiv direkt beim Reinkommen abfragen
+  checkExistingPushSubscription().then(() => {
+    const promptModal = document.getElementById('pushPromptModal');
+    if (promptModal && promptModal.classList.contains('hidden') && !isNotificationsFullyActive()) {
+      promptPushIfInactive(() => {});
+    }
+  });
 
   // Prüfen, ob iOS Safari vorliegt (für Home-Screen Hinweis)
   checkIosSafariPrompt();
@@ -3571,6 +3933,9 @@ async function checkExistingPushSubscription() {
 // Web-Push Benachrichtigungen anfordern & registrieren
 async function requestPushPermission() {
   if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    if ('Notification' in window && Notification.permission === 'default') {
+      try { await Notification.requestPermission(); } catch (e) {}
+    }
     showToast('Web-Push wird von diesem Browser leider nicht unterstützt.');
     return;
   }
@@ -3608,7 +3973,7 @@ async function requestPushPermission() {
       });
     }
 
-    showToast('🔔 Benachrichtigungen erfolgreich aktiviert!');
+    showToast('🔔 Push-Benachrichtigungen für Freundes-Einladungen aktiviert!');
     checkExistingPushSubscription();
   } catch (err) {
     console.error('Push Registrierungsfehler:', err);

@@ -5879,3 +5879,403 @@ input:checked + .slider:before {
     padding: 6px 10px;
   }
 }
+
+/* ==========================================================================
+   6. SCHNELLRUNDE MIT BOTS, VISUELLER STICH-STAPEL, 15s ZUG-IMPULS & RUNDEN-VERLAUF
+   ========================================================================== */
+
+/* Ein-Klick Schnellrunde mit Bots im Startmenü */
+.btn-quick-bot {
+  width: 100%;
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.22) 0%, rgba(5, 150, 105, 0.32) 100%);
+  border: 1.5px solid rgba(52, 211, 153, 0.55);
+  color: #a7f3d0;
+  font-size: 0.92rem;
+  font-weight: 700;
+  padding: 11px 16px;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(5, 150, 105, 0.2);
+  box-sizing: border-box;
+  margin-top: -4px;
+}
+
+.btn-quick-bot:hover {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.38) 0%, rgba(5, 150, 105, 0.48) 100%);
+  border-color: #6ee7b7;
+  color: #fff;
+  transform: translateY(-1px);
+}
+
+/* Visueller Stich-Stapel (Mini-Kartenpäckchen) im Scoreboard */
+.tricks-stat-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.trick-piles-visual {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 2px;
+}
+
+.mini-trick-packet {
+  display: inline-block;
+  width: 7px;
+  height: 10px;
+  border-radius: 2px;
+  position: relative;
+  box-shadow: 1px 1px 0 rgba(0, 0, 0, 0.7), 0 0 3px rgba(0, 0, 0, 0.4);
+  transform: rotate(-5deg);
+}
+
+.mini-trick-packet.packet-we {
+  background: linear-gradient(135deg, #fbbf24 0%, #b45309 100%);
+  border: 1px solid #fef08a;
+}
+
+.mini-trick-packet.packet-they {
+  background: linear-gradient(135deg, #60a5fa 0%, #1d4ed8 100%);
+  border: 1px solid #bfdbfe;
+}
+
+/* 15s Schlafmützen-Hinweis (stärkeres Pulsieren am Profilbild + Uhr-Badge) */
+.player-avatar-box.turn-slow-pulse {
+  border-color: #f97316 !important;
+  box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.55), 0 0 22px rgba(239, 68, 68, 0.95) !important;
+  animation: slowTurnAvatarPulse 0.65s infinite alternate ease-in-out !important;
+}
+
+.player-avatar-box.turn-slow-pulse::after {
+  content: '⏳';
+  position: absolute;
+  top: -7px;
+  left: -7px;
+  font-size: 0.72rem;
+  background: #0f172a;
+  border: 1px solid #f97316;
+  border-radius: 50%;
+  width: 17px;
+  height: 17px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.7);
+  z-index: 12;
+}
+
+@keyframes slowTurnAvatarPulse {
+  0% { transform: scale(1); }
+  100% { transform: scale(1.13); }
+}
+
+.turn-indicator.turn-slow-badge {
+  background: linear-gradient(135deg, #f97316 0%, #ef4444 100%) !important;
+  color: #fff !important;
+  box-shadow: 0 0 16px rgba(239, 68, 68, 0.85) !important;
+}
+
+/* Runden-Verlauf ("Bierdeckel-Historie") im Rundenende- & Menü-Fenster */
+.round-history-box {
+  margin-top: 10px;
+  background: rgba(15, 23, 42, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.round-history-title {
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #cbd5e1;
+  margin-bottom: 6px;
+}
+
+.round-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  max-height: 135px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.round-history-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 8px;
+  padding: 5px 8px;
+  font-size: 0.75rem;
+}
+
+.rh-left {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.rh-round {
+  font-weight: 800;
+  color: #94a3b8;
+  font-size: 0.72rem;
+}
+
+.rh-suit {
+  font-weight: 900;
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
+.rh-suit.suit-red {
+  color: #f87171;
+}
+
+.rh-suit.suit-black {
+  color: #f8fafc;
+}
+
+.rh-declarer {
+  color: #e2e8f0;
+  font-weight: 600;
+  max-width: 90px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rh-tag {
+  font-size: 0.64rem;
+  font-weight: 800;
+  padding: 1px 5px;
+  border-radius: 6px;
+}
+
+.rh-tag.rh-turned {
+  background: rgba(56, 189, 248, 0.18);
+  color: #7dd3fc;
+}
+
+.rh-tag.rh-mit {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fde047;
+}
+
+.rh-tag.rh-contra,
+.rh-tag.rh-re {
+  background: rgba(239, 68, 68, 0.22);
+  color: #fca5a5;
+}
+
+.rh-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.rh-eyes {
+  color: #94a3b8;
+  font-size: 0.7rem;
+}
+
+.rh-delta-good {
+  color: #34d399;
+}
+
+.rh-delta-bad {
+  color: #f87171;
+}
+
+.rh-delta-zero {
+  color: #94a3b8;
+}
+
+.rh-scores-after {
+  font-weight: 800;
+  color: #fef08a;
+  font-size: 0.74rem;
+}
+
+/* ==========================================================================
+   1-KLICK BEITRITTSANFRAGE-BANNER FÜR DEN SPIELLEITER & TEAMS MISCHEN
+   ========================================================================== */
+.host-quick-join-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 7px 12px;
+  margin-bottom: 6px;
+  background: rgba(15, 23, 42, 0.94);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(245, 158, 11, 0.55);
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+  z-index: 60;
+  position: relative;
+}
+
+.quick-join-req-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.quick-join-req-label {
+  font-size: 0.82rem;
+  color: #fef08a;
+  white-space: nowrap;
+}
+
+.quick-join-req-btns {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.btn-quick-join-bot {
+  padding: 4px 10px !important;
+  font-size: 0.76rem !important;
+  border-radius: 8px !important;
+  font-weight: 600 !important;
+  cursor: pointer;
+  transition: transform 0.12s ease, filter 0.12s ease;
+}
+
+.btn-quick-join-bot.qjb-we {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.28), rgba(5, 150, 105, 0.38)) !important;
+  border: 1px solid rgba(52, 211, 153, 0.65) !important;
+  color: #ecfdf5 !important;
+}
+
+.btn-quick-join-bot.qjb-they {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.28), rgba(37, 99, 235, 0.38)) !important;
+  border: 1px solid rgba(96, 165, 250, 0.65) !important;
+  color: #eff6ff !important;
+}
+
+.btn-quick-join-bot:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.12);
+}
+
+.btn-quick-join-reject {
+  padding: 4px 8px !important;
+  font-size: 0.76rem !important;
+  border-radius: 8px !important;
+  background: rgba(239, 68, 68, 0.2) !important;
+  border: 1px solid rgba(239, 68, 68, 0.45) !important;
+  color: #fca5a5 !important;
+  cursor: pointer;
+}
+
+.game-over-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ==========================================================================
+   VERBINDUNGS-SYMBOL (📡) BEI UNTERBRECHUNG & SCHNELL-EMOTES IM MODAL
+   ========================================================================== */
+.player-avatar-box.player-disconnected {
+  border-color: rgba(245, 158, 11, 0.85) !important;
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.45) !important;
+  opacity: 0.78;
+}
+
+.modal-quick-emotes {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 6px 10px;
+  margin: 8px 0 4px 0;
+  background: rgba(15, 23, 42, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  flex-wrap: wrap;
+}
+
+.modal-emote-label {
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: #94a3b8;
+  margin-right: 2px;
+}
+
+.btn-modal-emote {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 10px;
+  font-size: 1.25rem;
+  line-height: 1;
+  padding: 5px 9px;
+  cursor: pointer;
+  transition: transform 0.14s ease, background 0.14s ease;
+}
+
+.btn-modal-emote:hover,
+.btn-modal-emote:active {
+  transform: scale(1.16);
+  background: rgba(245, 158, 11, 0.24);
+  border-color: rgba(245, 158, 11, 0.55);
+}
+
+.modal-emote-stream {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  min-height: 4px;
+  margin-bottom: 4px;
+}
+
+.modal-emote-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  background: rgba(30, 41, 59, 0.96);
+  border: 1px solid rgba(245, 158, 11, 0.65);
+  border-radius: 999px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
+  animation: modalEmotePop 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.modal-emote-sender {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #fde68a;
+}
+
+.modal-emote-emoji {
+  font-size: 1.35rem;
+  line-height: 1;
+}
+
+@keyframes modalEmotePop {
+  0% {
+    opacity: 0;
+    transform: scale(0.6) translateY(6px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+

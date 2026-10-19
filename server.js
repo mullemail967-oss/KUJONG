@@ -336,6 +336,7 @@ function createRoom(roomCode, hostName, hostSocketId, hostFriendCode = null, hos
     trickHistory: [],
     trickWinnerInfo: null,
     roundSummary: null,
+    roundHistory: [],
     hasThrownCards: {}, // { [playerIndex]: boolean }
     actionLog: [`Raum ${roomCode} erstellt durch ${hostName}.`],
     chatMessages: [],
@@ -678,6 +679,7 @@ function sanitizeStateForPlayer(room, seatIndex) {
       isBot: seat.isBot,
       isAutoBot: Boolean(seat.isAutoBot),
       connected: seat.connected,
+      isAway: Boolean(seat.isAway),
       cardCount: room.hands[idx] ? room.hands[idx].length : 0,
       isDealer: room.dealerIndex === idx,
       isDeclarer: room.declarerIndex === idx,
@@ -794,6 +796,7 @@ function sanitizeStateForPlayer(room, seatIndex) {
     lastTrick: room.lastTrick,
     trickWinnerInfo: room.trickWinnerInfo,
     roundSummary: room.roundSummary,
+    roundHistory: room.roundHistory || [],
     actionLog: room.actionLog,
     chatMessages: room.chatMessages,
     players: playersInfo,
@@ -1624,6 +1627,30 @@ function resolveRound(room) {
     isGameOver: room.scores.teamA <= 0 || room.scores.teamB <= 0
   };
 
+  if (!Array.isArray(room.roundHistory)) room.roundHistory = [];
+  const declarerSeat = room.seats[room.declarerIndex];
+  room.roundHistory.push({
+    roundNumber: room.roundNumber,
+    trumpSuit: room.trumpSuit,
+    isTurnedTrump: Boolean(room.isTurnedTrump),
+    declarerName: declarerSeat ? declarerSeat.name : `Spieler ${room.declarerIndex + 1}`,
+    declarerTeam: room.declarerTeam,
+    eyesTeamA: room.eyesTeamA,
+    eyesTeamB: room.eyesTeamB,
+    tricksTeamA: room.tricksTeamA,
+    tricksTeamB: room.tricksTeamB,
+    deltaTeamA: evaluation.deltaTeamA,
+    deltaTeamB: evaluation.deltaTeamB,
+    newScoreA: room.scores.teamA,
+    newScoreB: room.scores.teamB,
+    isMitAnnounced: Boolean(room.isMitAnnounced),
+    isContraAnnounced: Boolean(room.isContraAnnounced),
+    isContraReAnnounced: Boolean(room.isContraReAnnounced)
+  });
+
+  // Geber rotiert nach jeder Runde im Uhrzeigersinn um 1 weiter (auch bei Spielende für die nächste Partie)
+  room.dealerIndex = (room.dealerIndex + 1) % maxPlayers;
+
   // Spielende prüfen
   if (room.scores.teamA <= 0 || room.scores.teamB <= 0) {
     room.phase = 'GAME_OVER';
@@ -1642,8 +1669,6 @@ function resolveRound(room) {
     logAction(room, `🎉 PARTIE BEENDET! ${winningTeamName} hat das Spiel gewonnen! (Gesamtsiege: Team A ${room.matchWins.teamA} - ${room.matchWins.teamB} Team B)`);
   } else {
     room.phase = 'ROUND_END';
-    // Geber rotiert im Uhrzeigersinn um 1
-    room.dealerIndex = (room.dealerIndex + 1) % maxPlayers;
   }
 
   broadcastGameState(room);
@@ -1792,8 +1817,8 @@ io.on('connection', (socket) => {
   let currentSeatIndex = -1;
   let myFriendCode = null;
 
-  // Raum erstellen
-  socket.on('create_room', ({ playerName, settings, friendCode, avatar }) => {
+  // Raum erstellen (optional direkt als Schnellrunde mit Bots starten)
+  socket.on('create_room', ({ playerName, settings, friendCode, avatar, quickBotStart }) => {
     // Falls dieser Client bereits in einem Raum war: den alten Raum vorher sauber auflösen/verlassen!
     if (currentRoomCode) {
       handlePlayerLeave();
@@ -1844,6 +1869,31 @@ io.on('connection', (socket) => {
     currentSeatIndex = 0;
     socket.join(code);
     socket.emit('room_created', { roomCode: code, seatIndex: 0 });
+
+    if (quickBotStart) {
+      const maxPlayers = room.settings.playerCount || 4;
+      for (let s = 1; s < maxPlayers; s++) {
+        const botName = getRandomBotName(room);
+        room.seats[s] = {
+          index: s,
+          name: botName,
+          socketId: null,
+          isBot: true,
+          connected: true,
+          team: s % 2 === 0 ? 0 : 1
+        };
+      }
+      room.roundHistory = [];
+      room.dealerIndex = 0;
+      logAction(room, `🤖 Schnellrunde mit Bots gestartet!`);
+      startNewRound(room);
+      broadcastPublicRooms();
+      if (room.settings && room.settings.isPublic !== false) {
+        broadcastNewPublicRoomAlert(room, playerName || 'Ein Spieler', socket.id, cleanFCode);
+      }
+      return;
+    }
+
     broadcastGameState(room);
     broadcastPublicRooms();
 
@@ -2168,6 +2218,7 @@ io.on('connection', (socket) => {
       if (seat && (!seat.isBot || (seat.replacedPlayerName && seat.replacedPlayerName.toLowerCase() === cleanName))) {
         seat.socketId = socket.id;
         seat.connected = true;
+        seat.isAway = false;
         seat.isBot = false;
         if (playerName) seat.name = playerName.trim();
         const cleanAvatar = sanitizeAvatar(avatar);
@@ -2186,25 +2237,57 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Sitzplatz wechseln in der Lobby
+  function syncCurrentSeatIndex(room) {
+    if (!room || !Array.isArray(room.seats)) return currentSeatIndex;
+    const idx = room.seats.findIndex(s => s && s.socketId === socket.id);
+    if (idx !== -1) currentSeatIndex = idx;
+    return currentSeatIndex;
+  }
+
+  // Kurze Abwesenheit / App im Hintergrund melden (für 📡-Symbol am Tisch)
+  socket.on('set_player_away', ({ isAway }) => {
+    if (!currentRoomCode) return;
+    const room = rooms.get(currentRoomCode);
+    if (!room) return;
+    syncCurrentSeatIndex(room);
+    if (currentSeatIndex < 0 || !room.seats[currentSeatIndex] || room.seats[currentSeatIndex].isBot) return;
+    const newAway = Boolean(isAway);
+    if (Boolean(room.seats[currentSeatIndex].isAway) !== newAway) {
+      room.seats[currentSeatIndex].isAway = newAway;
+      broadcastGameState(room);
+    }
+  });
+
+  // Sitzplatz wechseln oder direkt mit anderem Platz / Bot / Mitspieler tauschen in der Lobby
   socket.on('switch_seat', ({ targetSeat }) => {
     if (!currentRoomCode) return;
     const room = rooms.get(currentRoomCode);
     if (!room || room.phase !== 'LOBBY') return;
+    syncCurrentSeatIndex(room);
     const maxPlayers = room.settings.playerCount || 4;
-    if (targetSeat < 0 || targetSeat >= maxPlayers) return;
-    if (room.seats[targetSeat] && !room.seats[targetSeat].isBot) return;
+    if (typeof targetSeat !== 'number' || targetSeat < 0 || targetSeat >= maxPlayers) return;
+    if (targetSeat === currentSeatIndex) return;
 
     const mySeat = room.seats[currentSeatIndex];
     if (!mySeat) return;
 
-    room.seats[currentSeatIndex] = null;
+    const targetObj = room.seats[targetSeat] || null;
+    room.seats[currentSeatIndex] = targetObj;
+    if (targetObj) {
+      targetObj.index = currentSeatIndex;
+      targetObj.team = currentSeatIndex % 2 === 0 ? 0 : 1;
+    }
+
     mySeat.index = targetSeat;
     mySeat.team = targetSeat % 2 === 0 ? 0 : 1;
     room.seats[targetSeat] = mySeat;
     currentSeatIndex = targetSeat;
 
-    logAction(room, `${mySeat.name} wechselt auf Platz ${targetSeat + 1}.`);
+    if (targetObj) {
+      logAction(room, `⇄ ${mySeat.name} tauscht den Platz mit ${targetObj.name}.`);
+    } else {
+      logAction(room, `${mySeat.name} wechselt auf Platz ${targetSeat + 1}.`);
+    }
     broadcastGameState(room);
   });
 
@@ -2253,6 +2336,7 @@ io.on('connection', (socket) => {
     if (!room || room.phase !== 'LOBBY') {
       return socket.emit('error_message', 'Regeln können nur in der Lobby vor Spielstart angepasst werden.');
     }
+    syncCurrentSeatIndex(room);
 
     if (!isPlayerHost(room, socket)) {
       return socket.emit('error_message', 'Nur der Spielleiter kann die Spieleinstellungen ändern.');
@@ -2350,7 +2434,8 @@ io.on('connection', (socket) => {
       teamA: room.settings.startScoreA || 13,
       teamB: room.settings.startScoreB || 13
     };
-    room.dealerIndex = 0;
+    room.roundHistory = [];
+    room.dealerIndex = (typeof room.dealerIndex === 'number' ? room.dealerIndex : 0) % maxPlayers;
     startNewRound(room);
     broadcastPublicRooms();
   });
@@ -2360,6 +2445,7 @@ io.on('connection', (socket) => {
     if (!currentRoomCode) return;
     const room = rooms.get(currentRoomCode);
     if (!room || room.phase !== 'CHOOSE_TRUMP') return;
+    syncCurrentSeatIndex(room);
     if (room.declarerIndex !== currentSeatIndex) return;
 
     handleTrumpSelection(room, suit);
@@ -2370,6 +2456,7 @@ io.on('connection', (socket) => {
     if (!currentRoomCode) return;
     const room = rooms.get(currentRoomCode);
     if (!room || room.phase !== 'CHOOSE_TRUMP') return;
+    syncCurrentSeatIndex(room);
     if (room.declarerIndex !== currentSeatIndex) return;
 
     handleTurnTrump(room);
@@ -2380,6 +2467,7 @@ io.on('connection', (socket) => {
     if (!currentRoomCode) return;
     const room = rooms.get(currentRoomCode);
     if (!room) return;
+    syncCurrentSeatIndex(room);
     if (typeof currentSeatIndex !== 'number' || currentSeatIndex < 0) return;
     if (room.phase !== 'PLAY_TRICK' || room.trickCount !== 0) return;
     if (room.settings.allowMit === false) return;
@@ -2419,6 +2507,7 @@ io.on('connection', (socket) => {
     if (!currentRoomCode) return;
     const room = rooms.get(currentRoomCode);
     if (!room) return;
+    syncCurrentSeatIndex(room);
     if (typeof currentSeatIndex !== 'number' || currentSeatIndex < 0) return;
 
     handleContraAnnouncement(room, currentSeatIndex);
@@ -2429,6 +2518,7 @@ io.on('connection', (socket) => {
     if (!currentRoomCode) return;
     const room = rooms.get(currentRoomCode);
     if (!room) return;
+    syncCurrentSeatIndex(room);
     if (typeof currentSeatIndex !== 'number' || currentSeatIndex < 0) return;
 
     const seat = room.seats[currentSeatIndex];
@@ -2442,6 +2532,7 @@ io.on('connection', (socket) => {
     if (!currentRoomCode) return;
     const room = rooms.get(currentRoomCode);
     if (!room) return;
+    syncCurrentSeatIndex(room);
     if (room.currentTurn !== currentSeatIndex) return;
 
     handleCardPlay(room, currentSeatIndex, cardId);
@@ -2452,6 +2543,7 @@ io.on('connection', (socket) => {
     if (!currentRoomCode) return;
     const room = rooms.get(currentRoomCode);
     if (!room) return;
+    syncCurrentSeatIndex(room);
     if (room.currentTurn !== currentSeatIndex) return;
 
     handleThrowCards(room, currentSeatIndex);
@@ -2462,6 +2554,7 @@ io.on('connection', (socket) => {
     if (!currentRoomCode) return;
     const room = rooms.get(currentRoomCode);
     if (!room) return;
+    syncCurrentSeatIndex(room);
     if (room.currentTurn !== currentSeatIndex) return;
 
     handleClaimTricks(room, currentSeatIndex);
@@ -2480,8 +2573,8 @@ io.on('connection', (socket) => {
     startNewRound(room);
   });
 
-  // Spiel neu starten (Nur Host / Spielleiter)
-  socket.on('restart_game', () => {
+  // Spiel neu starten (Nur Host / Spielleiter, optional mit neu gemischten Teams)
+  socket.on('restart_game', (payload) => {
     if (!currentRoomCode) return;
     const room = rooms.get(currentRoomCode);
     if (!room || room.phase !== 'GAME_OVER') return;
@@ -2490,12 +2583,57 @@ io.on('connection', (socket) => {
       return socket.emit('error_message', 'Nur der Spielleiter kann ein neues Spiel starten.');
     }
 
+    const maxPlayers = room.settings.playerCount || 4;
+    const shuffleTeams = Boolean(payload && payload.shuffleTeams);
+
+    if (shuffleTeams) {
+      const activeSeats = room.seats.slice(0, maxPlayers);
+      const getTeamKey = (seatsArr) =>
+        seatsArr
+          .filter((_, idx) => idx % 2 === 0)
+          .map(s => (s ? s.socketId || s.name : ''))
+          .sort()
+          .join('|');
+      const oldTeamAKey = getTeamKey(activeSeats);
+      const oldTeamBKey = activeSeats
+        .filter((_, idx) => idx % 2 === 1)
+        .map(s => (s ? s.socketId || s.name : ''))
+        .sort()
+        .join('|');
+
+      let shuffled = [...activeSeats];
+      for (let attempt = 0; attempt < 8; attempt++) {
+        shuffled = [...activeSeats];
+        for (let i = shuffled.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+        }
+        const newKey = getTeamKey(shuffled);
+        if (newKey !== oldTeamAKey && newKey !== oldTeamBKey) {
+          break;
+        }
+      }
+
+      for (let i = 0; i < maxPlayers; i++) {
+        const seat = shuffled[i];
+        if (seat) {
+          seat.index = i;
+          seat.team = i % 2 === 0 ? 0 : 1;
+        }
+        room.seats[i] = seat;
+      }
+      syncCurrentSeatIndex(room);
+      logAction(room, `🔀 Teams wurden für die neue Partie zufällig neu gemischt!`);
+      io.to(room.code).emit('teams_shuffled');
+    }
+
     room.scores = {
       teamA: room.settings.startScoreA || 13,
       teamB: room.settings.startScoreB || 13
     };
+    room.roundHistory = [];
     room.roundNumber = 0;
-    room.dealerIndex = 0;
+    room.dealerIndex = (typeof room.dealerIndex === 'number' ? room.dealerIndex : 0) % maxPlayers;
     room.matchWinRecorded = false;
     startNewRound(room);
   });
@@ -2505,6 +2643,7 @@ io.on('connection', (socket) => {
     if (!currentRoomCode) return;
     const room = rooms.get(currentRoomCode);
     if (!room) return;
+    syncCurrentSeatIndex(room);
 
     if (currentSeatIndex === -1) {
       if (Array.isArray(room.spectators)) {
@@ -2609,9 +2748,11 @@ io.on('connection', (socket) => {
 
   // Temporäre Bot-Übernahme ("Kurz weg / Pause"-Modus) im laufenden Spiel ein-/ausschalten
   socket.on('toggle_auto_bot', () => {
-    if (!currentRoomCode || currentSeatIndex < 0) return;
+    if (!currentRoomCode) return;
     const room = rooms.get(currentRoomCode);
     if (!room || room.phase === 'LOBBY') return;
+    syncCurrentSeatIndex(room);
+    if (currentSeatIndex < 0) return;
 
     const seat = room.seats[currentSeatIndex];
     if (!seat || seat.isBot) return;
@@ -2672,7 +2813,7 @@ io.on('connection', (socket) => {
     room.trickWinnerInfo = null;
     room.roundSummary = null;
     room.roundNumber = 0;
-    room.dealerIndex = 0;
+    room.dealerIndex = ((typeof room.dealerIndex === 'number' ? room.dealerIndex : 0) + 1) % maxPlayers;
     room.matchWinRecorded = false;
     room.scores = {
       teamA: room.settings.startScoreA || 13,
@@ -2765,7 +2906,10 @@ io.on('connection', (socket) => {
 
   // Emotes senden
   socket.on('send_emote', ({ emote }) => {
-    if (!currentRoomCode || currentSeatIndex === -1) return;
+    if (!currentRoomCode) return;
+    const room = rooms.get(currentRoomCode);
+    if (room) syncCurrentSeatIndex(room);
+    if (currentSeatIndex === -1) return;
     if (!emote || typeof emote !== 'string') return;
 
     const now = Date.now();
@@ -2811,10 +2955,13 @@ io.on('connection', (socket) => {
     // Falls der Spieler bereits an einem Tisch sitzt, friendCode & avatar dort aktualisieren!
     if (currentRoomCode) {
       const room = rooms.get(currentRoomCode);
-      if (room && typeof currentSeatIndex === 'number' && currentSeatIndex >= 0 && room.seats[currentSeatIndex]) {
-        room.seats[currentSeatIndex].friendCode = myFriendCode;
-        if (cleanAvatar) room.seats[currentSeatIndex].avatar = cleanAvatar;
-        broadcastGameState(room);
+      if (room) {
+        syncCurrentSeatIndex(room);
+        if (typeof currentSeatIndex === 'number' && currentSeatIndex >= 0 && room.seats[currentSeatIndex]) {
+          room.seats[currentSeatIndex].friendCode = myFriendCode;
+          if (cleanAvatar) room.seats[currentSeatIndex].avatar = cleanAvatar;
+          broadcastGameState(room);
+        }
       }
     }
   });
@@ -2838,14 +2985,17 @@ io.on('connection', (socket) => {
       }
     }
 
-    if (currentRoomCode && currentSeatIndex >= 0) {
+    if (currentRoomCode) {
       const room = rooms.get(currentRoomCode);
-      if (room && room.seats[currentSeatIndex] && !room.seats[currentSeatIndex].isBot) {
-        room.seats[currentSeatIndex].avatar = cleanAvatar;
-        if (cleanName && cleanName.length >= 2) {
-          room.seats[currentSeatIndex].name = cleanName;
+      if (room) {
+        syncCurrentSeatIndex(room);
+        if (currentSeatIndex >= 0 && room.seats[currentSeatIndex] && !room.seats[currentSeatIndex].isBot) {
+          room.seats[currentSeatIndex].avatar = cleanAvatar;
+          if (cleanName && cleanName.length >= 2) {
+            room.seats[currentSeatIndex].name = cleanName;
+          }
+          broadcastGameState(room);
         }
-        broadcastGameState(room);
       }
     }
   });
