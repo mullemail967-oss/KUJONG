@@ -41,7 +41,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=9.0">
+  <link rel="stylesheet" href="style.css?v=9.1">
 </head>
 <body>
 
@@ -68,9 +68,8 @@
     <div id="lobbyScreen" class="screen active">
       <div class="lobby-card">
         <div class="lobby-header">
-          <div class="game-badge">Ostbelgien & Eifel Edition</div>
+          <div class="game-badge">Ostbelgien</div>
           <h1 class="game-title">KUJONG</h1>
-          <p class="game-subtitle">Traditionelles 4-Spieler Team-Kartenspiel (13 Punkte Countdown)</p>
           <div id="pwaInstallContainer" class="pwa-install-banner hidden">
             <button id="pwaInstallBtn" class="btn btn-xs btn-pwa-install" onclick="triggerPwaInstall()">📲 Kujong als App installieren</button>
           </div>
@@ -96,9 +95,8 @@
             </button>
             <div class="divider"><span>ODER</span></div>
             <div class="join-box">
-              <input type="text" id="roomCodeInput" placeholder="Code (z.B. ABCD)" maxlength="4" autocomplete="off" autocapitalize="characters">
+              <input type="text" id="roomCodeInput" placeholder="Raumcode (z.B. ABCD)" maxlength="4" autocomplete="off" autocapitalize="characters">
               <button id="joinRoomBtn" class="btn btn-secondary">Beitreten</button>
-              <button id="spectateRoomBtn" class="btn btn-outline" onclick="handleSpectateRoom()" title="Als Zuschauer zuschauen (Kibitzen)">👀</button>
             </div>
           </div>
 
@@ -138,11 +136,8 @@
             </div>
           </div>
 
-          <!-- PROFILBILD, STATISTIK & SPIELANLEITUNG -->
-          <div class="lobby-extra-tools-row three-cols">
-            <button type="button" class="btn btn-outline btn-lobby-extra" onclick="openAvatarModal()">
-              🖼️ Profilbild
-            </button>
+          <!-- STATISTIK & SPIELANLEITUNG -->
+          <div class="lobby-extra-tools-row">
             <button type="button" class="btn btn-outline btn-lobby-extra" onclick="openStatsModal()">
               📊 Statistik
             </button>
@@ -587,7 +582,6 @@
               <div class="watermark-ring">
                 <span class="watermark-suit">♣ Q ♠</span>
                 <span class="watermark-title">KUJONG</span>
-                <span class="watermark-sub">EIFEL • OSTBELGIEN</span>
               </div>
             </div>
 
@@ -1406,6 +1400,6 @@
   <!-- Socket.io Script -->
   <script src="/socket.io/socket.io.js"></script>
   <!-- Client JavaScript -->
-  <script src="client.js?v=9.0"></script>
+  <script src="client.js?v=9.1"></script>
 </body>
 </html>

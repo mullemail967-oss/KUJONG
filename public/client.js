@@ -2539,7 +2539,7 @@ function renderTablePlayers() {
         nameEl.removeAttribute('title');
         nameEl.onclick = null;
       } else if (player.isBot) {
-        nameEl.textContent = player.name.startsWith('Bot ') ? `🤖 ${player.name.replace(/^Bot\s+/i, '')}` : `🤖 ${player.name}`;
+        nameEl.textContent = player.name.startsWith('Bot ') ? player.name : `Bot ${player.name}`;
         nameEl.classList.remove('clickable-friend-name');
         nameEl.removeAttribute('title');
         nameEl.onclick = null;

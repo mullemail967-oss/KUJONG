@@ -5741,8 +5741,8 @@ input:checked + .slider:before {
 }
 
 .watermark-ring {
-  width: 146px;
-  height: 146px;
+  width: 138px;
+  height: 138px;
   border-radius: 50%;
   border: 1.5px solid rgba(255, 255, 255, 0.07);
   box-shadow: inset 0 0 0 5px rgba(255, 255, 255, 0.025);
@@ -5750,7 +5750,7 @@ input:checked + .slider:before {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
+  gap: 4px;
   opacity: 0.42;
 }
 
@@ -5762,17 +5762,89 @@ input:checked + .slider:before {
 
 .watermark-title {
   font-family: var(--font-display, 'Cinzel', serif);
-  font-size: 1.05rem;
+  font-size: 1.12rem;
   font-weight: 700;
-  letter-spacing: 3px;
-  color: rgba(255, 255, 255, 0.22);
+  letter-spacing: 3.5px;
+  color: rgba(255, 255, 255, 0.24);
 }
 
-.watermark-sub {
-  font-size: 0.5rem;
-  font-weight: 600;
-  letter-spacing: 1.5px;
-  color: rgba(255, 255, 255, 0.16);
+/* 5. Layout- & Ausrichtungs-Korrekturen (Startmenü, Warteraum & Spieltisch) */
+.friends-entry-row {
+  width: 100%;
+  display: flex;
+  box-sizing: border-box;
+}
+
+.btn-friends-main {
+  width: 100%;
+  justify-content: center;
+  box-sizing: border-box;
+  padding: 12px 16px;
+}
+
+.join-box input:placeholder-shown {
+  letter-spacing: 0.5px;
+  font-weight: 500;
+  font-size: 0.92rem;
+  text-transform: none;
+}
+
+.seat-slot {
+  gap: 8px;
+}
+
+.seat-slot .seat-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.seat-text-col {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.seat-num,
+.seat-slot .player-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.seat-controls {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.seat-controls .btn {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.player-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  width: 100%;
+  padding: 0 6px;
+  box-sizing: border-box;
+}
+
+.my-info {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.turn-indicator {
+  white-space: nowrap;
+  flex-shrink: 0;
+  line-height: 1.2;
 }
 
 @media (max-width: 480px) {
@@ -5780,11 +5852,30 @@ input:checked + .slider:before {
     border-width: 6px !important;
   }
   .watermark-ring {
-    width: 118px;
-    height: 118px;
+    width: 112px;
+    height: 112px;
   }
   .watermark-title {
-    font-size: 0.88rem;
+    font-size: 0.92rem;
+  }
+  #lobbyScreen {
+    padding: 12px 10px;
+  }
+  .lobby-card {
+    gap: 14px;
+    padding: 16px 14px;
+  }
+  .lobby-section {
+    gap: 12px;
+  }
+  .team-seats-container {
+    gap: 8px;
+  }
+  .team-box {
+    padding: 10px;
+    gap: 6px;
+  }
+  .seat-slot {
+    padding: 6px 10px;
   }
 }
-
