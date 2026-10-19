@@ -41,7 +41,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=8.8">
+  <link rel="stylesheet" href="style.css?v=8.9">
 </head>
 <body>
 
@@ -130,10 +130,13 @@
             </div>
           </div>
 
-          <!-- STATISTIK & ERFOLGE SOWIE INTERAKTIVES TUTORIAL -->
-          <div class="lobby-extra-tools-row">
+          <!-- PROFILBILD, STATISTIK & SPIELANLEITUNG -->
+          <div class="lobby-extra-tools-row three-cols">
+            <button type="button" class="btn btn-outline btn-lobby-extra" onclick="openAvatarModal()">
+              🖼️ Profilbild
+            </button>
             <button type="button" class="btn btn-outline btn-lobby-extra" onclick="openStatsModal()">
-              📊 Statistik & Erfolge
+              📊 Statistik
             </button>
             <button type="button" class="btn btn-outline btn-lobby-extra" onclick="openTutorialModal()">
               📖 Spielanleitung
@@ -305,7 +308,7 @@
           </div>
         </div>
 
-        <!-- HEADER SUB-TOOLS (Verlassen, Spielleiter-Menü, Pause-Bot, Kontra-Knopf, Letzter Stich, Spickzettel, Ton) -->
+        <!-- HEADER SUB-TOOLS (Verlassen, Spielleiter-Menü, Pause-Bot, Kontra-Knopf, Letzter Stich, Ton) -->
         <div class="header-tools">
           <button id="leaveGameBtn" class="btn-tool btn-leave-game" onclick="confirmLeaveGame()" title="Partie verlassen (wird durch Bot ersetzt)">
             🚪 Verlassen
@@ -314,7 +317,7 @@
             <span id="hostMenuIcon">👑</span> Menü<span id="hostMenuReqBadge" class="host-req-badge hidden">0</span>
           </button>
           <button id="autoBotToggleBtn" class="btn-tool btn-auto-bot" onclick="toggleAutoBot()" title="Kurz weg? Bot spielt vorübergehend für dich weiter">
-            ⏸️ Pause (Bot)
+            ⏸️
           </button>
           <button id="announceContraBtn" class="btn-tool btn-contra hidden" onclick="announceContra()" title="Kontra ansagen">
             ⚡ KONTRA GEBEN!
@@ -325,7 +328,6 @@
           <button id="viewLastTrickBtn" class="btn-tool hidden" onclick="openLastTrickModal()" title="Letzten Stich ansehen">
             👁️ Stich
           </button>
-          <button id="cheatSheetBtn" class="btn-tool btn-tool-icon" onclick="openCheatSheetModal()" title="Spickzettel (Trumpf-Reihenfolge & Augen)">❓</button>
           <button id="soundToggleBtn" class="btn-tool btn-tool-icon" title="Ton ein/ausschalten">🔊</button>
         </div>
       </header>
@@ -587,6 +589,9 @@
             <div class="player-meta-row">
               <div class="my-info">
                 <div class="name-emote-wrap">
+                  <div class="player-avatar-box player-avatar-bottom avatar-is-human" onclick="openAvatarModal()" title="Profilbild ändern">
+                    <div class="avatar-icon">👤</div>
+                  </div>
                   <span class="name" id="nameBottom">Du</span>
                   <button id="openEmoteBtn" class="btn-tool btn-tool-icon btn-emote-trigger btn-emote-inline" onclick="toggleEmotePicker()" title="Reaktionen & Ragebait">💬</button>
                   <div class="emote-bubble-box" id="emoteBubbleBottom"></div>
@@ -1071,11 +1076,17 @@
               <span class="btn-friends-label">👥 Freunde & Push-Einladungen</span>
               <span class="badge badge-friends-count" id="menuFriendsCount">0</span>
             </button>
+            <button class="btn btn-outline btn-sm" onclick="closeHostMenu(); openAvatarModal();" title="Eigenes Foto hochladen oder Avatar-Symbol wählen">
+              🖼️ Profilbild ändern
+            </button>
+            <button id="menuVibrationToggleBtn" class="btn btn-outline btn-sm" onclick="toggleVibrationSetting()" title="Smartphone-Vibration ein/ausschalten">
+              📳 Vibration: AN
+            </button>
             <button class="btn btn-outline btn-sm" onclick="closeHostMenu(); openCheatSheetModal();" title="Trumpf-Reihenfolge & Kartenwerte nachschlagen">
               ❓ Spickzettel & Kartenwerte
             </button>
-            <button class="btn btn-outline btn-sm" onclick="closeHostMenu(); openStatsModal();" title="Deine persönliche Statistik & Erfolge ansehen">
-              📊 Meine Statistik & Erfolge
+            <button class="btn btn-outline btn-sm" onclick="closeHostMenu(); openStatsModal();" title="Deine persönliche Spielstatistik ansehen">
+              📊 Meine Statistik
             </button>
             <button id="hostReturnLobbyBtn" class="btn btn-outline btn-sm btn-return-lobby" onclick="returnToLobby()">
               🏠 Partie beenden & Zurück zur Lobby
@@ -1119,11 +1130,12 @@
         <!-- MEIN PROFIL-KARTE -->
         <div class="friend-profile-card">
           <div class="profile-card-top">
-            <div class="profile-avatar">👤</div>
+            <div class="profile-avatar" id="myProfileAvatarDisplay" onclick="openAvatarModal()" title="Profilbild ändern" style="cursor: pointer;">👤</div>
             <div class="profile-details">
               <div class="profile-name-row">
                 <span class="profile-name" id="myProfileNameDisplay">Spieler</span>
                 <button class="btn btn-xs btn-outline btn-edit-name" onclick="changeMyPlayerNamePrompt()" title="Spielernamen ändern">✏️</button>
+                <button class="btn btn-xs btn-outline btn-edit-name" onclick="openAvatarModal()" title="Profilbild ändern">🖼️</button>
                 <span id="pushStatusBadge" class="push-status-pill push-inactive" title="Push-Status">⚪ Push inaktiv</span>
               </div>
               <div class="profile-code-row">
@@ -1204,25 +1216,17 @@
     </div>
   </div>
 
-  <!-- MODAL: PERSÖNLICHE STATISTIK & ERFOLGE -->
+  <!-- MODAL: PERSÖNLICHE STATISTIK -->
   <div id="statsModal" class="modal-overlay hidden">
     <div class="modal-card stats-modal-card">
       <div class="modal-header">
-        <span class="modal-tag">🏆 Spieler-Profil</span>
-        <h2>Statistik & Erfolge</h2>
+        <span class="modal-tag">📊 Mein Profil</span>
+        <h2>Meine Statistik</h2>
         <button class="modal-close-btn" onclick="closeStatsModal()">✕</button>
       </div>
       <div class="modal-body stats-modal-body">
         <div class="stats-grid" id="playerStatsGrid">
           <!-- Dynamisch via renderStatsModal() befüllt -->
-        </div>
-        <div class="achievements-section">
-          <div class="achievements-header-row">
-            <h3>🎖️ Erfolge (<span id="achievementsUnlockedCount">0/8</span>)</h3>
-          </div>
-          <div class="achievements-list" id="achievementsListContainer">
-            <!-- Dynamisch via renderStatsModal() befüllt -->
-          </div>
         </div>
       </div>
       <div class="modal-footer stats-modal-footer">
@@ -1309,12 +1313,59 @@
     </div>
   </div>
 
+  <!-- MODAL: PROFILBILD & AVATAR AUSWÄHLEN -->
+  <div id="avatarModal" class="modal-overlay hidden">
+    <div class="modal-card avatar-modal-card">
+      <div class="modal-header">
+        <span class="modal-tag">🖼️ Profil</span>
+        <h2>Profilbild anpassen</h2>
+        <button class="modal-close-btn" onclick="closeAvatarModal()">✕</button>
+      </div>
+      <div class="modal-body avatar-modal-body">
+        <div class="avatar-current-section">
+          <div class="avatar-large-preview" id="avatarPreviewContainer">👤</div>
+          <div class="avatar-current-info">
+            <span class="avatar-label">Aktuelles Profilbild</span>
+            <span class="avatar-desc">Wähle ein Emoji oder lade ein eigenes Foto hoch:</span>
+          </div>
+        </div>
+
+        <div class="avatar-upload-section">
+          <label class="btn btn-primary btn-block avatar-upload-label">
+            📷 Eigenes Foto hochladen
+            <input type="file" id="avatarFileInput" accept="image/*" style="display: none;" onchange="handleAvatarFileUpload(event)">
+          </label>
+        </div>
+
+        <div class="avatar-presets-title">Oder Avatar wählen:</div>
+        <div class="avatar-presets-grid" id="avatarPresetsGrid">
+          <button type="button" class="avatar-preset-btn" onclick="selectPresetAvatar('👤')">👤</button>
+          <button type="button" class="avatar-preset-btn" onclick="selectPresetAvatar('😎')">😎</button>
+          <button type="button" class="avatar-preset-btn" onclick="selectPresetAvatar('🤠')">🤠</button>
+          <button type="button" class="avatar-preset-btn" onclick="selectPresetAvatar('👑')">👑</button>
+          <button type="button" class="avatar-preset-btn" onclick="selectPresetAvatar('🦊')">🦊</button>
+          <button type="button" class="avatar-preset-btn" onclick="selectPresetAvatar('🦁')">🦁</button>
+          <button type="button" class="avatar-preset-btn" onclick="selectPresetAvatar('🍺')">🍺</button>
+          <button type="button" class="avatar-preset-btn" onclick="selectPresetAvatar('🃏')">🃏</button>
+          <button type="button" class="avatar-preset-btn" onclick="selectPresetAvatar('🔥')">🔥</button>
+          <button type="button" class="avatar-preset-btn" onclick="selectPresetAvatar('🐱')">🐱</button>
+          <button type="button" class="avatar-preset-btn" onclick="selectPresetAvatar('🐶')">🐶</button>
+          <button type="button" class="avatar-preset-btn" onclick="selectPresetAvatar('🎩')">🎩</button>
+        </div>
+      </div>
+      <div class="modal-footer avatar-modal-footer">
+        <button type="button" class="btn btn-outline" onclick="resetPlayerAvatar()">Standard (👤)</button>
+        <button type="button" class="btn btn-primary" onclick="closeAvatarModal()">Fertig</button>
+      </div>
+    </div>
+  </div>
+
   <!-- TOAST NOTIFICATIONS -->
   <div id="toastContainer" class="toast-container"></div>
 
   <!-- Socket.io Script -->
   <script src="/socket.io/socket.io.js"></script>
   <!-- Client JavaScript -->
-  <script src="client.js?v=8.8"></script>
+  <script src="client.js?v=8.9"></script>
 </body>
 </html>

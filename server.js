@@ -79,6 +79,29 @@ function getFriendCodeForSocket(socketId) {
   return null;
 }
 
+function sanitizeAvatar(avatar) {
+  if (!avatar || typeof avatar !== 'string') return null;
+  const trimmed = avatar.trim();
+  if (!trimmed) return null;
+  // Erlaube komprimierte Data-URL Bilder (bis max. 25 KB) oder kurze Emoji-Avatare (aber kein Bot-Symbol 🤖 für Menschen)
+  if (trimmed.startsWith('data:image/')) {
+    return trimmed.length <= 25000 ? trimmed : null;
+  }
+  if (trimmed === '🤖') return '👤';
+  return trimmed.slice(0, 16);
+}
+
+function getAvatarForPlayer(socketId, friendCode) {
+  const code = friendCode || getFriendCodeForSocket(socketId);
+  if (code) {
+    const active = activePlayerCodes.get(code);
+    if (active && active.avatar) return active.avatar;
+    const reg = friendRegistry.get(code);
+    if (reg && reg.avatar) return reg.avatar;
+  }
+  return null;
+}
+
 // Dauerhaftes Freundes- und Push-Verzeichnis (friendCode -> { friendCode, playerName, pushSub, lastSeen })
 const friendRegistry = new Map();
 const getRegistryDir = () => {
@@ -118,7 +141,9 @@ function saveFriendRegistryDebounced() {
       const data = Array.from(friendRegistry.values()).map(f => ({
         friendCode: f.friendCode,
         playerName: f.playerName,
+        avatar: f.avatar || null,
         pushSub: f.pushSub || null,
+        notifyAllRooms: Boolean(f.notifyAllRooms),
         lastSeen: f.lastSeen || Date.now()
       }));
       fs.writeFileSync(REGISTRY_FILE, JSON.stringify(data, null, 2), 'utf8');
@@ -245,14 +270,15 @@ function generateRoomCode() {
 /**
  * Erstellt ein neues Raum-Objekt.
  */
-function createRoom(roomCode, hostName, hostSocketId, hostFriendCode = null) {
+function createRoom(roomCode, hostName, hostSocketId, hostFriendCode = null, hostAvatar = null) {
   const fCode = hostFriendCode || getFriendCodeForSocket(hostSocketId) || null;
+  const cleanAvatar = sanitizeAvatar(hostAvatar) || getAvatarForPlayer(hostSocketId, fCode);
   const room = {
     code: roomCode,
     hostSocketId: hostSocketId,
     createdAt: Date.now(),
     seats: [
-      { index: 0, name: hostName || 'Spieler 1', socketId: hostSocketId, isBot: false, connected: true, team: 0, friendCode: fCode },
+      { index: 0, name: hostName || 'Spieler 1', socketId: hostSocketId, isBot: false, connected: true, team: 0, friendCode: fCode, avatar: cleanAvatar },
       null,
       null,
       null
@@ -659,7 +685,8 @@ function sanitizeStateForPlayer(room, seatIndex) {
       isMitAnnouncer: room.isMitAnnounced && (room.mitAnnouncerIndex === idx),
       isHost: (seat.socketId === room.hostSocketId),
       hasThrownCards: Boolean(room.hasThrownCards && room.hasThrownCards[idx]),
-      friendCode: seat.friendCode || getFriendCodeForSocket(seat.socketId) || null
+      friendCode: seat.friendCode || getFriendCodeForSocket(seat.socketId) || null,
+      avatar: seat.isBot ? null : (seat.avatar || getAvatarForPlayer(seat.socketId, seat.friendCode) || null)
     };
   });
 
@@ -1766,7 +1793,7 @@ io.on('connection', (socket) => {
   let myFriendCode = null;
 
   // Raum erstellen
-  socket.on('create_room', ({ playerName, settings, friendCode }) => {
+  socket.on('create_room', ({ playerName, settings, friendCode, avatar }) => {
     // Falls dieser Client bereits in einem Raum war: den alten Raum vorher sauber auflösen/verlassen!
     if (currentRoomCode) {
       handlePlayerLeave();
@@ -1775,7 +1802,7 @@ io.on('connection', (socket) => {
     if (friendCode) myFriendCode = friendCode.trim().toUpperCase().slice(0, 16);
     const code = generateRoomCode();
     const cleanFCode = myFriendCode || getFriendCodeForSocket(socket.id);
-    const room = createRoom(code, playerName || 'Spieler 1', socket.id, cleanFCode);
+    const room = createRoom(code, playerName || 'Spieler 1', socket.id, cleanFCode, avatar);
     if (settings) {
       if (settings.playerCount === 6) {
         room.settings.playerCount = 6;
@@ -1854,7 +1881,7 @@ io.on('connection', (socket) => {
   };
 
   // Normaler Beitritt in der Lobby
-  const doNormalJoin = (sock, code, playerName, preferredSeat) => {
+  const doNormalJoin = (sock, code, playerName, preferredSeat, avatar) => {
     const room = rooms.get(code);
     if (!room) return sock.emit('error_message', 'Raum nicht gefunden.');
 
@@ -1882,6 +1909,7 @@ io.on('connection', (socket) => {
     const previousSeat = room.seats[targetSeat];
     const isReplacingBot = previousSeat && previousSeat.isBot;
     const oldBotName = isReplacingBot ? previousSeat.name : '';
+    const cleanAvatar = sanitizeAvatar(avatar) || getAvatarForPlayer(sock.id, myFriendCode);
 
     const newSeat = {
       index: targetSeat,
@@ -1890,7 +1918,8 @@ io.on('connection', (socket) => {
       isBot: false,
       connected: true,
       team: targetSeat % 2 === 0 ? 0 : 1,
-      friendCode: myFriendCode || getFriendCodeForSocket(sock.id) || null
+      friendCode: myFriendCode || getFriendCodeForSocket(sock.id) || null,
+      avatar: cleanAvatar
     };
 
     room.seats[targetSeat] = newSeat;
@@ -2059,7 +2088,7 @@ io.on('connection', (socket) => {
   });
 
   // Raum beitreten
-  socket.on('join_room', ({ roomCode, playerName, preferredSeat, friendCode }) => {
+  socket.on('join_room', ({ roomCode, playerName, preferredSeat, friendCode, avatar }) => {
     if (friendCode) myFriendCode = friendCode.trim().toUpperCase().slice(0, 16);
     const code = (roomCode || '').toUpperCase().trim();
     const room = rooms.get(code);
@@ -2068,6 +2097,8 @@ io.on('connection', (socket) => {
       return socket.emit('error_message', 'Raum nicht gefunden. Bitte Code prüfen.');
     }
 
+    const cleanAvatar = sanitizeAvatar(avatar);
+
     // 1. Prüfen, ob dieser Socket bereits im Raum ist
     let existingIndex = room.seats.findIndex(s => s && s.socketId === socket.id);
     if (existingIndex !== -1) {
@@ -2075,6 +2106,7 @@ io.on('connection', (socket) => {
       currentSeatIndex = existingIndex;
       room.seats[existingIndex].connected = true;
       if (myFriendCode) room.seats[existingIndex].friendCode = myFriendCode;
+      if (cleanAvatar) room.seats[existingIndex].avatar = cleanAvatar;
       socket.join(code);
       return broadcastGameState(room);
     }
@@ -2095,6 +2127,7 @@ io.on('connection', (socket) => {
         delete restored.replacedPlayerName;
         delete restored.replacedAt;
         if (myFriendCode) restored.friendCode = myFriendCode;
+        if (cleanAvatar) restored.avatar = cleanAvatar;
         currentRoomCode = code;
         currentSeatIndex = discIndex;
         socket.join(code);
@@ -2112,7 +2145,7 @@ io.on('connection', (socket) => {
     }
 
     // In der Lobby: Normal beitreten
-    doNormalJoin(socket, code, playerName, preferredSeat);
+    doNormalJoin(socket, code, playerName, preferredSeat, avatar);
   });
 
   // Explizit als Zuschauer beitreten (Kibitzen)
@@ -2122,7 +2155,7 @@ io.on('connection', (socket) => {
   });
 
   // Reconnect nach kurzem Browser-Refresh / Verbindungsabbruch
-  socket.on('reconnect_player', ({ roomCode, playerName, seatIndex }) => {
+  socket.on('reconnect_player', ({ roomCode, playerName, seatIndex, avatar }) => {
     if (!roomCode) return;
     const code = roomCode.toUpperCase().trim();
     const room = rooms.get(code);
@@ -2137,6 +2170,8 @@ io.on('connection', (socket) => {
         seat.connected = true;
         seat.isBot = false;
         if (playerName) seat.name = playerName.trim();
+        const cleanAvatar = sanitizeAvatar(avatar);
+        if (cleanAvatar) seat.avatar = cleanAvatar;
         delete seat.replacedPlayerName;
         delete seat.replacedAt;
         currentRoomCode = code;
@@ -2749,14 +2784,16 @@ io.on('connection', (socket) => {
   // ------------------------------------------------------------------------
   // FREUNDES- & PUSH-BENACHRICHTIGUNGSSYSTEM
   // ------------------------------------------------------------------------
-  socket.on('register_friend_code', ({ friendCode, playerName, pushSub, notifyAllRooms }) => {
+  socket.on('register_friend_code', ({ friendCode, playerName, pushSub, notifyAllRooms, avatar }) => {
     if (!friendCode || typeof friendCode !== 'string') return;
     myFriendCode = friendCode.trim().toUpperCase().slice(0, 16);
     const cleanName = (playerName || 'Spieler').trim().slice(0, 20);
+    const cleanAvatar = sanitizeAvatar(avatar);
 
     activePlayerCodes.set(myFriendCode, {
       socketId: socket.id,
       playerName: cleanName,
+      avatar: cleanAvatar || null,
       lastSeen: Date.now()
     });
 
@@ -2764,17 +2801,50 @@ io.on('connection', (socket) => {
     friendRegistry.set(myFriendCode, {
       friendCode: myFriendCode,
       playerName: cleanName,
+      avatar: cleanAvatar || existing.avatar || null,
       pushSub: (pushSub && pushSub.endpoint) ? pushSub : (existing.pushSub || null),
       notifyAllRooms: typeof notifyAllRooms === 'boolean' ? notifyAllRooms : Boolean(existing.notifyAllRooms),
       lastSeen: Date.now()
     });
     saveFriendRegistryDebounced();
 
-    // Falls der Spieler bereits an einem Tisch sitzt, friendCode dort aktualisieren!
+    // Falls der Spieler bereits an einem Tisch sitzt, friendCode & avatar dort aktualisieren!
     if (currentRoomCode) {
       const room = rooms.get(currentRoomCode);
       if (room && typeof currentSeatIndex === 'number' && currentSeatIndex >= 0 && room.seats[currentSeatIndex]) {
         room.seats[currentSeatIndex].friendCode = myFriendCode;
+        if (cleanAvatar) room.seats[currentSeatIndex].avatar = cleanAvatar;
+        broadcastGameState(room);
+      }
+    }
+  });
+
+  // Profilbild und/oder Name im laufenden Spiel oder Menü live aktualisieren
+  socket.on('update_player_avatar', ({ avatar, playerName }) => {
+    const cleanAvatar = sanitizeAvatar(avatar);
+    const cleanName = (playerName || '').trim().slice(0, 20);
+
+    if (myFriendCode) {
+      const active = activePlayerCodes.get(myFriendCode);
+      if (active) {
+        active.avatar = cleanAvatar;
+        if (cleanName && cleanName.length >= 2) active.playerName = cleanName;
+      }
+      const existing = friendRegistry.get(myFriendCode);
+      if (existing) {
+        existing.avatar = cleanAvatar;
+        if (cleanName && cleanName.length >= 2) existing.playerName = cleanName;
+        saveFriendRegistryDebounced();
+      }
+    }
+
+    if (currentRoomCode && currentSeatIndex >= 0) {
+      const room = rooms.get(currentRoomCode);
+      if (room && room.seats[currentSeatIndex] && !room.seats[currentSeatIndex].isBot) {
+        room.seats[currentSeatIndex].avatar = cleanAvatar;
+        if (cleanName && cleanName.length >= 2) {
+          room.seats[currentSeatIndex].name = cleanName;
+        }
         broadcastGameState(room);
       }
     }

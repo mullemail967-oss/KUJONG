@@ -359,6 +359,8 @@ document.addEventListener('DOMContentLoaded', () => {
   initSvgSprite();
   setupEventListeners();
   checkUrlParams();
+  syncVibrationUI();
+  updateMyAvatarUI(getMyPlayerAvatar());
 
   // PWA Service Worker für schnelles Laden & Homescreen-Installation
   if ('serviceWorker' in navigator && (window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
@@ -541,6 +543,125 @@ function showToast(message) {
 }
 
 // --------------------------------------------------------------------------
+// PROFILBILD & AVATAR-SYSTEM
+// --------------------------------------------------------------------------
+function getMyPlayerAvatar() {
+  try {
+    const av = localStorage.getItem('kujong_player_avatar');
+    if (av && typeof av === 'string' && (av.startsWith('data:image/') || av.length <= 8)) {
+      return av;
+    }
+  } catch (e) {}
+  return '👤';
+}
+
+function setMyPlayerAvatar(avatarVal) {
+  if (!avatarVal) avatarVal = '👤';
+  try {
+    localStorage.setItem('kujong_player_avatar', avatarVal);
+  } catch (e) {}
+  updateMyAvatarUI(avatarVal);
+  if (socket && socket.connected) {
+    socket.emit('update_player_avatar', { avatar: avatarVal });
+  }
+}
+
+function renderAvatarElement(containerEl, avatarVal, isBot) {
+  if (!containerEl) return;
+  containerEl.classList.toggle('avatar-is-bot', Boolean(isBot));
+  containerEl.classList.toggle('avatar-is-human', !isBot);
+
+  if (isBot) {
+    containerEl.innerHTML = '<span class="avatar-icon">🤖</span>';
+    return;
+  }
+
+  const cleanAvatar = avatarVal || '👤';
+  if (cleanAvatar.startsWith('data:image/') || cleanAvatar.startsWith('http')) {
+    containerEl.innerHTML = `<img src="${cleanAvatar}" class="avatar-custom-img" alt="Avatar">`;
+  } else {
+    containerEl.innerHTML = `<span class="avatar-icon">${cleanAvatar}</span>`;
+  }
+}
+
+function updateMyAvatarUI(avatarVal) {
+  const clean = avatarVal || getMyPlayerAvatar();
+  const profileDisp = document.getElementById('myProfileAvatarDisplay');
+  const previewDisp = document.getElementById('avatarPreviewContainer');
+  const bottomBox = document.querySelector('#playerBottom .player-avatar-box');
+
+  [profileDisp, previewDisp, bottomBox].forEach(el => {
+    if (el) renderAvatarElement(el, clean, false);
+  });
+}
+
+function openAvatarModal() {
+  updateMyAvatarUI(getMyPlayerAvatar());
+  const modal = document.getElementById('avatarModal');
+  if (modal) modal.classList.remove('hidden');
+}
+
+function closeAvatarModal() {
+  const modal = document.getElementById('avatarModal');
+  if (modal) modal.classList.add('hidden');
+}
+
+function resetPlayerAvatar() {
+  setMyPlayerAvatar('👤');
+  showToast('Standard-Avatar (👤) ausgewählt.');
+}
+
+function selectPresetAvatar(emoji) {
+  setMyPlayerAvatar(emoji);
+  showToast(`Avatar ${emoji} ausgewählt!`);
+}
+
+function handleAvatarFileUpload(event) {
+  const file = event.target.files && event.target.files[0];
+  if (!file) return;
+
+  if (!file.type.startsWith('image/')) {
+    showToast('Bitte wähle eine gültige Bilddatei aus.');
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const img = new Image();
+    img.onload = () => {
+      // Quadratisch zuschneiden (Center-Crop) auf 96x96
+      const canvas = document.createElement('canvas');
+      canvas.width = 96;
+      canvas.height = 96;
+      const ctx = canvas.getContext('2d');
+      const minDim = Math.min(img.width, img.height);
+      const sx = (img.width - minDim) / 2;
+      const sy = (img.height - minDim) / 2;
+      ctx.drawImage(img, sx, sy, minDim, minDim, 0, 0, 96, 96);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+      setMyPlayerAvatar(dataUrl);
+      showToast('📷 Profilbild erfolgreich hochgeladen!');
+    };
+    img.onerror = () => {
+      showToast('Bild konnte nicht verarbeitet werden.');
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+  event.target.value = '';
+}
+
+window.getMyPlayerAvatar = getMyPlayerAvatar;
+window.setMyPlayerAvatar = setMyPlayerAvatar;
+window.renderAvatarElement = renderAvatarElement;
+window.updateMyAvatarUI = updateMyAvatarUI;
+window.openAvatarModal = openAvatarModal;
+window.closeAvatarModal = closeAvatarModal;
+window.resetPlayerAvatar = resetPlayerAvatar;
+window.selectPresetAvatar = selectPresetAvatar;
+window.handleAvatarFileUpload = handleAvatarFileUpload;
+
+// --------------------------------------------------------------------------
 // LOBBY & RAUM-AKTIONEN
 // --------------------------------------------------------------------------
 let isCreatingRoom = false;
@@ -621,7 +742,8 @@ function executeCreateRoom(playerName) {
   socket.emit('create_room', {
     playerName,
     settings: currentSettings,
-    friendCode: myFriendCode
+    friendCode: myFriendCode,
+    avatar: getMyPlayerAvatar()
   });
 }
 
@@ -644,7 +766,7 @@ function handleJoinRoom() {
 function executeJoinRoom(code, playerName) {
   isJoiningRoom = true;
   setTimeout(() => { isJoiningRoom = false; }, 2500);
-  socket.emit('join_room', { roomCode: code, playerName, friendCode: myFriendCode });
+  socket.emit('join_room', { roomCode: code, playerName, friendCode: myFriendCode, avatar: getMyPlayerAvatar() });
 }
 
 function copyInviteLink() {
@@ -1164,6 +1286,7 @@ function openHostMenu() {
   if (pendingSec && !isHost) pendingSec.classList.add('hidden');
 
   syncSettingsUI();
+  syncVibrationUI();
   if (isHost) {
     renderHostPendingRequests();
   }
@@ -1289,7 +1412,7 @@ socket.on('connect', () => {
     try {
       const { roomCode, playerName, seatIndex } = JSON.parse(savedSession);
       if (roomCode) {
-        socket.emit('reconnect_player', { roomCode, playerName, seatIndex });
+        socket.emit('reconnect_player', { roomCode, playerName, seatIndex, avatar: getMyPlayerAvatar() });
       }
     } catch (e) {}
   }
@@ -1486,8 +1609,8 @@ function joinPublicRoom(code, isMidGame) {
   promptPushIfInactive(() => {
     if (isMidGame) {
       // Sofort als Zuschauer eintreten (ohne Annahme zuschauen) und parallel Mitspiel-Anfrage an Spielleiter senden
-      socket.emit('join_as_spectator', { roomCode: code, playerName: name });
-      socket.emit('request_join_room', { roomCode: code, playerName: name });
+      socket.emit('join_as_spectator', { roomCode: code, playerName: name, avatar: getMyPlayerAvatar() });
+      socket.emit('request_join_room', { roomCode: code, playerName: name, avatar: getMyPlayerAvatar() });
     } else {
       const codeInput = document.getElementById('roomCodeInput');
       if (codeInput) codeInput.value = code;
@@ -1509,7 +1632,7 @@ function requestPlayFromSpectator() {
     joinBtn.disabled = true;
     joinBtn.textContent = '⏳ Anfrage senden...';
   }
-  socket.emit('request_join_room', { roomCode: currentRoomCode, playerName: name });
+  socket.emit('request_join_room', { roomCode: currentRoomCode, playerName: name, avatar: getMyPlayerAvatar() });
 }
 window.requestPlayFromSpectator = requestPlayFromSpectator;
 
@@ -2201,10 +2324,10 @@ function renderGameScreen() {
   if (autoBotBtn) {
     autoBotBtn.classList.toggle('hidden', isSpectator);
     autoBotBtn.classList.toggle('active', isMyAutoBot);
-    autoBotBtn.innerHTML = isMyAutoBot ? '▶️ Weiterspielen' : '⏸️ Pause (Bot)';
+    autoBotBtn.innerHTML = isMyAutoBot ? '▶️' : '⏸️';
     autoBotBtn.title = isMyAutoBot
-      ? 'Pause beenden und sofort wieder selbst Karten legen'
-      : 'Kurz weg? Bot spielt vorübergehend für dich weiter';
+      ? 'Pause beenden (selbst spielen)'
+      : 'Kurz weg? Bot spielt für dich weiter';
   }
   const autoBotBanner = document.getElementById('autoBotBanner');
   if (autoBotBanner) {
@@ -2344,12 +2467,17 @@ function renderTablePlayers() {
 
     if (nameEl) {
       if (player.isAutoBot) {
-        nameEl.textContent = isMe ? `${player.name} (Du • 🤖 Pause)` : `🤖 ${player.name} (Pause)`;
+        nameEl.textContent = `🤖 ${player.name}`;
         nameEl.classList.remove('clickable-friend-name');
         nameEl.removeAttribute('title');
         nameEl.onclick = null;
-      } else if (isMe || player.isBot) {
-        nameEl.textContent = isMe ? `${player.name} (Du)` : player.name;
+      } else if (player.isBot) {
+        nameEl.textContent = player.name.startsWith('Bot ') ? `🤖 ${player.name.replace(/^Bot\s+/i, '')}` : `🤖 ${player.name}`;
+        nameEl.classList.remove('clickable-friend-name');
+        nameEl.removeAttribute('title');
+        nameEl.onclick = null;
+      } else if (isMe) {
+        nameEl.textContent = player.name;
         nameEl.classList.remove('clickable-friend-name');
         nameEl.removeAttribute('title');
         nameEl.onclick = null;
@@ -2417,15 +2545,13 @@ function renderTablePlayers() {
     const dealerBadge = document.getElementById(`dealer${key}`);
     if (dealerBadge) dealerBadge.classList.toggle('hidden', !player.isDealer);
 
-    // Turn Glow & Avatar Icon
+    // Turn Glow & Avatar
     const playerBox = document.getElementById(`player${key}`);
     const avatarBox = playerBox ? playerBox.querySelector('.player-avatar-box') : null;
-    const avatarIcon = playerBox ? playerBox.querySelector('.avatar-icon') : null;
     if (avatarBox) {
       avatarBox.classList.toggle('player-turn-glow', player.isTurn);
-    }
-    if (avatarIcon) {
-      avatarIcon.textContent = (player.isBot || player.isAutoBot) ? '🤖' : '👤';
+      const playerAvatar = isMe ? (player.avatar || getMyPlayerAvatar()) : player.avatar;
+      renderAvatarElement(avatarBox, playerAvatar, player.isBot);
     }
 
     // Mini Card Backs für Gegner & Partner (Karten liegen während des Spiels auf der Hand)
@@ -3290,6 +3416,7 @@ function registerFriendSocket() {
     friendCode: myFriendCode,
     playerName: playerName,
     pushSub: pushSub,
+    avatar: getMyPlayerAvatar(),
     notifyAllRooms: (typeof isGlobalRoomAlertEnabled === 'function') ? isGlobalRoomAlertEnabled() : false
   });
 }
@@ -3994,18 +4121,60 @@ async function toggleGlobalRoomAlert() {
 }
 window.toggleGlobalRoomAlert = toggleGlobalRoomAlert;
 
-// 3. Smartphone Vibrations-Feedback
+// 3. Smartphone Vibrations-Feedback & Einstellung
+let vibrationEnabled = true;
+try {
+  const savedVib = localStorage.getItem('kujong_vibration_enabled');
+  if (savedVib !== null) vibrationEnabled = (savedVib === 'true');
+} catch (e) {}
+
+function isVibrationEnabled() {
+  return vibrationEnabled;
+}
+
+function setVibrationEnabled(enabled) {
+  vibrationEnabled = Boolean(enabled);
+  try {
+    localStorage.setItem('kujong_vibration_enabled', vibrationEnabled ? 'true' : 'false');
+  } catch (e) {}
+  syncVibrationUI();
+}
+
+function toggleVibrationSetting() {
+  setVibrationEnabled(!vibrationEnabled);
+  if (vibrationEnabled) {
+    showToast('📳 Vibration aktiviert');
+    triggerVibration([40, 60]);
+  } else {
+    showToast('🔕 Vibration deaktiviert');
+  }
+}
+
+function syncVibrationUI() {
+  const btn = document.getElementById('menuVibrationToggleBtn');
+  if (btn) {
+    btn.innerHTML = vibrationEnabled ? '📳 Vibration: AN' : '🔕 Vibration: AUS';
+    btn.classList.toggle('btn-primary', vibrationEnabled);
+    btn.classList.toggle('btn-outline', !vibrationEnabled);
+  }
+}
+
 function triggerVibration(pattern) {
-  if (!soundEnabled) return;
+  if (!vibrationEnabled) return;
   try {
     if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
       navigator.vibrate(pattern);
     }
   } catch (e) {}
 }
+
+window.isVibrationEnabled = isVibrationEnabled;
+window.setVibrationEnabled = setVibrationEnabled;
+window.toggleVibrationSetting = toggleVibrationSetting;
+window.syncVibrationUI = syncVibrationUI;
 window.triggerVibration = triggerVibration;
 
-// 4. Persönliche Spieler-Statistik & Erfolge (localStorage)
+// 4. Persönliche Spieler-Statistik (localStorage)
 const STATS_STORAGE_KEY = 'kujong_player_stats';
 let lastRecordedRoundKey = null;
 let lastRecordedMatchKey = null;
@@ -4021,8 +4190,7 @@ function getDefaultPlayerStats() {
     contraWon: 0,
     trumpsTurned: 0,
     sweepsWon: 0,
-    claimsMade: 0,
-    unlockedAchievements: []
+    claimsMade: 0
   };
 }
 
@@ -4043,95 +4211,11 @@ function savePlayerStats(stats) {
   } catch (e) {}
 }
 
-const ACHIEVEMENTS_DEFINITIONS = [
-  {
-    id: 'first_round_win',
-    icon: '🏅',
-    title: 'Erster Streich',
-    desc: 'Gewinne deine erste Runde Kujong.',
-    target: 1,
-    getValue: (s) => s.roundsWon
-  },
-  {
-    id: 'first_match_win',
-    icon: '🏆',
-    title: 'Partien-Sieger',
-    desc: 'Spiele ein komplettes Match von 13 auf 0 Punkte herunter und gewinne.',
-    target: 1,
-    getValue: (s) => s.matchesWon
-  },
-  {
-    id: 'mit_master',
-    icon: '⭐',
-    title: "Mit'-Meister",
-    desc: "Sage insgesamt 5-mal die Mit' (Pik-Dame) an.",
-    target: 5,
-    getValue: (s) => s.mitAnnounced
-  },
-  {
-    id: 'contra_king',
-    icon: '⚡',
-    title: 'Kontra-König',
-    desc: 'Gewinne 3 Runden, in denen Kontra gegeben wurde.',
-    target: 3,
-    getValue: (s) => s.contraWon
-  },
-  {
-    id: 'blind_gambler',
-    icon: '🎲',
-    title: 'Blinder Zocker',
-    desc: 'Drehe 5-mal blind den Trumpf aus deinen letzten 2 Karten.',
-    target: 5,
-    getValue: (s) => s.trumpsTurned
-  },
-  {
-    id: 'sweep_machine',
-    icon: '🧹',
-    title: 'Durchmarsch-Maschine',
-    desc: 'Hole mit deinem Team in 3 Runden alle 5 Stiche (Durchmarsch).',
-    target: 3,
-    getValue: (s) => s.sweepsWon
-  },
-  {
-    id: 'claim_boss',
-    icon: '👑',
-    title: 'Karten auf den Tisch!',
-    desc: 'Decke 3-mal deine unschlagbaren Meisterkarten vorzeitig auf.',
-    target: 3,
-    getValue: (s) => s.claimsMade
-  },
-  {
-    id: 'kujong_legend',
-    icon: '🔥',
-    title: 'Kujong-Legende',
-    desc: 'Gewinne insgesamt 10 komplette Partien.',
-    target: 10,
-    getValue: (s) => s.matchesWon
-  }
-];
-
 function incrementPlayerStat(key, amount = 1) {
   if (isSpectator) return;
   const stats = loadPlayerStats();
   stats[key] = (Number(stats[key]) || 0) + amount;
-  checkAchievementsUnlock(stats);
   savePlayerStats(stats);
-}
-
-function checkAchievementsUnlock(stats) {
-  if (!Array.isArray(stats.unlockedAchievements)) {
-    stats.unlockedAchievements = [];
-  }
-  ACHIEVEMENTS_DEFINITIONS.forEach(ach => {
-    if (!stats.unlockedAchievements.includes(ach.id)) {
-      const val = ach.getValue(stats);
-      if (val >= ach.target) {
-        stats.unlockedAchievements.push(ach.id);
-        showToast(`🎖️ Erfolg freigeschaltet: ${ach.icon} ${ach.title}!`);
-        triggerVibration([50, 60, 100]);
-      }
-    }
-  });
 }
 
 function checkAndRecordRoundStats(state) {
@@ -4172,7 +4256,6 @@ function checkAndRecordRoundStats(state) {
         }
       }
 
-      checkAchievementsUnlock(stats);
       savePlayerStats(stats);
     }
   }
@@ -4192,8 +4275,6 @@ function closeStatsModal() {
 function renderStatsModal() {
   const stats = loadPlayerStats();
   const grid = document.getElementById('playerStatsGrid');
-  const achContainer = document.getElementById('achievementsListContainer');
-  const achCountEl = document.getElementById('achievementsUnlockedCount');
 
   const winRateMatch = stats.matchesPlayed > 0
     ? Math.round((stats.matchesWon / stats.matchesPlayed) * 100)
@@ -4228,34 +4309,15 @@ function renderStatsModal() {
         <span class="stat-val">${stats.trumpsTurned || 0}</span>
         <span class="stat-label">🎲 Trumpf blind gedreht</span>
       </div>
+      <div class="stat-card">
+        <span class="stat-val">${stats.claimsMade || 0}</span>
+        <span class="stat-label">👑 Meisterkarten aufgedeckt</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-val">${winRateRound}%</span>
+        <span class="stat-label">📈 Gesamte Runden-Siegquote</span>
+      </div>
     `;
-  }
-
-  if (achCountEl) {
-    achCountEl.textContent = `${(stats.unlockedAchievements || []).length} / ${ACHIEVEMENTS_DEFINITIONS.length}`;
-  }
-
-  if (achContainer) {
-    achContainer.innerHTML = ACHIEVEMENTS_DEFINITIONS.map(ach => {
-      const currentVal = Math.min(ach.target, ach.getValue(stats) || 0);
-      const isUnlocked = (stats.unlockedAchievements || []).includes(ach.id) || currentVal >= ach.target;
-      const pct = Math.min(100, Math.round((currentVal / ach.target) * 100));
-      return `
-        <div class="achievement-item ${isUnlocked ? 'unlocked' : 'locked'}">
-          <div class="achievement-icon">${ach.icon}</div>
-          <div class="achievement-info">
-            <div class="achievement-title-row">
-              <span class="achievement-title">${ach.title}</span>
-              <span class="achievement-progress-text">${currentVal} / ${ach.target}</span>
-            </div>
-            <p class="achievement-desc">${ach.desc}</p>
-            <div class="achievement-bar-bg">
-              <div class="achievement-bar-fill" style="width: ${pct}%;"></div>
-            </div>
-          </div>
-        </div>
-      `;
-    }).join('');
   }
 }
 
