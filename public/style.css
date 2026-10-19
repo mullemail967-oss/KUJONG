@@ -5497,3 +5497,294 @@ input:checked + .slider:before {
   justify-content: space-between;
   gap: 10px;
 }
+
+/* ==========================================================================
+   DESIGN-UPGRADES: PROFIL-LEISTE, LOBBY/FREUNDE-AVATARE, 13er-BALKEN & TURNIERTISCH
+   ========================================================================== */
+
+/* 1. Startseiten Profil-Leiste (Avatar + Namensfeld vereint) */
+.lobby-profile-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(15, 23, 42, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
+  padding: 10px 12px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.lobby-avatar-picker-btn {
+  position: relative;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: transform 0.18s ease;
+}
+
+.lobby-avatar-picker-btn:hover {
+  transform: scale(1.06);
+}
+
+.lobby-avatar-circle {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(168, 85, 247, 0.32) 0%, rgba(15, 23, 42, 0.95) 100%);
+  border: 2px solid #f59e0b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.55rem;
+  overflow: hidden;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
+}
+
+.lobby-avatar-edit-badge {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #f59e0b;
+  border: 2px solid #0f172a;
+  font-size: 0.65rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.5);
+}
+
+.lobby-name-input-group {
+  flex: 1;
+  min-width: 0;
+  margin-bottom: 0 !important;
+}
+
+/* 2. Avatare im Warteraum (Lobby), im Spiel-Menü und in der Freundesliste */
+.seat-slot .seat-info {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  gap: 10px !important;
+}
+
+.seat-text-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.seat-avatar-mini,
+.host-player-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.05rem;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1.5px solid rgba(255, 255, 255, 0.22);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+
+.host-player-avatar {
+  width: 28px;
+  height: 28px;
+  font-size: 0.9rem;
+}
+
+.seat-avatar-mini.seat-avatar-empty,
+.host-player-avatar.seat-avatar-empty {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px dashed rgba(255, 255, 255, 0.2);
+  opacity: 0.6;
+}
+
+.seat-avatar-mini.avatar-is-bot,
+.host-player-avatar.avatar-is-bot {
+  background: radial-gradient(circle, rgba(30, 58, 138, 0.8) 0%, rgba(15, 23, 42, 0.95) 100%);
+  border: 1.5px solid #60a5fa;
+  box-shadow: 0 0 8px rgba(96, 165, 250, 0.35);
+}
+
+.seat-avatar-mini.avatar-is-human,
+.host-player-avatar.avatar-is-human {
+  background: radial-gradient(circle, rgba(168, 85, 247, 0.25) 0%, rgba(15, 23, 42, 0.9) 100%);
+  border: 1.5px solid rgba(245, 158, 11, 0.55);
+}
+
+.friend-avatar-wrap {
+  position: relative;
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+}
+
+.friend-list-avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.15rem;
+  overflow: hidden;
+  background: radial-gradient(circle, rgba(168, 85, 247, 0.25) 0%, rgba(15, 23, 42, 0.9) 100%);
+  border: 1.5px solid rgba(255, 255, 255, 0.25);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+}
+
+.friend-avatar-wrap .friend-status-dot {
+  position: absolute;
+  bottom: -1px;
+  right: -1px;
+  width: 11px;
+  height: 11px;
+  border: 2px solid #0f172a;
+}
+
+/* 3. Visueller 13-Punkte Countdown-Balken & Punkt-Animation im Scoreboard */
+.score-main {
+  position: relative;
+}
+
+.score-progress-track {
+  width: 100%;
+  height: 5px;
+  background: rgba(0, 0, 0, 0.45);
+  border-radius: 999px;
+  overflow: hidden;
+  margin: 2px 0 3px 0;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.score-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.score-progress-fill.fill-we {
+  background: linear-gradient(90deg, #f59e0b, #fbbf24);
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.55);
+}
+
+.score-progress-fill.fill-they {
+  background: linear-gradient(90deg, #3b82f6, #60a5fa);
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.55);
+}
+
+.score-progress-fill.low-points-pulse {
+  background: linear-gradient(90deg, #ef4444, #fbbf24) !important;
+  animation: pulseLowScoreBar 1s infinite alternate;
+}
+
+@keyframes pulseLowScoreBar {
+  0% { opacity: 0.7; filter: brightness(1); }
+  100% { opacity: 1; filter: brightness(1.35); box-shadow: 0 0 12px #ef4444; }
+}
+
+.score-delta-float {
+  font-size: 0.76rem;
+  font-weight: 800;
+  padding: 1px 6px;
+  border-radius: 999px;
+  margin-left: 4px;
+  animation: scoreDeltaPop 2.5s ease forwards;
+}
+
+.score-delta-float.delta-good {
+  background: rgba(16, 185, 129, 0.25);
+  border: 1px solid #34d399;
+  color: #6ee7b7;
+}
+
+.score-delta-float.delta-bad {
+  background: rgba(239, 68, 68, 0.25);
+  border: 1px solid #f87171;
+  color: #fca5a5;
+}
+
+@keyframes scoreDeltaPop {
+  0% { opacity: 0; transform: translateY(6px) scale(0.8); }
+  15% { opacity: 1; transform: translateY(-2px) scale(1.08); }
+  80% { opacity: 1; transform: translateY(-3px) scale(1); }
+  100% { opacity: 0; transform: translateY(-10px) scale(0.95); }
+}
+
+/* 4. Edler Turnier-Spieltisch (Holzrahmen & Dezentes Wasserzeichen) */
+.felt-table {
+  border: 9px solid #3d2210 !important;
+  box-shadow:
+    inset 0 0 0 2px rgba(245, 158, 11, 0.26),
+    inset 0 0 65px rgba(0, 0, 0, 0.82),
+    0 0 0 2px #1c0e06,
+    0 12px 40px rgba(0, 0, 0, 0.92) !important;
+}
+
+.felt-table-watermark {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  user-select: none;
+  z-index: 0;
+}
+
+.watermark-ring {
+  width: 146px;
+  height: 146px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 255, 255, 0.07);
+  box-shadow: inset 0 0 0 5px rgba(255, 255, 255, 0.025);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  opacity: 0.42;
+}
+
+.watermark-suit {
+  font-size: 1.15rem;
+  letter-spacing: 3px;
+  color: rgba(254, 240, 138, 0.35);
+}
+
+.watermark-title {
+  font-family: var(--font-display, 'Cinzel', serif);
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: rgba(255, 255, 255, 0.22);
+}
+
+.watermark-sub {
+  font-size: 0.5rem;
+  font-weight: 600;
+  letter-spacing: 1.5px;
+  color: rgba(255, 255, 255, 0.16);
+}
+
+@media (max-width: 480px) {
+  .felt-table {
+    border-width: 6px !important;
+  }
+  .watermark-ring {
+    width: 118px;
+    height: 118px;
+  }
+  .watermark-title {
+    font-size: 0.88rem;
+  }
+}
+

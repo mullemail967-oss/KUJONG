@@ -2889,6 +2889,7 @@ io.on('connection', (socket) => {
     friendRegistry.set(code, {
       friendCode: code,
       playerName: cleanName || existing.playerName || 'Spieler',
+      avatar: existing.avatar || null,
       pushSub: (pushSub && pushSub.endpoint) ? pushSub : (existing.pushSub || null),
       notifyAllRooms: Boolean(enabled),
       lastSeen: Date.now()
@@ -2906,6 +2907,7 @@ io.on('connection', (socket) => {
 
     if (profile || active) {
       const name = (profile && profile.playerName) || (active && active.playerName) || `Freund ${code.substring(4)}`;
+      const avatar = (active && active.avatar) || (profile && profile.avatar) || null;
       const pushSub = (profile && profile.pushSub && profile.pushSub.endpoint) ? profile.pushSub : null;
       const hasPush = Boolean(pushSub);
       const isOnline = !!(active && active.socketId);
@@ -2913,6 +2915,7 @@ io.on('connection', (socket) => {
         found: true,
         friendCode: code,
         name: name,
+        avatar: avatar,
         hasPush: hasPush,
         pushSub: pushSub,
         isOnline: isOnline
@@ -2941,6 +2944,7 @@ io.on('connection', (socket) => {
             friendRegistry.set(c, {
               friendCode: c,
               playerName: (existing && existing.playerName) || item.name || 'Spieler',
+              avatar: (existing && existing.avatar) || sanitizeAvatar(item.avatar) || null,
               pushSub: item.pushSub,
               lastSeen: Date.now()
             });
@@ -2959,6 +2963,7 @@ io.on('connection', (socket) => {
         const profile = friendRegistry.get(c);
         const isOnline = !!(active && active.socketId);
         const name = (active && active.playerName) || (profile && profile.playerName) || null;
+        const avatar = (active && active.avatar) || (profile && profile.avatar) || null;
         const pushSub = (profile && profile.pushSub && profile.pushSub.endpoint) ? profile.pushSub : null;
         const hasPush = Boolean(pushSub);
 
@@ -2966,6 +2971,7 @@ io.on('connection', (socket) => {
         statusMap[c] = {
           online: isOnline,
           name: name,
+          avatar: avatar,
           hasPush: hasPush,
           pushSub: pushSub
         };

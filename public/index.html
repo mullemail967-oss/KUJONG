@@ -41,7 +41,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=8.9">
+  <link rel="stylesheet" href="style.css?v=9.0">
 </head>
 <body>
 
@@ -77,9 +77,17 @@
         </div>
 
         <div id="lobbyInitialOptions" class="lobby-section">
-          <div class="input-group">
-            <label for="playerNameInput">Dein Spielername <span class="required-star" title="Erforderlich">*</span></label>
-            <input type="text" id="playerNameInput" placeholder="Name eingeben (z. B. Max)..." maxlength="15" autocomplete="nickname">
+          <div class="lobby-profile-bar">
+            <button type="button" class="lobby-avatar-picker-btn" onclick="openAvatarModal()" title="Profilbild ändern">
+              <div class="lobby-avatar-circle avatar-is-human" id="lobbyAvatarDisplay">
+                <span class="avatar-icon">👤</span>
+              </div>
+              <span class="lobby-avatar-edit-badge">📷</span>
+            </button>
+            <div class="input-group lobby-name-input-group">
+              <label for="playerNameInput">Dein Spielername <span class="required-star" title="Erforderlich">*</span></label>
+              <input type="text" id="playerNameInput" placeholder="Name eingeben (z. B. Max)..." maxlength="15" autocomplete="nickname">
+            </div>
           </div>
 
           <div class="lobby-action-buttons">
@@ -164,8 +172,11 @@
               <div class="team-title" id="teamATitle">Team A <span id="teamASubtitle">(Sitze 1 & 3)</span></div>
               <div class="seat-slot" data-seat="0" id="seatSlot0">
                 <div class="seat-info">
-                  <span class="seat-num">Platz 1</span>
-                  <span class="player-name">Frei</span>
+                  <div class="seat-avatar-mini" id="seatAvatar0"><span class="avatar-icon">💺</span></div>
+                  <div class="seat-text-col">
+                    <span class="seat-num">Platz 1</span>
+                    <span class="player-name">Frei</span>
+                  </div>
                 </div>
                 <div class="seat-controls">
                   <button class="btn btn-xs btn-seat-join" onclick="switchSeat(0)">Einnehmen</button>
@@ -175,8 +186,11 @@
               </div>
               <div class="seat-slot" data-seat="2" id="seatSlot2">
                 <div class="seat-info">
-                  <span class="seat-num" id="seatLabel2">Platz 3 (Partner)</span>
-                  <span class="player-name">Frei</span>
+                  <div class="seat-avatar-mini" id="seatAvatar2"><span class="avatar-icon">💺</span></div>
+                  <div class="seat-text-col">
+                    <span class="seat-num" id="seatLabel2">Platz 3 (Partner)</span>
+                    <span class="player-name">Frei</span>
+                  </div>
                 </div>
                 <div class="seat-controls">
                   <button class="btn btn-xs btn-seat-join" onclick="switchSeat(2)">Einnehmen</button>
@@ -186,8 +200,11 @@
               </div>
               <div class="seat-slot hidden" data-seat="4" id="seatSlot4">
                 <div class="seat-info">
-                  <span class="seat-num" id="seatLabel4">Platz 5 (Partner 2)</span>
-                  <span class="player-name">Frei</span>
+                  <div class="seat-avatar-mini" id="seatAvatar4"><span class="avatar-icon">💺</span></div>
+                  <div class="seat-text-col">
+                    <span class="seat-num" id="seatLabel4">Platz 5 (Partner 2)</span>
+                    <span class="player-name">Frei</span>
+                  </div>
                 </div>
                 <div class="seat-controls">
                   <button class="btn btn-xs btn-seat-join" onclick="switchSeat(4)">Einnehmen</button>
@@ -204,8 +221,11 @@
               <div class="team-title" id="teamBTitle">Team B <span id="teamBSubtitle">(Sitze 2 & 4)</span></div>
               <div class="seat-slot" data-seat="1" id="seatSlot1">
                 <div class="seat-info">
-                  <span class="seat-num">Platz 2</span>
-                  <span class="player-name">Frei</span>
+                  <div class="seat-avatar-mini" id="seatAvatar1"><span class="avatar-icon">💺</span></div>
+                  <div class="seat-text-col">
+                    <span class="seat-num">Platz 2</span>
+                    <span class="player-name">Frei</span>
+                  </div>
                 </div>
                 <div class="seat-controls">
                   <button class="btn btn-xs btn-seat-join" onclick="switchSeat(1)">Einnehmen</button>
@@ -215,8 +235,11 @@
               </div>
               <div class="seat-slot" data-seat="3" id="seatSlot3">
                 <div class="seat-info">
-                  <span class="seat-num" id="seatLabel3">Platz 4 (Partner)</span>
-                  <span class="player-name">Frei</span>
+                  <div class="seat-avatar-mini" id="seatAvatar3"><span class="avatar-icon">💺</span></div>
+                  <div class="seat-text-col">
+                    <span class="seat-num" id="seatLabel3">Platz 4 (Partner)</span>
+                    <span class="player-name">Frei</span>
+                  </div>
                 </div>
                 <div class="seat-controls">
                   <button class="btn btn-xs btn-seat-join" onclick="switchSeat(3)">Einnehmen</button>
@@ -226,8 +249,11 @@
               </div>
               <div class="seat-slot hidden" data-seat="5" id="seatSlot5">
                 <div class="seat-info">
-                  <span class="seat-num" id="seatLabel5">Platz 6 (Gegner 3)</span>
-                  <span class="player-name">Frei</span>
+                  <div class="seat-avatar-mini" id="seatAvatar5"><span class="avatar-icon">💺</span></div>
+                  <div class="seat-text-col">
+                    <span class="seat-num" id="seatLabel5">Platz 6 (Gegner 3)</span>
+                    <span class="player-name">Frei</span>
+                  </div>
                 </div>
                 <div class="seat-controls">
                   <button class="btn btn-xs btn-seat-join" onclick="switchSeat(5)">Einnehmen</button>
@@ -263,6 +289,10 @@
             <div class="score-main">
               <span id="scoreWe" class="points-val">13</span>
               <span class="points-label">Pkt</span>
+              <span id="scoreDeltaWe" class="score-delta-float hidden"></span>
+            </div>
+            <div class="score-progress-track" title="Countdown von 13 auf 0 Punkte">
+              <div id="scoreBarWe" class="score-progress-fill fill-we" style="width: 100%;"></div>
             </div>
             <div class="round-stats">
               <span>St:<strong id="tricksWe">0</strong></span>
@@ -300,6 +330,10 @@
             <div class="score-main">
               <span id="scoreThey" class="points-val">13</span>
               <span class="points-label">Pkt</span>
+              <span id="scoreDeltaThey" class="score-delta-float hidden"></span>
+            </div>
+            <div class="score-progress-track" title="Countdown von 13 auf 0 Punkte">
+              <div id="scoreBarThey" class="score-progress-fill fill-they" style="width: 100%;"></div>
             </div>
             <div class="round-stats">
               <span>St:<strong id="tricksThey">0</strong></span>
@@ -308,11 +342,8 @@
           </div>
         </div>
 
-        <!-- HEADER SUB-TOOLS (Verlassen, Spielleiter-Menü, Pause-Bot, Kontra-Knopf, Letzter Stich, Ton) -->
+        <!-- HEADER SUB-TOOLS (Spielleiter-Menü, Pause-Bot, Kontra-Knopf, Letzter Stich, Ton) -->
         <div class="header-tools">
-          <button id="leaveGameBtn" class="btn-tool btn-leave-game" onclick="confirmLeaveGame()" title="Partie verlassen (wird durch Bot ersetzt)">
-            🚪 Verlassen
-          </button>
           <button id="hostMenuBtn" class="btn-tool btn-host-menu" onclick="openHostMenu()" title="Spiel-Menü (Freunde, Verwaltung)">
             <span id="hostMenuIcon">👑</span> Menü<span id="hostMenuReqBadge" class="host-req-badge hidden">0</span>
           </button>
@@ -551,6 +582,15 @@
 
           <!-- ZENTRUM: STICH-BEREICH (4 bzw. 6 gelegte Karten) -->
           <div class="trick-center" id="trickCenter">
+            <!-- Dezentes Turniertisch-Wasserzeichen -->
+            <div class="felt-table-watermark" aria-hidden="true">
+              <div class="watermark-ring">
+                <span class="watermark-suit">♣ Q ♠</span>
+                <span class="watermark-title">KUJONG</span>
+                <span class="watermark-sub">EIFEL • OSTBELGIEN</span>
+              </div>
+            </div>
+
             <!-- 4P Slots -->
             <div class="trick-slot slot-top" id="trickSlotTop">
               <div class="card-placeholder"></div>
@@ -1366,6 +1406,6 @@
   <!-- Socket.io Script -->
   <script src="/socket.io/socket.io.js"></script>
   <!-- Client JavaScript -->
-  <script src="client.js?v=8.9"></script>
+  <script src="client.js?v=9.0"></script>
 </body>
 </html>

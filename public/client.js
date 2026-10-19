@@ -586,13 +586,17 @@ function renderAvatarElement(containerEl, avatarVal, isBot) {
 
 function updateMyAvatarUI(avatarVal) {
   const clean = avatarVal || getMyPlayerAvatar();
+  const lobbyDisp = document.getElementById('lobbyAvatarDisplay');
   const profileDisp = document.getElementById('myProfileAvatarDisplay');
   const previewDisp = document.getElementById('avatarPreviewContainer');
   const bottomBox = document.querySelector('#playerBottom .player-avatar-box');
 
-  [profileDisp, previewDisp, bottomBox].forEach(el => {
+  [lobbyDisp, profileDisp, previewDisp, bottomBox].forEach(el => {
     if (el) renderAvatarElement(el, clean, false);
   });
+  if (gameState && !gameState.gameStarted && typeof renderLobby === 'function') {
+    renderLobby();
+  }
 }
 
 function openAvatarModal() {
@@ -1341,6 +1345,7 @@ function renderHostPlayerList() {
 
     row.innerHTML = `
       <div class="host-player-info">
+        <div class="host-player-avatar" id="hostPlayerAvatar${i}"></div>
         <span class="host-player-seat">P${i + 1} (${teamLabel})</span>
         <span class="host-player-name">${pName}</span>
         ${tagHTML}
@@ -1351,6 +1356,16 @@ function renderHostPlayerList() {
     `;
 
     container.appendChild(row);
+    const avEl = row.querySelector(`#hostPlayerAvatar${i}`);
+    if (avEl) {
+      if (!player) {
+        avEl.className = 'host-player-avatar seat-avatar-empty';
+        avEl.innerHTML = '<span class="avatar-icon">💺</span>';
+      } else {
+        const avVal = isMe ? (player.avatar || getMyPlayerAvatar()) : player.avatar;
+        renderAvatarElement(avEl, avVal, player.isBot);
+      }
+    }
   }
 }
 
@@ -2139,6 +2154,7 @@ function renderLobby() {
     const slotEl = document.getElementById(`seatSlot${i}`);
     if (!slotEl) continue;
     const seat = gameState.players[i];
+    const avatarEl = document.getElementById(`seatAvatar${i}`);
     const nameEl = slotEl.querySelector('.player-name');
     const joinBtn = slotEl.querySelector('.btn-seat-join');
     const botBtn = slotEl.querySelector('.btn-seat-bot');
@@ -2148,6 +2164,12 @@ function renderLobby() {
       totalOccupied++;
       const isMe = (i === mySeatIndex);
       nameEl.style.color = isMe ? 'var(--team-we-gold)' : '#fff';
+
+      if (avatarEl) {
+        avatarEl.classList.remove('seat-avatar-empty');
+        const seatAv = isMe ? (seat.avatar || getMyPlayerAvatar()) : seat.avatar;
+        renderAvatarElement(avatarEl, seatAv, seat.isBot);
+      }
 
       if (isMe || seat.isBot) {
         nameEl.textContent = `${seat.name}${isMe ? ' (Du)' : ''}`;
@@ -2187,6 +2209,10 @@ function renderLobby() {
         kickBtn.classList.toggle('hidden', !canKick);
       }
     } else {
+      if (avatarEl) {
+        avatarEl.className = 'seat-avatar-mini seat-avatar-empty';
+        avatarEl.innerHTML = '<span class="avatar-icon">💺</span>';
+      }
       nameEl.textContent = 'Frei';
       nameEl.style.color = 'var(--text-muted)';
       nameEl.classList.remove('clickable-friend-name');
@@ -2218,6 +2244,22 @@ function renderLobby() {
   syncSettingsUI();
 }
 
+let prevScoreRoom = null;
+let prevScoreWeVal = null;
+let prevScoreTheyVal = null;
+
+function triggerScoreDeltaBadge(elId, delta) {
+  const el = document.getElementById(elId);
+  if (!el || !delta) return;
+  el.textContent = delta > 0 ? `+${delta}` : `${delta}`;
+  el.className = `score-delta-float ${delta < 0 ? 'delta-good' : 'delta-bad'}`;
+  void el.offsetWidth;
+  clearTimeout(el._hideTimer);
+  el._hideTimer = setTimeout(() => {
+    el.classList.add('hidden');
+  }, 2600);
+}
+
 function renderGameScreen() {
   if (gameState.phase !== 'PLAY_TRICK') {
     activeClaimReveal = null;
@@ -2235,11 +2277,36 @@ function renderGameScreen() {
   const eyesWe = myTeam === 0 ? gameState.eyesTeamA : gameState.eyesTeamB;
   const eyesThey = myTeam === 0 ? gameState.eyesTeamB : gameState.eyesTeamA;
 
-  // Header Scoreboard
+  // Header Scoreboard & 13er Countdown-Balken
   document.getElementById('scoreWe').textContent = scoreWe;
   document.getElementById('scoreThey').textContent = scoreThey;
   document.getElementById('tricksWe').textContent = tricksWe;
   document.getElementById('tricksThey').textContent = tricksThey;
+
+  const barWe = document.getElementById('scoreBarWe');
+  if (barWe) {
+    const pctWe = Math.max(0, Math.min(100, Math.round((scoreWe / 13) * 100)));
+    barWe.style.width = `${pctWe}%`;
+    barWe.classList.toggle('low-points-pulse', scoreWe > 0 && scoreWe <= 3);
+  }
+  const barThey = document.getElementById('scoreBarThey');
+  if (barThey) {
+    const pctThey = Math.max(0, Math.min(100, Math.round((scoreThey / 13) * 100)));
+    barThey.style.width = `${pctThey}%`;
+    barThey.classList.toggle('low-points-pulse', scoreThey > 0 && scoreThey <= 3);
+  }
+
+  if (prevScoreRoom === gameState.roomCode) {
+    if (prevScoreWeVal !== null && prevScoreWeVal !== scoreWe && !(scoreWe === 13 && scoreThey === 13)) {
+      triggerScoreDeltaBadge('scoreDeltaWe', scoreWe - prevScoreWeVal);
+    }
+    if (prevScoreTheyVal !== null && prevScoreTheyVal !== scoreThey && !(scoreWe === 13 && scoreThey === 13)) {
+      triggerScoreDeltaBadge('scoreDeltaThey', scoreThey - prevScoreTheyVal);
+    }
+  }
+  prevScoreRoom = gameState.roomCode;
+  prevScoreWeVal = scoreWe;
+  prevScoreTheyVal = scoreThey;
 
   const countEyesLive = gameState.settings ? (gameState.settings.countEyesLive !== false) : true;
   document.getElementById('eyesWe').textContent = countEyesLive ? eyesWe : '-';
@@ -3640,6 +3707,7 @@ function renderFriendsList(isFromWaitingRoom = false) {
   const friendsData = savedFriends.map(f => ({
     code: f.code,
     name: f.name,
+    avatar: f.avatar || null,
     pushSub: f.pushSub || null
   }));
   socket.emit('check_friends_status', { friendCodes, friendsData }, (response) => {
@@ -3663,6 +3731,11 @@ function renderFriendsList(isFromWaitingRoom = false) {
         hasChanges = true;
       }
 
+      if (details && details.avatar && details.avatar !== friend.avatar) {
+        friend.avatar = details.avatar;
+        hasChanges = true;
+      }
+
       const statusClass = isOnline ? 'online' : (hasPush ? 'offline' : 'no-push');
       let statusText = '';
       if (isOnline) {
@@ -3673,10 +3746,18 @@ function renderFriendsList(isFromWaitingRoom = false) {
         statusText = 'Offline (Push inaktiv)';
       }
 
+      const friendAv = friend.avatar || '👤';
+      const avatarInnerHtml = (friendAv.startsWith('data:image/') || friendAv.startsWith('http'))
+        ? `<img src="${friendAv}" class="avatar-custom-img" alt="Avatar">`
+        : `<span class="avatar-icon">${friendAv}</span>`;
+
       html += `
         <div class="friend-item-card" data-code="${friend.code}">
           <div class="friend-item-left">
-            <div class="friend-status-dot ${statusClass}" title="${statusText}"></div>
+            <div class="friend-avatar-wrap">
+              <div class="friend-list-avatar avatar-is-human">${avatarInnerHtml}</div>
+              <div class="friend-status-dot ${statusClass}" title="${statusText}"></div>
+            </div>
             <div class="friend-info-col">
               <span class="friend-name">${escapeHtml(friend.name)}</span>
               <span class="friend-subtext">${friend.code} • ${statusText}</span>
@@ -3728,10 +3809,12 @@ function addFriendByCodeInput() {
       ? res.name 
       : `Freund ${code.substring(4)}`;
     const pushSub = (res && res.pushSub && res.pushSub.endpoint) ? res.pushSub : null;
+    const friendAv = (res && res.avatar) ? res.avatar : null;
     
     savedFriends.push({
       code: code,
       name: friendName,
+      avatar: friendAv,
       pushSub: pushSub,
       addedAt: Date.now()
     });
