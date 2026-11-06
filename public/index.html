@@ -41,7 +41,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=9.6">
+  <link rel="stylesheet" href="style.css?v=10.0">
 </head>
 <body>
 
@@ -184,6 +184,7 @@
                 <div class="seat-controls">
                   <button class="btn btn-xs btn-seat-join" onclick="switchSeat(0)">Einnehmen</button>
                   <button class="btn btn-xs btn-seat-bot" onclick="toggleBot(0)">+ Bot</button>
+                  <button class="btn btn-xs btn-bot-personality hidden" id="botPersBtn0" onclick="cycleBotPersonality(0)" title="Bot-Charakter wechseln">🎯 Standard</button>
                   <button class="btn btn-xs btn-seat-kick btn-danger hidden" onclick="confirmKickLobby(0)">👢 Kicken</button>
                 </div>
               </div>
@@ -198,6 +199,7 @@
                 <div class="seat-controls">
                   <button class="btn btn-xs btn-seat-join" onclick="switchSeat(2)">Einnehmen</button>
                   <button class="btn btn-xs btn-seat-bot" onclick="toggleBot(2)">+ Bot</button>
+                  <button class="btn btn-xs btn-bot-personality hidden" id="botPersBtn2" onclick="cycleBotPersonality(2)" title="Bot-Charakter wechseln">🎯 Standard</button>
                   <button class="btn btn-xs btn-seat-kick btn-danger hidden" onclick="confirmKickLobby(2)">👢 Kicken</button>
                 </div>
               </div>
@@ -212,6 +214,7 @@
                 <div class="seat-controls">
                   <button class="btn btn-xs btn-seat-join" onclick="switchSeat(4)">Einnehmen</button>
                   <button class="btn btn-xs btn-seat-bot" onclick="toggleBot(4)">+ Bot</button>
+                  <button class="btn btn-xs btn-bot-personality hidden" id="botPersBtn4" onclick="cycleBotPersonality(4)" title="Bot-Charakter wechseln">🎯 Standard</button>
                   <button class="btn btn-xs btn-seat-kick btn-danger hidden" onclick="confirmKickLobby(4)">👢 Kicken</button>
                 </div>
               </div>
@@ -233,6 +236,7 @@
                 <div class="seat-controls">
                   <button class="btn btn-xs btn-seat-join" onclick="switchSeat(1)">Einnehmen</button>
                   <button class="btn btn-xs btn-seat-bot" onclick="toggleBot(1)">+ Bot</button>
+                  <button class="btn btn-xs btn-bot-personality hidden" id="botPersBtn1" onclick="cycleBotPersonality(1)" title="Bot-Charakter wechseln">🎯 Standard</button>
                   <button class="btn btn-xs btn-seat-kick btn-danger hidden" onclick="confirmKickLobby(1)">👢 Kicken</button>
                 </div>
               </div>
@@ -247,6 +251,7 @@
                 <div class="seat-controls">
                   <button class="btn btn-xs btn-seat-join" onclick="switchSeat(3)">Einnehmen</button>
                   <button class="btn btn-xs btn-seat-bot" onclick="toggleBot(3)">+ Bot</button>
+                  <button class="btn btn-xs btn-bot-personality hidden" id="botPersBtn3" onclick="cycleBotPersonality(3)" title="Bot-Charakter wechseln">🎯 Standard</button>
                   <button class="btn btn-xs btn-seat-kick btn-danger hidden" onclick="confirmKickLobby(3)">👢 Kicken</button>
                 </div>
               </div>
@@ -261,6 +266,7 @@
                 <div class="seat-controls">
                   <button class="btn btn-xs btn-seat-join" onclick="switchSeat(5)">Einnehmen</button>
                   <button class="btn btn-xs btn-seat-bot" onclick="toggleBot(5)">+ Bot</button>
+                  <button class="btn btn-xs btn-bot-personality hidden" id="botPersBtn5" onclick="cycleBotPersonality(5)" title="Bot-Charakter wechseln">🎯 Standard</button>
                   <button class="btn btn-xs btn-seat-kick btn-danger hidden" onclick="confirmKickLobby(5)">👢 Kicken</button>
                 </div>
               </div>
@@ -690,6 +696,14 @@
 
     <!-- CLASH ROYALE STYLE EMOTE PICKER POPUP -->
     <div id="emotePickerPopup" class="emote-picker-popup hidden">
+      <div class="emote-favorites-header">
+        <span class="emote-picker-title">⭐ Favoriten</span>
+        <button type="button" class="btn-custom-emotes-edit" onclick="openCustomEmotesModal()" title="Favoriten bearbeiten">✏️ Anpassen</button>
+      </div>
+      <div id="customEmotesRow" class="custom-emotes-row">
+        <!-- Dynamisch aus localStorage generiert -->
+      </div>
+      <div class="emote-divider"></div>
       <div class="emote-picker-title">Reaktionen & Provokation</div>
       <div class="emote-grid">
         <!-- Reihe 1: Provokations-Klassiker -->
@@ -973,12 +987,29 @@
         <div class="setting-item setting-item-toggle">
           <div class="setting-info">
             <span class="setting-title">👑 Sichere Restkarten aufdecken (Sofort-Sieg)</span>
-            <span class="setting-desc">Erlaubt es Spielern mit unschlagbaren Meistertrümpfen, alle restlichen Stiche sofort auf einmal zu holen</span>
+            <span class="setting-desc">Erlaubt es Spielern mit unschlagbaren Meistertrümpfen oder Assen, alle restlichen Stiche sofort auf einmal zu holen</span>
           </div>
           <label class="switch">
             <input type="checkbox" id="settingAllowClaimTricks" checked onchange="saveRuleSettings()">
             <span class="slider"></span>
           </label>
+        </div>
+
+        <!-- 5c. Bot-Charaktere & Spielweisen -->
+        <div class="setting-item setting-item-stacked">
+          <div class="setting-info">
+            <span class="setting-title">🤖 Standard Bot-Charakter</span>
+            <span class="setting-desc">Bestimmt die Spielweise beim Hinzufügen von Bots (Standard-Bots bleiben gewohnt stark)</span>
+          </div>
+          <div class="bot-personality-select-wrap">
+            <select id="settingBotPersonality" class="setting-select" onchange="saveRuleSettings()">
+              <option value="standard" selected>🎯 Standard (Ausgewogen & Stark)</option>
+              <option value="aggressive">🔥 Aggressiv (Zocker & Kontra-Freudig)</option>
+              <option value="passive">🛡️ Passiv (Vorsichtig & Defensiv)</option>
+              <option value="wildcard">🍺 Kneipen-Zocker (Unberechenbar & Riskant)</option>
+              <option value="random">🎲 Zufälliger Charakter-Mix</option>
+            </select>
+          </div>
         </div>
 
         <!-- 6. Start-Punktestand festlegen -->
@@ -1128,6 +1159,9 @@
             </button>
             <button class="btn btn-outline btn-sm" onclick="closeHostMenu(); openAvatarModal();" title="Eigenes Foto hochladen oder Avatar-Symbol wählen">
               🖼️ Profilbild ändern
+            </button>
+            <button class="btn btn-outline btn-sm" onclick="closeHostMenu(); openCustomEmotesModal();" title="Eigene Emotes bearbeiten (mit Schummelschutz)">
+              😎 Eigene Emotes anpassen
             </button>
             <button id="menuVibrationToggleBtn" class="btn btn-outline btn-sm" onclick="toggleVibrationSetting()" title="Smartphone-Vibration ein/ausschalten">
               📳 Vibration: AN
@@ -1416,12 +1450,60 @@
     </div>
   </div>
 
+  <!-- MODAL: EIGENE EMOTES ANPASSEN (MIT SCHUMMELSCHUTZ) -->
+  <div id="customEmotesModal" class="modal-overlay hidden">
+    <div class="modal-card custom-emotes-card">
+      <div class="modal-header">
+        <div class="modal-tag">⭐ Anti-Cheat-Schutz aktiv</div>
+        <h2 class="modal-title">Eigene Emotes anpassen</h2>
+        <button class="modal-close-btn" onclick="closeCustomEmotesModal()" aria-label="Schließen">✕</button>
+      </div>
+
+      <div class="modal-body custom-emotes-body">
+        <div class="custom-emotes-desc">
+          Wähle bis zu 5 Favoriten für das Emote-Menü. Aus Fairnessgründen sind Kartenfarben, Herzen, Zahlen und Signal-Symbole streng gesperrt.
+        </div>
+
+        <!-- Aktive Favoriten -->
+        <div class="custom-emotes-section">
+          <h4>Deine aktiven Favoriten (<span id="customEmotesCount">5</span>/5)</h4>
+          <div id="activeCustomEmotesList" class="active-custom-emotes-list">
+            <!-- Dynamisch generiert -->
+          </div>
+        </div>
+
+        <!-- Eigenes Emoji per Tastatur hinzufügen -->
+        <div class="custom-emotes-section">
+          <h4>Eigenes Emoji eingeben</h4>
+          <div class="custom-emote-input-row">
+            <input type="text" id="customEmoteInput" class="custom-emote-input" placeholder="Emoji hier einfügen (z. B. 🤠)..." maxlength="6">
+            <button type="button" class="btn btn-primary btn-sm" onclick="addCustomEmoteFromInput()">+ Hinzufügen</button>
+          </div>
+          <div id="customEmoteInputError" class="custom-emote-error hidden"></div>
+        </div>
+
+        <!-- Kuratierte Emoji-Auswahl -->
+        <div class="custom-emotes-section">
+          <h4>Vorschläge & Kneipen-Klassiker</h4>
+          <div class="curated-emojis-grid" id="curatedEmojisGrid">
+            <!-- Kuratierte, 100% schummelsichere Emojis -->
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer custom-emotes-footer">
+        <button type="button" class="btn btn-outline" onclick="resetCustomEmotesDefault()">Standard wiederherstellen</button>
+        <button type="button" class="btn btn-primary" onclick="closeCustomEmotesModal()">Fertig</button>
+      </div>
+    </div>
+  </div>
+
   <!-- TOAST NOTIFICATIONS -->
   <div id="toastContainer" class="toast-container"></div>
 
   <!-- Socket.io Script -->
   <script src="/socket.io/socket.io.js"></script>
   <!-- Client JavaScript -->
-  <script src="client.js?v=9.9"></script>
+  <script src="client.js?v=10.0"></script>
 </body>
 </html>

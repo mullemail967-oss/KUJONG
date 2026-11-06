@@ -19,6 +19,7 @@ const {
 } = require('./engine/couillon-rules');
 
 const {
+  BOT_PERSONALITIES,
   chooseTrumpSuit,
   shouldBotTurnTrump,
   shouldAnnounceMit,
@@ -77,6 +78,58 @@ function getFriendCodeForSocket(socketId) {
     }
   }
   return null;
+}
+
+// ------------------------------------------------------------------------
+// ANTI-CHEAT-FILTER FÜR EMOTES
+// Blockiert alle Kartenfarben, Herzen, Karos, Kleeblätter, Farbkreise,
+// Richtungs-Pfeile, Ziffern und Signal-Symbole, um geheime Partner-Absprachen zu verhindern.
+// ------------------------------------------------------------------------
+const FORBIDDEN_EMOTE_CHARS = new Set([
+  // Kartenfarben
+  '♠', '♥', '♦', '♣', '♤', '♡', '♢', '♧', '🃏', '🎴', '🀄', '🎲',
+  // Herzen & Rauten
+  '❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '🤎', '💔', '❣️',
+  '💕', '💞', '💓', '💗', '💖', '💘', '💝', '💟', '♥️', '🫶', '♦️',
+  '🔶', '🔷', '🔸', '🔹', '💎', '🔺', '🔻',
+  // Blätter & Kleeblätter
+  '🍀', '☘️', '☘', '🌿', '🌱', '🌲', '🌳', '🌴', '🌵', '🍁', '🍂', '🍃', '♠️', '♣️',
+  // Farbkreise & Quadrate
+  '🔴', '🟠', '🟡', '🟢', '🔵', '🟣', '⚫', '⚪', '🟤',
+  '🟥', '🟧', '🟨', '🟩', '🟦', '🟪', '⬛', '⬜', '🟫',
+  // Ziffern, Buchstaben, Pfeile, Signale
+  '0️⃣', '1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟', '#️⃣', '*️⃣',
+  '🅰️', '🅱️', '🆎', '🆑', '🆒', '🆓', '🆔', '🆕', '🆖', '🆗', '🆘', '🆙', '🆚',
+  '⬆️', '⬇️', '⬅️', '➡️', '↗️', '↘️', '↙️', '↖️', '↕️', '↔️', '↩️', '↪️', '⤴️', '⤵️',
+  '☝️', '👆', '👇', '👈', '👉',
+  '👍', '👎', '✅', '❌', '⭕', '🚫', '✔️', '✖️',
+  '✌️', '🤞', '🤟', '🤘', '👌', '🤌', '🖐️', '✋', '🖖', '🫱', '🫲', '✊', '👊', '🤛', '🤜', '👏', '🙌', '👐', '🤲', '🙏'
+]);
+
+function isAllowedCustomEmote(emote) {
+  if (!emote || typeof emote !== 'string') return false;
+  const trimmed = emote.trim();
+  if (!trimmed || trimmed.length > 10) return false;
+
+  // Exakt 1 Graphem-Cluster / einzelnes Emoji erlaubt
+  try {
+    const segments = [...new Intl.Segmenter().segment(trimmed)];
+    if (segments.length !== 1) return false;
+  } catch (e) {
+    if ([...trimmed].length > 2) return false;
+  }
+
+  // Keine alphanumerischen Zeichen oder Standard-Satzzeichen (kein Text-Chat)
+  if (/[a-zA-Z0-9!?:;.,_+=-]/.test(trimmed)) return false;
+
+  for (const forbidden of FORBIDDEN_EMOTE_CHARS) {
+    if (trimmed.includes(forbidden)) return false;
+  }
+  // Unicode-Bereiche für Kartenfarben und Pfeile
+  if (/[\u2660-\u2667\u2190-\u21FF\u2B05-\u2B07\u27A1]/.test(trimmed)) {
+    return false;
+  }
+  return true;
 }
 
 function sanitizeAvatar(avatar) {
@@ -238,21 +291,29 @@ const SHORT_BOT_NAMES = [
 ];
 
 /**
- * Wählt einen zufälligen, kurzen Bot-Namen, der noch nicht im Raum sitzt.
+ * Wählt einen passenden Bot-Namen basierend auf der gewählten Persönlichkeit.
+ * Für 'standard' werden 100% unverändert die bisherigen Namen (Bot Max, Bot Leo etc.) vergeben.
  */
-function getRandomBotName(room) {
+function getBotNameForPersonality(room, personality = 'standard') {
   const currentNames = (room && room.seats)
     ? room.seats.filter(s => s && s.name).map(s => s.name.toLowerCase().trim())
     : [];
 
-  const available = SHORT_BOT_NAMES.filter(n => {
-    const lower = n.toLowerCase();
-    return !currentNames.includes(`bot ${lower}`) && !currentNames.includes(lower);
-  });
+  let pool = SHORT_BOT_NAMES.map(n => `Bot ${n}`);
+  if (personality && BOT_PERSONALITIES[personality] && Array.isArray(BOT_PERSONALITIES[personality].names)) {
+    pool = BOT_PERSONALITIES[personality].names;
+  }
 
-  const pool = available.length > 0 ? available : SHORT_BOT_NAMES;
-  const picked = pool[Math.floor(Math.random() * pool.length)];
-  return `Bot ${picked}`;
+  const available = pool.filter(n => !currentNames.includes(n.toLowerCase()));
+  const candidates = available.length > 0 ? available : pool;
+  return candidates[Math.floor(Math.random() * candidates.length)];
+}
+
+/**
+ * Wählt einen zufälligen, kurzen Bot-Namen, der noch nicht im Raum sitzt.
+ */
+function getRandomBotName(room) {
+  return getBotNameForPersonality(room, 'standard');
 }
 
 /**
@@ -293,6 +354,7 @@ function createRoom(roomCode, hostName, hostSocketId, hostFriendCode = null, hos
       allowContraRe: true,            // Kontra-Re (Gegen-Kontra) erlaubt: verdoppelt auf 8 Pkt bzw. +1 auf 4 Pkt (Standard: false)
       ansagerZeroTricksPenalty: 2,    // Strafpunkte bei 0 Stichen für Ansager: 2 Pkt (Standard: 2, alternativ: 1)
       allowClaimTricks: true,         // Sichere Restkarten aufdecken / Sofort-Sieg (Standard: true)
+      botPersonality: 'standard',     // Standard Bot-Charakter (Standard: 'standard')
       startScoreA: 13,                // Startwert Team A (Standard: 13)
       startScoreB: 13,                // Startwert Team B (Standard: 13)
       drinkingGameMode: 'none',       // Trinkspiel-Modus: 'none', 'light', 'medium', 'heavy' (Standard: 'none')
@@ -341,6 +403,9 @@ function createRoom(roomCode, hostName, hostSocketId, hostFriendCode = null, hos
     actionLog: [`Raum ${roomCode} erstellt durch ${hostName}.`],
     chatMessages: [],
     botTimer: null,
+    trickEvalTimer: null,
+    afkTimer: null,
+    claimTimer: null,
     matchWins: { teamA: 0, teamB: 0 },
     matchWinRecorded: false
   };
@@ -379,6 +444,55 @@ function broadcastGameState(room) {
       }
     }
   }
+
+  // 20s Inaktivitäts-Timer aktualisieren
+  resetOrStartAfkTimer(room);
+}
+
+/**
+ * AFK-Erkennung: Wenn ein menschlicher Spieler am Zug ist und 20 Sekunden lang keine Aktion ausführt,
+ * wird sein Sitzplatz automatisch auf den Pause-Modus (isAutoBot = true) gesetzt und ein Bot übernimmt sofort.
+ */
+function resetOrStartAfkTimer(room) {
+  if (!room) return;
+  if (room.afkTimer) {
+    clearTimeout(room.afkTimer);
+    room.afkTimer = null;
+  }
+
+  // AFK-Timer nur aktivieren, wenn eine Runde aktiv läuft und ein Spieler handeln muss
+  if (room.phase !== 'CHOOSE_TRUMP' && room.phase !== 'PLAY_TRICK') {
+    return;
+  }
+
+  const activeIdx = room.phase === 'CHOOSE_TRUMP' ? room.declarerIndex : room.currentTurn;
+  const maxPlayers = room.settings.playerCount || 4;
+  if (typeof activeIdx !== 'number' || activeIdx < 0 || activeIdx >= maxPlayers) return;
+
+  const activeSeat = room.seats[activeIdx];
+  // Nur für menschliche Spieler, die noch nicht im automatischen Bot-Modus (Pause) sind
+  if (!activeSeat || activeSeat.isBot || activeSeat.isAutoBot) {
+    return;
+  }
+
+  room.afkTimer = setTimeout(() => {
+    room.afkTimer = null;
+    if (room.phase !== 'CHOOSE_TRUMP' && room.phase !== 'PLAY_TRICK') return;
+
+    const currentActiveIdx = room.phase === 'CHOOSE_TRUMP' ? room.declarerIndex : room.currentTurn;
+    const currentSeat = room.seats[currentActiveIdx];
+    if (!currentSeat || currentSeat.isBot || currentSeat.isAutoBot) return;
+
+    currentSeat.isAutoBot = true;
+    logAction(room, `💤 ${currentSeat.name} war 20s inaktiv – Pause-Modus automatisch aktiviert (Bot übernimmt).`);
+    io.to(room.code).emit('player_afk_paused', {
+      seatIndex: currentActiveIdx,
+      playerName: currentSeat.name
+    });
+
+    broadcastGameState(room);
+    checkBotAction(room);
+  }, 20000);
 }
 
 /**
@@ -488,14 +602,55 @@ function canPlayerThrowCards(room, playerIndex) {
 }
 
 /**
- * Prüft, ob ein Spieler am Zug restliche Stiche sofort reklamieren / aufdecken kann.
- * Dies ist der Fall, wenn:
- * 1. Die Runde in der Phase PLAY_TRICK ist und der Spieler am Zug ist.
- * 2. Der Spieler noch mindestens 1 Karte (typischerweise 2 oder mehr) auf der Hand hat.
- * 3. Alle Karten in der Hand des Spielers unschlagbare Meister-Karten sind,
- *    sodass kein gegnerischer Spieler rechnerisch mehr einen Stich gewinnen kann.
- *    Beispiel: Der Spieler hält die höchsten verbleibenden Trümpfe (z. B. Ass, Mit', Kreuz-Dame).
+ * Prüft, ob ein Spieler nach den bisherigen Spielzügen öffentlich nachweisbar in einer Fehlfarbe frei (void) ist.
  */
+function isPlayerKnownVoidInSuit(room, playerIndex, targetSuit) {
+  const maxPlayers = room.settings.playerCount || 4;
+  if (playerIndex < 0 || playerIndex >= maxPlayers) return true;
+  if (!room.hands[playerIndex] || room.hands[playerIndex].length === 0) return true;
+  if (room.hasThrownCards && room.hasThrownCards[playerIndex]) return true;
+
+  if (Array.isArray(room.trickHistory)) {
+    for (const trick of room.trickHistory) {
+      if (!trick.cards || trick.cards.length < 2) continue;
+      const leadEntry = trick.cards[0];
+      if (!leadEntry || !leadEntry.card) continue;
+      const leadIsTrump = isTrumpCard(leadEntry.card, room.trumpSuit, room.isMitAnnounced, room.settings);
+      const leadSuit = leadIsTrump ? 'TRUMP' : leadEntry.card.suit;
+      if (leadSuit === targetSuit) {
+        const playerEntry = trick.cards.find(e => e.playerIndex === playerIndex);
+        if (playerEntry && playerEntry.card) {
+          const pIsTrump = isTrumpCard(playerEntry.card, room.trumpSuit, room.isMitAnnounced, room.settings);
+          const pSuit = pIsTrump ? 'TRUMP' : playerEntry.card.suit;
+          if (pSuit !== targetSuit && !pIsTrump) {
+            return true;
+          }
+        }
+      }
+    }
+  }
+
+  if (room.currentTrick && room.currentTrick.length > 1) {
+    const leadEntry = room.currentTrick[0];
+    if (leadEntry && leadEntry.card) {
+      const leadIsTrump = isTrumpCard(leadEntry.card, room.trumpSuit, room.isMitAnnounced, room.settings);
+      const leadSuit = leadIsTrump ? 'TRUMP' : leadEntry.card.suit;
+      if (leadSuit === targetSuit) {
+        const playerEntry = room.currentTrick.find(e => e.playerIndex === playerIndex);
+        if (playerEntry && playerEntry.card) {
+          const pIsTrump = isTrumpCard(playerEntry.card, room.trumpSuit, room.isMitAnnounced, room.settings);
+          const pSuit = pIsTrump ? 'TRUMP' : playerEntry.card.suit;
+          if (pSuit !== targetSuit && !pIsTrump) {
+            return true;
+          }
+        }
+      }
+    }
+  }
+
+  return false;
+}
+
 /**
  * Prüft, ob ein Spieler nach den bisherigen Spielzügen öffentlich nachweisbar keinen Trumpf mehr hat.
  * Dies ist der Fall, wenn:
@@ -543,54 +698,43 @@ function isPlayerKnownVoidInTrump(room, playerIndex) {
 }
 
 /**
- * Prüft, ob ein Spieler am Zug restliche Stiche sofort reklamieren / aufdecken kann.
- * Berücksichtigt Imperfect Information (der Spieler kennt den verdeckten Stock NICHT!).
- * Trümpfe, die noch nicht gespielt wurden und nicht in der eigenen Hand liegen,
- * könnten potentiell bei Gegnern liegen (selbst wenn sie physisch im Stock liegen),
- * AUSSER die Gegner haben bereits nachweislich keine Trümpfe mehr ("keinen Trumpf bekannt").
+ * Prüft, ob ein Spieler restliche Stiche sofort reklamieren / aufdecken kann.
+ * Erweitert um:
+ * 1. Aufdecken auch mit Fehlfarben-Assen/Boss-Karten, sobald Gegner trumpffrei sind.
+ * 2. Aufdecken auch außerhalb des eigenen Zuges (room.currentTurn !== playerIndex),
+ *    sobald der aktuelle Stich UND alle Folgestiche mathematisch zu 100% sicher sind.
  */
 function canPlayerClaimTricks(room, playerIndex) {
   // 0. Prüfe, ob die Regel-Einstellung aktiv ist (Standard: true)
   if (room.settings && room.settings.allowClaimTricks === false) return false;
 
   if (room.phase !== 'PLAY_TRICK') return false;
-  if (room.currentTurn !== playerIndex) return false;
 
-  // 1. Nicht in der ersten Runde (Stich 1)!
+  // Nicht in der ersten Runde (Stich 1)!
   // In Stich 1 kann noch jemand die Mit' (♠Q) ansagen oder Kontra geben.
   if (room.trickCount === 0) return false;
 
-  // 1b. Nicht in der letzten Runde (Stich 5 bzw. bei nur 1 Restkarte)!
+  // Nicht in der letzten Runde (Stich 5)!
   // Im letzten Stich werden ohnehin alle verbleibenden Karten regulär aufgedeckt / ausgespielt.
   if (room.trickCount >= 4) return false;
 
-  // 2. Nicht wenn das Kontra-Fenster noch offen ist!
+  // Nicht wenn das Kontra-Fenster noch offen ist!
   if (isContraWindowOpen(room)) return false;
 
   const maxPlayers = room.settings.playerCount || 4;
   if (typeof playerIndex !== 'number' || playerIndex < 0 || playerIndex >= maxPlayers) return false;
 
   const hand = room.hands[playerIndex];
-  if (!hand || hand.length <= 1) return false;
+  if (!hand) return false;
 
-  // 3. ALLE verbleibenden Handkarten des Spielers MÜSSEN Trümpfe sein!
-  const allHandCardsAreTrump = hand.every(c => isTrumpCard(c, room.trumpSuit, room.isMitAnnounced, room.settings));
-  if (!allHandCardsAreTrump) return false;
+  const alreadyPlayedEntry = Array.isArray(room.currentTrick)
+    ? room.currentTrick.find(e => e.playerIndex === playerIndex)
+    : null;
 
-  const minPlayerTrumpPower = Math.min(...hand.map(c => getTrumpPower(c, room.trumpSuit, room.isMitAnnounced, room.settings)));
+  const totalRemainingTricks = hand.length + (alreadyPlayedEntry ? 1 : 0);
+  if (totalRemainingTricks < 2 || hand.length === 0) return false;
 
-  // 4. Falls im aktuell liegenden Stich bereits ein Trumpf gespielt wurde:
-  if (room.currentTrick && room.currentTrick.length > 0) {
-    const trickTrumps = room.currentTrick.filter(e => isTrumpCard(e.card, room.trumpSuit, room.isMitAnnounced, room.settings));
-    if (trickTrumps.length > 0) {
-      const maxTrickTrumpPower = Math.max(...trickTrumps.map(e => getTrumpPower(e.card, room.trumpSuit, room.isMitAnnounced, room.settings)));
-      if (minPlayerTrumpPower <= maxTrickTrumpPower) {
-        return false;
-      }
-    }
-  }
-
-  // 5. Sammle alle Karten, die dieser Spieler bereits öffentlich auf dem Tisch gesehen hat oder selbst hält:
+  // Sammle alle öffentlich bekannten oder in der eigenen Hand liegenden Karten
   const getCardKey = (c) => (c && c.suit && c.rank) ? `${c.suit}_${c.rank}` : (c ? c.id : '');
   const seenKeys = new Set();
   hand.forEach(c => seenKeys.add(getCardKey(c)));
@@ -609,20 +753,11 @@ function canPlayerClaimTricks(room, playerIndex) {
     });
   }
 
-  // 6. Alle theoretisch möglichen Trümpfe des Decks für diesen Modus ermitteln:
   const fullDeck = createDeck(maxPlayers);
-  const allPossibleTrumps = fullDeck.filter(c => isTrumpCard(c, room.trumpSuit, room.isMitAnnounced, room.settings));
+  const unseenCards = fullDeck.filter(c => !seenKeys.has(getCardKey(c)));
+  const unseenTrumps = unseenCards.filter(c => isTrumpCard(c, room.trumpSuit, room.isMitAnnounced, room.settings));
 
-  // 7. Ungesehene höhere Trümpfe ermitteln:
-  // (Jeder Trumpf, der weder in der eigenen Hand liegt noch auf dem Tisch gespielt wurde.
-  // Er könnte im verdeckten Stock liegen ODER bei einem anderen Spieler auf der Hand!)
-  const unseenHigherTrumps = allPossibleTrumps.filter(c => {
-    if (seenKeys.has(getCardKey(c))) return false; // Bereits gesehen/gespielt
-    const power = getTrumpPower(c, room.trumpSuit, room.isMitAnnounced, room.settings);
-    return power > minPlayerTrumpPower;
-  });
-
-  // 8. Prüfe, ob noch andere Spieler Trümpfe halten könnten (Gegner oder Partner):
+  // Prüfe, ob noch andere Spieler Trümpfe halten könnten (Gegner oder Partner)
   const playerTeam = playerIndex % 2 === 0 ? 0 : 1;
   let anyOpponentCanHaveTrump = false;
   let partnerCanHaveTrump = false;
@@ -631,30 +766,158 @@ function canPlayerClaimTricks(room, playerIndex) {
     if (s === playerIndex) continue;
     const isOpp = (s % 2 !== playerTeam);
     const voidInTrump = isPlayerKnownVoidInTrump(room, s);
-    if (!voidInTrump) {
+    if (!voidInTrump && unseenTrumps.length > 0) {
       if (isOpp) anyOpponentCanHaveTrump = true;
       else partnerCanHaveTrump = true;
     }
   }
+  const anyOtherPlayerCanHaveTrump = anyOpponentCanHaveTrump || partnerCanHaveTrump;
 
-  // Fall A: Es gibt ungesehene Trümpfe, die höher sind als die schwächste Karte des Spielers!
-  // Da der Spieler den verdeckten Stock nicht kennt (Shoppen-Dame / Kreuz-Dame könnten im Stock liegen,
-  // könnten aber genauso gut bei einem Gegner auf der Hand sein):
-  if (unseenHigherTrumps.length > 0) {
-    if (anyOpponentCanHaveTrump) {
-      return false; // Ein Gegner könnte einen der höheren Trümpfe halten!
+  // Hilfsfunktion: Prüft, ob ein Set von Restkarten alle Folgestiche garantiert gewinnt,
+  // wenn playerIndex selbst zum Stich ausspielt.
+  function areRemainingCardsGuaranteedWinners(remainingCards) {
+    if (!remainingCards || remainingCards.length === 0) return true;
+
+    const myTrumps = remainingCards.filter(c => isTrumpCard(c, room.trumpSuit, room.isMitAnnounced, room.settings));
+    const myOffSuits = remainingCards.filter(c => !isTrumpCard(c, room.trumpSuit, room.isMitAnnounced, room.settings));
+
+    // A) Trümpfe prüfen:
+    if (myTrumps.length > 0) {
+      const minTrumpPower = Math.min(...myTrumps.map(c => getTrumpPower(c, room.trumpSuit, room.isMitAnnounced, room.settings)));
+      if (anyOtherPlayerCanHaveTrump) {
+        const maxUnseenTrumpPower = Math.max(...unseenTrumps.map(c => getTrumpPower(c, room.trumpSuit, room.isMitAnnounced, room.settings)));
+        if (minTrumpPower <= maxUnseenTrumpPower) {
+          return false;
+        }
+      }
     }
-    // Selbst wenn Gegner keine Trümpfe mehr haben: Wenn der Partner noch einen höheren Trumpf
-    // haben könnte, könnte er die Spielführung übernehmen und an eine gegnerische Fehlfarbe verlieren!
-    if (partnerCanHaveTrump) {
-      return false;
+
+    // B) Fehlfarben-Karten prüfen:
+    if (myOffSuits.length > 0) {
+      // Wenn noch ein gegnerischer Spieler Trümpfe haben könnte: Fehlfarben können abgestochen werden!
+      if (anyOpponentCanHaveTrump) {
+        return false;
+      }
+
+      // Niemand sonst kann mehr stechen.
+      // Jede Fehlfarben-Karte muss die höchste noch im Spiel befindliche ihrer Farbe sein!
+      const suitsMap = {};
+      myOffSuits.forEach(c => {
+        suitsMap[c.suit] = suitsMap[c.suit] || [];
+        suitsMap[c.suit].push(c);
+      });
+
+      for (const [suit, cards] of Object.entries(suitsMap)) {
+        const minMyPower = Math.min(...cards.map(c => getOffSuitPower(c)));
+        const unseenInSuit = unseenCards.filter(c => !isTrumpCard(c, room.trumpSuit, room.isMitAnnounced, room.settings) && c.suit === suit);
+        if (unseenInSuit.length > 0) {
+          const maxUnseenPower = Math.max(...unseenInSuit.map(c => getOffSuitPower(c)));
+          if (minMyPower < maxUnseenPower) {
+            return false;
+          }
+        }
+      }
     }
+
+    return true;
   }
 
-  // Fall B: Keine ungesehenen höheren Trümpfe mehr im Spiel!
-  // Alle höheren Trümpfe sind entweder in der Hand des Spielers oder wurden bereits gespielt.
-  // Damit hält der Spieler die absolut höchsten verbleibenden Trümpfe der gesamten Partie.
-  return true;
+  // --------------------------------------------------------------------------
+  // Aktuellen Stich prüfen (room.currentTrick)
+  // --------------------------------------------------------------------------
+  const isTrickEmpty = (!room.currentTrick || room.currentTrick.length === 0);
+
+  if (isTrickEmpty) {
+    // Stich ist noch leer: playerIndex muss am Zug sein (Ausspieler)
+    if (room.currentTurn !== playerIndex) return false;
+    return areRemainingCardsGuaranteedWinners(hand);
+  }
+
+  // Stich läuft bereits:
+  if (alreadyPlayedEntry) {
+    // playerIndex hat in diesem Stich bereits gelegt!
+    const playedCard = alreadyPlayedEntry.card;
+    const isPlayedTrump = isTrumpCard(playedCard, room.trumpSuit, room.isMitAnnounced, room.settings);
+    const playedPower = isPlayedTrump
+      ? getTrumpPower(playedCard, room.trumpSuit, room.isMitAnnounced, room.settings)
+      : getOffSuitPower(playedCard);
+
+    // Führt die Karte aktuell im Stich?
+    const currentEval = evaluateTrick(room.currentTrick, room.trumpSuit, room.isMitAnnounced, room.settings);
+    if (currentEval.winnerIndex !== playerIndex) return false;
+
+    // Kann ein noch ausstehender Spieler diese Karte schlagen?
+    const alreadyPlayedIndices = new Set(room.currentTrick.map(e => e.playerIndex));
+    for (let s = 0; s < maxPlayers; s++) {
+      if (alreadyPlayedIndices.has(s)) continue;
+      if (!room.hands[s] || room.hands[s].length === 0) continue;
+
+      if (isPlayedTrump) {
+        if (!isPlayerKnownVoidInTrump(room, s)) {
+          const higherUnseenTrumps = unseenTrumps.filter(u => getTrumpPower(u, room.trumpSuit, room.isMitAnnounced, room.settings) > playedPower);
+          if (higherUnseenTrumps.length > 0) return false;
+        }
+      } else {
+        if (!isPlayerKnownVoidInTrump(room, s) && unseenTrumps.length > 0) {
+          return false;
+        }
+        if (!isPlayerKnownVoidInSuit(room, s, playedCard.suit)) {
+          const higherInSuit = unseenCards.filter(u => !isTrumpCard(u, room.trumpSuit, room.isMitAnnounced, room.settings) && u.suit === playedCard.suit && getOffSuitPower(u) > playedPower);
+          if (higherInSuit.length > 0) return false;
+        }
+      }
+    }
+
+    // Aktueller Stich ist sicher gewonnen! Nun Folgestiche prüfen:
+    return areRemainingCardsGuaranteedWinners(hand);
+  } else {
+    // playerIndex hat in diesem Stich NOCH NICHT gelegt (z.B. anderer Spieler ist dran oder spielt aus)
+    const playableCards = hand.filter(c => isCardPlayable(c, hand, room.currentTrick, room.trumpSuit, room.isMitAnnounced, room.settings));
+    const alreadyPlayedIndices = new Set(room.currentTrick.map(e => e.playerIndex));
+
+    for (const cand of playableCards) {
+      const isCandTrump = isTrumpCard(cand, room.trumpSuit, room.isMitAnnounced, room.settings);
+      const candPower = isCandTrump
+        ? getTrumpPower(cand, room.trumpSuit, room.isMitAnnounced, room.settings)
+        : getOffSuitPower(cand);
+
+      // Simuliere diesen Zug
+      const simTrick = [...room.currentTrick, { playerIndex, card: cand }];
+      const evalRes = evaluateTrick(simTrick, room.trumpSuit, room.isMitAnnounced, room.settings);
+      if (evalRes.winnerIndex !== playerIndex) continue;
+
+      // Kann ein noch ausstehender Spieler cand schlagen?
+      let canBeBeaten = false;
+      for (let s = 0; s < maxPlayers; s++) {
+        if (s === playerIndex || alreadyPlayedIndices.has(s)) continue;
+        if (!room.hands[s] || room.hands[s].length === 0) continue;
+
+        if (isCandTrump) {
+          if (!isPlayerKnownVoidInTrump(room, s)) {
+            const higherUnseen = unseenTrumps.filter(u => getTrumpPower(u, room.trumpSuit, room.isMitAnnounced, room.settings) > candPower);
+            if (higherUnseen.length > 0) { canBeBeaten = true; break; }
+          }
+        } else {
+          if (!isPlayerKnownVoidInTrump(room, s) && unseenTrumps.length > 0) {
+            canBeBeaten = true; break;
+          }
+          if (!isPlayerKnownVoidInSuit(room, s, cand.suit)) {
+            const higherInSuit = unseenCards.filter(u => !isTrumpCard(u, room.trumpSuit, room.isMitAnnounced, room.settings) && u.suit === cand.suit && getOffSuitPower(u) > candPower);
+            if (higherInSuit.length > 0) { canBeBeaten = true; break; }
+          }
+        }
+      }
+      if (canBeBeaten) continue;
+
+      // Rest-Hand prüfen
+      const remainingHand = hand.filter(c => c.id !== cand.id);
+      if (areRemainingCardsGuaranteedWinners(remainingHand)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
 }
 
 /**
@@ -852,6 +1115,14 @@ function startNewRound(room) {
   if (room.claimTimer) {
     clearTimeout(room.claimTimer);
     room.claimTimer = null;
+  }
+  if (room.trickEvalTimer) {
+    clearTimeout(room.trickEvalTimer);
+    room.trickEvalTimer = null;
+  }
+  if (room.afkTimer) {
+    clearTimeout(room.afkTimer);
+    room.afkTimer = null;
   }
 
   // Deck mischen (24 Karten bei 4p, 32 Karten bei 6p)
@@ -1221,7 +1492,14 @@ function triggerTrickEvaluation(room) {
     trickDelay = (room.trickCount === 4) ? 4000 : 3000;
   }
 
-  setTimeout(() => {
+  if (room.trickEvalTimer) {
+    clearTimeout(room.trickEvalTimer);
+    room.trickEvalTimer = null;
+  }
+
+  room.trickEvalTimer = setTimeout(() => {
+    room.trickEvalTimer = null;
+    if (room.phase !== 'EVALUATING_TRICK') return;
     resolveTrick(room, result);
   }, trickDelay);
 }
@@ -1278,13 +1556,36 @@ function handleThrowCards(room, playerIndex) {
 function handleClaimTricks(room, playerIndex) {
   if (!canPlayerClaimTricks(room, playerIndex)) return;
 
+  // Laufende Timer sofort stoppen
+  if (room.botTimer) {
+    clearTimeout(room.botTimer);
+    room.botTimer = null;
+  }
+  if (room.trickEvalTimer) {
+    clearTimeout(room.trickEvalTimer);
+    room.trickEvalTimer = null;
+  }
+  if (room.afkTimer) {
+    clearTimeout(room.afkTimer);
+    room.afkTimer = null;
+  }
+
   const maxPlayers = room.settings.playerCount || 4;
   const playerName = room.seats[playerIndex].name;
   const playerTeam = playerIndex % 2 === 0 ? 0 : 1;
 
-  // Handkarten des Spielers einsammeln (zum Vorzeigen)
+  // Falls der Spieler bereits eine Karte in den aktuellen Stich gelegt hat, gehört diese Karte zu seinen Claim-Karten!
+  const alreadyPlayedEntry = Array.isArray(room.currentTrick)
+    ? room.currentTrick.find(e => e.playerIndex === playerIndex)
+    : null;
+
   const claimedCards = [...room.hands[playerIndex]];
-  const remainingTricksCount = claimedCards.length;
+  if (alreadyPlayedEntry && alreadyPlayedEntry.card) {
+    claimedCards.unshift(alreadyPlayedEntry.card);
+  }
+
+  // Gesamtzahl verbleibender Stiche ist 5 - trickCount
+  const remainingTricksCount = 5 - room.trickCount;
 
   // Alle verbleibenden Handkarten ALLER Spieler vor dem Abräumen sichern (zum Aufdecken für alle)
   const allRevealedHands = [];
@@ -1349,6 +1650,14 @@ function handleClaimTricks(room, playerIndex) {
   if (room.claimTimer) {
     clearTimeout(room.claimTimer);
     room.claimTimer = null;
+  }
+  if (room.trickEvalTimer) {
+    clearTimeout(room.trickEvalTimer);
+    room.trickEvalTimer = null;
+  }
+  if (room.afkTimer) {
+    clearTimeout(room.afkTimer);
+    room.afkTimer = null;
   }
   room.claimTimer = setTimeout(() => {
     room.claimTimer = null;
@@ -1591,6 +1900,14 @@ function calculateDrinkingTask(room, evaluation) {
  * Wertet die Runde nach 5 Stichen aus.
  */
 function resolveRound(room) {
+  if (room.trickEvalTimer) {
+    clearTimeout(room.trickEvalTimer);
+    room.trickEvalTimer = null;
+  }
+  if (room.afkTimer) {
+    clearTimeout(room.afkTimer);
+    room.afkTimer = null;
+  }
   const maxPlayers = room.settings.playerCount || 4;
   const evaluation = evaluateRound({
     declarerTeam: room.declarerTeam,
@@ -1735,7 +2052,15 @@ function checkBotAction(room) {
         const currentDeclarer = room.seats[room.declarerIndex];
         if (!isSeatBotControlled(currentDeclarer)) return;
         const hand = room.hands[room.declarerIndex];
-        const botOpts = { ...room.settings, playerCount: maxPlayers, scores: room.scores, declarerIndex: room.declarerIndex, declarerTeam: room.declarerTeam };
+        const declarerPersonality = currentDeclarer.botPersonality || room.settings.botPersonality || 'standard';
+        const botOpts = {
+          ...room.settings,
+          playerCount: maxPlayers,
+          scores: room.scores,
+          declarerIndex: room.declarerIndex,
+          declarerTeam: room.declarerTeam,
+          botPersonality: declarerPersonality
+        };
         if (shouldBotTurnTrump(hand, botOpts)) {
           handleTurnTrump(room);
         } else {
@@ -1753,7 +2078,15 @@ function checkBotAction(room) {
         const sTeam = s % 2 === 0 ? 0 : 1;
         if (isSeatBotControlled(seat) && sTeam !== mitTeam) {
           const hand = room.hands[s];
-          if (shouldAnnounceContra(hand, room.mitHolderIndex, s, room.trumpSuit, { ...room.settings, playerCount: maxPlayers, scores: room.scores, declarerIndex: room.declarerIndex, declarerTeam: room.declarerTeam })) {
+          const seatPersonality = seat.botPersonality || room.settings.botPersonality || 'standard';
+          if (shouldAnnounceContra(hand, room.mitHolderIndex, s, room.trumpSuit, {
+            ...room.settings,
+            playerCount: maxPlayers,
+            scores: room.scores,
+            declarerIndex: room.declarerIndex,
+            declarerTeam: room.declarerTeam,
+            botPersonality: seatPersonality
+          })) {
             handleContraAnnouncement(room, s);
             break;
           }
@@ -1774,11 +2107,19 @@ function checkBotAction(room) {
         if (room.phase !== 'PLAY_TRICK') return;
         const seat = room.seats[room.currentTurn];
         if (!isSeatBotControlled(seat)) return;
+        const botPersonality = seat.botPersonality || room.settings.botPersonality || 'standard';
 
         // 2. Taktische Mit'-Prüfung (in Stich 1, wenn Bot ♠Q hält)
         if (room.settings.allowMit !== false && room.trickCount === 0 && room.mitHolderIndex === room.currentTurn && !room.isMitAnnounced) {
           const botHand = room.hands[room.currentTurn];
-          if (shouldAnnounceMit(botHand, room.declarerIndex, room.currentTurn, room.trumpSuit, { ...room.settings, playerCount: maxPlayers, scores: room.scores, declarerIndex: room.declarerIndex, declarerTeam: room.declarerTeam })) {
+          if (shouldAnnounceMit(botHand, room.declarerIndex, room.currentTurn, room.trumpSuit, {
+            ...room.settings,
+            playerCount: maxPlayers,
+            scores: room.scores,
+            declarerIndex: room.declarerIndex,
+            declarerTeam: room.declarerTeam,
+            botPersonality
+          })) {
             handleMitAnnouncement(room, room.currentTurn, true);
           }
         }
@@ -1812,7 +2153,8 @@ function checkBotAction(room) {
             declarerIndex: room.declarerIndex,
             declarerTeam: room.declarerTeam,
             trickCount: room.trickCount,
-            scores: room.scores
+            scores: room.scores,
+            botPersonality
           }
         );
 
@@ -1907,6 +2249,90 @@ function triggerBotRoundEmotes(room, evaluation) {
   });
 }
 
+// Lobby oder aktives Spiel endgültig verlassen (Sitzplatz räumen bzw. durch Bot ersetzen)
+function finalizeDisconnectedSeat(room, leavingSeat) {
+  if (!room || !room.seats[leavingSeat]) return;
+  const player = room.seats[leavingSeat];
+  const playerName = player ? player.name : 'Ein Spieler';
+  const isHost = (room.hostSocketId && player.socketId === room.hostSocketId);
+
+  if (room.phase === 'LOBBY') {
+    if (isHost) {
+      // Prüfen, ob noch andere menschliche Spieler in der Lobby sind
+      const nextHuman = room.seats.find(s => s && !s.isBot && s.socketId && s.index !== leavingSeat && s.connected !== false);
+      if (nextHuman) {
+        room.seats[leavingSeat] = null;
+        room.hostSocketId = nextHuman.socketId;
+        logAction(room, `🚪 ${playerName} hat die Lobby verlassen. Neuer Spielleiter: ${nextHuman.name}`);
+        broadcastGameState(room);
+        broadcastPublicRooms();
+      } else {
+        logAction(room, `🚪 Spielleiter hat den Raum verlassen. Die Lobby wurde aufgelöst.`);
+        io.to(room.code).emit('room_disbanded', { message: 'Der Spielleiter hat die Lobby verlassen.' });
+        rooms.delete(room.code);
+        broadcastPublicRooms();
+      }
+    } else {
+      room.seats[leavingSeat] = null;
+      logAction(room, `🚪 ${playerName} hat die Lobby verlassen.`);
+      broadcastGameState(room);
+      broadcastPublicRooms();
+    }
+  } else {
+    // Prüfen, ob nach dem Verlassen überhaupt noch menschliche Spieler im Raum sind:
+    const remainingHumans = room.seats.filter(s => s && !s.isBot && s.index !== leavingSeat && s.connected !== false);
+    if (remainingHumans.length === 0) {
+      if (room.botTimer) {
+        clearTimeout(room.botTimer);
+        room.botTimer = null;
+      }
+      if (room.claimTimer) {
+        clearTimeout(room.claimTimer);
+        room.claimTimer = null;
+      }
+      if (room.trickEvalTimer) {
+        clearTimeout(room.trickEvalTimer);
+        room.trickEvalTimer = null;
+      }
+      if (room.afkTimer) {
+        clearTimeout(room.afkTimer);
+        room.afkTimer = null;
+      }
+      logAction(room, `🚪 Letzter menschlicher Spieler hat das Spiel verlassen. Partie wurde beendet.`);
+      rooms.delete(room.code);
+      broadcastPublicRooms();
+      return;
+    }
+
+    // Im aktiven Spiel (wenn noch andere Menschen da sind): Spieler nahtlos durch Bot ersetzen!
+    const newBotName = getRandomBotName(room);
+    room.seats[leavingSeat] = {
+      index: leavingSeat,
+      name: newBotName,
+      socketId: null,
+      isBot: true,
+      connected: true,
+      team: leavingSeat % 2 === 0 ? 0 : 1,
+      replacedPlayerName: playerName,
+      replacedAt: Date.now()
+    };
+
+    logAction(room, `🚪 ${playerName} hat das Spiel verlassen und wurde durch ${newBotName} ersetzt.`);
+
+    // Falls der Spieler Host war, Host-Rolle weitergeben an nächsten Menschen
+    if (isHost && remainingHumans.length > 0) {
+      room.hostSocketId = remainingHumans[0].socketId;
+      logAction(room, `👑 ${remainingHumans[0].name} ist nun der neue Spielleiter.`);
+    }
+
+    broadcastGameState(room);
+    broadcastPublicRooms();
+
+    // Falls der gehende Spieler am Zug war: Bot zieht sofort
+    checkBotAction(room);
+  }
+}
+
 // Socket.io Verbindungs- und Event-Handling
 io.on('connection', (socket) => {
   let currentRoomCode = null;
@@ -1958,6 +2384,9 @@ io.on('connection', (socket) => {
       }
       if (typeof settings.allowClaimTricks === 'boolean') {
         room.settings.allowClaimTricks = settings.allowClaimTricks;
+      }
+      if (typeof settings.botPersonality === 'string' && ['standard', 'aggressive', 'passive', 'wildcard', 'random'].includes(settings.botPersonality)) {
+        room.settings.botPersonality = settings.botPersonality;
       }
     }
     rooms.set(code, room);
@@ -2266,8 +2695,13 @@ io.on('connection', (socket) => {
       }
       if (discIndex !== -1) {
         const restored = room.seats[discIndex];
+        if (restored.disconnectTimer) {
+          clearTimeout(restored.disconnectTimer);
+          restored.disconnectTimer = null;
+        }
         restored.socketId = socket.id;
         restored.connected = true;
+        restored.isAway = false;
         restored.isBot = false;
         restored.name = playerName.trim();
         delete restored.replacedPlayerName;
@@ -2312,6 +2746,10 @@ io.on('connection', (socket) => {
       const seat = room.seats[seatIndex];
       const cleanName = playerName ? playerName.trim().toLowerCase() : '';
       if (seat && (!seat.isBot || (seat.replacedPlayerName && seat.replacedPlayerName.toLowerCase() === cleanName))) {
+        if (seat.disconnectTimer) {
+          clearTimeout(seat.disconnectTimer);
+          seat.disconnectTimer = null;
+        }
         seat.socketId = socket.id;
         seat.connected = true;
         seat.isAway = false;
@@ -2396,18 +2834,51 @@ io.on('connection', (socket) => {
     if (seatIndex < 0 || seatIndex >= maxPlayers) return;
     if (room.seats[seatIndex]) return;
 
-    const botName = getRandomBotName(room);
+    let personality = room.settings.botPersonality || 'standard';
+    if (personality === 'random') {
+      const allP = ['standard', 'aggressive', 'passive', 'wildcard'];
+      personality = allP[Math.floor(Math.random() * allP.length)];
+    }
+
+    const botName = getBotNameForPersonality(room, personality);
 
     room.seats[seatIndex] = {
       index: seatIndex,
       name: botName,
       socketId: null,
       isBot: true,
+      botPersonality: personality,
       connected: true,
       team: seatIndex % 2 === 0 ? 0 : 1
     };
 
-    logAction(room, `${botName} zu Platz ${seatIndex + 1} hinzugefügt.`);
+    const personalityLabel = (BOT_PERSONALITIES[personality] && BOT_PERSONALITIES[personality].name) || 'Standard';
+    logAction(room, `${botName} (${personalityLabel}) zu Platz ${seatIndex + 1} hinzugefügt.`);
+    broadcastGameState(room);
+  });
+
+  // Bot-Persönlichkeit für einen Sitzplatz durchschalten (Spielleiter in der Lobby)
+  socket.on('cycle_bot_personality', ({ seatIndex }) => {
+    if (!currentRoomCode) return;
+    const room = rooms.get(currentRoomCode);
+    if (!room || room.phase !== 'LOBBY') return;
+    if (!isPlayerHost(room, socket)) {
+      return socket.emit('error_message', 'Nur der Spielleiter kann Bot-Charaktere anpassen.');
+    }
+    const maxPlayers = room.settings.playerCount || 4;
+    if (seatIndex < 0 || seatIndex >= maxPlayers) return;
+    const seat = room.seats[seatIndex];
+    if (!seat || !seat.isBot) return;
+
+    const personalities = ['standard', 'aggressive', 'passive', 'wildcard'];
+    const currentP = seat.botPersonality || 'standard';
+    const nextIdx = (personalities.indexOf(currentP) + 1) % personalities.length;
+    const nextP = personalities[nextIdx];
+
+    seat.botPersonality = nextP;
+    seat.name = getBotNameForPersonality(room, nextP);
+    const pInfo = BOT_PERSONALITIES[nextP] || { name: 'Standard', icon: '🎯' };
+    logAction(room, `🤖 Platz ${seatIndex + 1} spielt nun als ${seat.name} (${pInfo.icon} ${pInfo.name}).`);
     broadcastGameState(room);
   });
 
@@ -2487,6 +2958,9 @@ io.on('connection', (socket) => {
       }
       if (typeof settings.allowClaimTricks === 'boolean') {
         room.settings.allowClaimTricks = settings.allowClaimTricks;
+      }
+      if (typeof settings.botPersonality === 'string' && ['standard', 'aggressive', 'passive', 'wildcard', 'random'].includes(settings.botPersonality)) {
+        room.settings.botPersonality = settings.botPersonality;
       }
     }
 
@@ -2645,13 +3119,13 @@ io.on('connection', (socket) => {
     handleThrowCards(room, currentSeatIndex);
   });
 
-  // Sichere Reststiche reklamieren / aufdecken
+  // Sichere Reststiche reklamieren / aufdecken (auch außerhalb des eigenen Zuges erlaubt, wenn Sieg 100% feststeht)
   socket.on('claim_tricks', () => {
     if (!currentRoomCode) return;
     const room = rooms.get(currentRoomCode);
     if (!room) return;
     syncCurrentSeatIndex(room);
-    if (room.currentTurn !== currentSeatIndex) return;
+    if (currentSeatIndex === -1) return;
 
     handleClaimTricks(room, currentSeatIndex);
   });
@@ -2728,6 +3202,7 @@ io.on('connection', (socket) => {
       }
       syncCurrentSeatIndex(room);
       logAction(room, `🔀 Teams wurden für die neue Partie zufällig neu gemischt!`);
+      room.matchWins = { teamA: 0, teamB: 0 };
       io.to(room.code).emit('teams_shuffled');
     }
 
@@ -2742,7 +3217,7 @@ io.on('connection', (socket) => {
     startNewRound(room);
   });
 
-  // Lobby oder aktives Spiel verlassen (im Spiel nahtlos durch Bot ersetzt)
+  // Lobby oder aktives Spiel explizit per Button verlassen
   function handlePlayerLeave() {
     if (!currentRoomCode) return;
     const room = rooms.get(currentRoomCode);
@@ -2759,93 +3234,64 @@ io.on('connection', (socket) => {
       return;
     }
 
-    const player = room.seats[currentSeatIndex];
-    const playerName = player ? player.name : 'Ein Spieler';
-    const leavingSeat = currentSeatIndex;
-    const isHost = isPlayerHost(room, socket);
-
-    if (room.phase === 'LOBBY') {
-      if (isHost) {
-        // Prüfen, ob noch andere menschliche Spieler in der Lobby sind
-        const nextHuman = room.seats.find(s => s && !s.isBot && s.socketId && s.index !== leavingSeat);
-        if (nextHuman) {
-          room.seats[leavingSeat] = null;
-          room.hostSocketId = nextHuman.socketId;
-          logAction(room, `🚪 ${playerName} hat die Lobby verlassen. Neuer Spielleiter: ${nextHuman.name}`);
-          socket.leave(currentRoomCode);
-          socket.emit('left_room');
-          broadcastGameState(room);
-        } else {
-          logAction(room, `🚪 Spielleiter hat den Raum verlassen. Die Lobby wurde aufgelöst.`);
-          io.to(currentRoomCode).emit('room_disbanded', { message: 'Der Spielleiter hat die Lobby verlassen.' });
-          rooms.delete(currentRoomCode);
-          socket.leave(currentRoomCode);
-          socket.emit('left_room');
-          broadcastPublicRooms();
-        }
-      } else {
-        room.seats[leavingSeat] = null;
-        logAction(room, `🚪 ${playerName} hat die Lobby verlassen.`);
-        socket.leave(currentRoomCode);
-        socket.emit('left_room');
-        broadcastGameState(room);
-        broadcastPublicRooms();
-      }
-    } else {
-      // Prüfen, ob nach dem Verlassen überhaupt noch menschliche Spieler im Raum sind:
-      const remainingHumans = room.seats.filter(s => s && !s.isBot && s.socketId && s.index !== leavingSeat);
-      if (remainingHumans.length === 0) {
-        if (room.botTimer) {
-          clearTimeout(room.botTimer);
-          room.botTimer = null;
-        }
-        if (room.claimTimer) {
-          clearTimeout(room.claimTimer);
-          room.claimTimer = null;
-        }
-        logAction(room, `🚪 Letzter menschlicher Spieler hat das Spiel verlassen. Partie wurde beendet.`);
-        rooms.delete(currentRoomCode);
-        socket.leave(currentRoomCode);
-        socket.emit('left_room');
-        broadcastPublicRooms();
-        currentRoomCode = null;
-        currentSeatIndex = -1;
-        return;
-      }
-
-      // Im aktiven Spiel (wenn noch andere Menschen da sind): Spieler nahtlos durch Bot ersetzen!
-      const newBotName = getRandomBotName(room);
-      room.seats[leavingSeat] = {
-        index: leavingSeat,
-        name: newBotName,
-        socketId: null,
-        isBot: true,
-        connected: true,
-        team: leavingSeat % 2 === 0 ? 0 : 1,
-        replacedPlayerName: playerName,
-        replacedAt: Date.now()
-      };
-
-      logAction(room, `🚪 ${playerName} hat das Spiel verlassen und wurde durch ${newBotName} ersetzt.`);
-
-      // Falls der Spieler Host war, Host-Rolle weitergeben an nächsten Menschen
-      if (isHost) {
-        room.hostSocketId = remainingHumans[0].socketId;
-        logAction(room, `👑 ${remainingHumans[0].name} ist nun der neue Spielleiter.`);
-      }
-
-      socket.leave(currentRoomCode);
-      socket.emit('left_room');
-      broadcastGameState(room);
-      broadcastPublicRooms();
-
-      // Falls der gehende Spieler am Zug war: Bot zieht sofort
-      checkBotAction(room);
+    const seat = room.seats[currentSeatIndex];
+    if (seat && seat.disconnectTimer) {
+      clearTimeout(seat.disconnectTimer);
+      seat.disconnectTimer = null;
     }
 
+    const leavingSeat = currentSeatIndex;
+    finalizeDisconnectedSeat(room, leavingSeat);
+
+    socket.leave(currentRoomCode);
+    socket.emit('left_room');
     currentRoomCode = null;
     currentSeatIndex = -1;
-  };
+  }
+
+  // Verbindungsunterbrechung (Browser-Tab geschlossen, Netzwerk-Wackler, App im Hintergrund):
+  // 20 Sekunden Pufferzeit gewähren, bevor der Platz freigegeben oder durch Bot ersetzt wird!
+  function handlePlayerDisconnect() {
+    if (!currentRoomCode) return;
+    const room = rooms.get(currentRoomCode);
+    if (!room) return;
+    syncCurrentSeatIndex(room);
+
+    if (currentSeatIndex === -1) {
+      if (Array.isArray(room.spectators)) {
+        room.spectators = room.spectators.filter(s => s && s.socketId !== socket.id);
+      }
+      socket.leave(currentRoomCode);
+      currentRoomCode = null;
+      return;
+    }
+
+    const seat = room.seats[currentSeatIndex];
+    if (!seat || seat.isBot) return;
+
+    seat.connected = false;
+    seat.isAway = true;
+    logAction(room, `📡 Verbindung zu ${seat.name} unterbrochen (20s Wartezeit für Reconnect)...`);
+    broadcastGameState(room);
+
+    const seatToHandle = currentSeatIndex;
+    const roomCodeToHandle = currentRoomCode;
+
+    if (seat.disconnectTimer) {
+      clearTimeout(seat.disconnectTimer);
+      seat.disconnectTimer = null;
+    }
+
+    seat.disconnectTimer = setTimeout(() => {
+      seat.disconnectTimer = null;
+      const targetRoom = rooms.get(roomCodeToHandle);
+      if (!targetRoom) return;
+      const targetSeat = targetRoom.seats[seatToHandle];
+      if (!targetSeat || targetSeat.isBot || targetSeat.connected) return;
+
+      finalizeDisconnectedSeat(targetRoom, seatToHandle);
+    }, 20000);
+  }
 
   socket.on('leave_room', handlePlayerLeave);
   socket.on('leave_game', handlePlayerLeave);
@@ -3008,7 +3454,7 @@ io.on('connection', (socket) => {
     broadcastPublicRooms();
   });
 
-  // Emotes senden
+  // Emotes senden (mit striktem Schummelschutz / Anti-Cheat)
   socket.on('send_emote', ({ emote }) => {
     if (!currentRoomCode) return;
     const room = rooms.get(currentRoomCode);
@@ -3016,13 +3462,18 @@ io.on('connection', (socket) => {
     if (currentSeatIndex === -1) return;
     if (!emote || typeof emote !== 'string') return;
 
+    const cleanEmote = emote.trim().slice(0, 10);
+    if (!isAllowedCustomEmote(cleanEmote)) {
+      socket.emit('error_message', '🚫 Dieses Emote ist nicht erlaubt (Schummelschutz: Keine Kartenfarben, Zahlen oder Signale)!');
+      return;
+    }
+
     const now = Date.now();
     if (socket.lastEmoteTime && now - socket.lastEmoteTime < 700) {
       return;
     }
     socket.lastEmoteTime = now;
 
-    const cleanEmote = emote.slice(0, 8);
     io.to(currentRoomCode).emit('player_emote', {
       seatIndex: currentSeatIndex,
       emote: cleanEmote
@@ -3326,13 +3777,13 @@ io.on('connection', (socket) => {
     });
   });
 
-  // Trennung behandeln
+  // Trennung behandeln (mit 20s Reconnect-Grace-Period)
   socket.on('disconnect', () => {
     if (myFriendCode && activePlayerCodes.get(myFriendCode)?.socketId === socket.id) {
       activePlayerCodes.delete(myFriendCode);
     }
     if (currentRoomCode) {
-      handlePlayerLeave();
+      handlePlayerDisconnect();
     }
   });
 });
@@ -3393,9 +3844,26 @@ async function broadcastNewPublicRoomAlert(room, creatorName, creatorSocketId, c
 }
 
 // Server starten
-server.listen(PORT, () => {
-  console.log(`=========================================`);
-  console.log(` Kujong Server läuft auf Port ${PORT}`);
-  console.log(` Glitch & Local: http://localhost:${PORT}`);
-  console.log(`=========================================`);
-});
+if (require.main === module) {
+  server.listen(PORT, () => {
+    console.log(`=========================================`);
+    console.log(` Kujong Server läuft auf Port ${PORT}`);
+    console.log(` Glitch & Local: http://localhost:${PORT}`);
+    console.log(`=========================================`);
+  });
+}
+
+module.exports = {
+  app,
+  server,
+  rooms,
+  isAllowedCustomEmote,
+  canPlayerClaimTricks,
+  handleClaimTricks,
+  resetOrStartAfkTimer,
+  finalizeDisconnectedSeat,
+  getBotNameForPersonality,
+  isPlayerKnownVoidInTrump,
+  isPlayerKnownVoidInSuit,
+  createRoom
+};

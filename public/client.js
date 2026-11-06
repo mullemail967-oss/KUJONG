@@ -397,6 +397,7 @@ document.addEventListener('DOMContentLoaded', () => {
   syncVibrationUI();
   updateMyAvatarUI(getMyPlayerAvatar());
   initCreateRoomNotifyUI();
+  renderCustomEmotesRow();
 
   document.addEventListener('visibilitychange', () => {
     const isHidden = document.visibilityState === 'hidden';
@@ -1087,12 +1088,216 @@ let lastEmoteTime = 0;
 let emoteSpamCount = 0;
 let emoteCooldownUntil = 0;
 
+// --------------------------------------------------------------------------
+// CUSTOM EMOTES & ANTI-CHEAT FILTER
+// --------------------------------------------------------------------------
+const DEFAULT_CUSTOM_EMOTES = ['🔥', '😂', '🥳', '🤠', '🍺'];
+
+const CURATED_SAFE_EMOJIS = [
+  '😂', '🤣', '😅', '😇', '🥳', '🤩', '🤪', '🤨', '🧐', '🤓',
+  '😤', '🤯', '😱', '🥶', '🥵', '🤢', '🤮', '🤧', '🤠', '🥷',
+  '👻', '👽', '🤖', '🐵', '🙈', '🙉', '🙊', '🐷', '🐸', '🦊',
+  '🐻', '🍺', '🍷', '🥃', '🍾', '🍕', '🥨', '🍿', '🏆', '🥇',
+  '🎻', '🎺', '🥁', '🚨', '💣', '💥', '💤', '🔥'
+];
+
+const FORBIDDEN_EMOTE_CHARS_CLIENT = new Set([
+  // Kartenfarben
+  '♠', '♥', '♦', '♣', '♤', '♡', '♢', '♧', '🃏', '🎴', '🀄', '🎲',
+  // Herzen & Rauten
+  '❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '🤎', '💔', '❣️',
+  '💕', '💞', '💓', '💗', '💖', '💘', '💝', '💟', '♥️', '🫶', '♦️',
+  '🔶', '🔷', '🔸', '🔹', '💎', '🔺', '🔻',
+  // Blätter & Bäume
+  '🍀', '☘️', '🌿', '🌱', '🌲', '🌳', '🌴', '🌵', '🍁', '🍂', '🍃', '♠️', '♣️',
+  // Farbkreise & Quadrate
+  '🔴', '🟠', '🟡', '🟢', '🔵', '🟣', '⚫', '⚪', '🟤',
+  '🟥', '🟧', '🟨', '🟩', '🟦', '🟪', '⬛', '⬜', '🟫',
+  // Ziffern, Buchstaben, Pfeile, Signale
+  '0️⃣', '1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟', '#️⃣', '*️⃣',
+  '🅰️', '🅱️', '🆎', '🆑', '🆒', '🆓', '🆔', '🆕', '🆖', '🆗', '🆘', '🆙', '🆚',
+  '⬆️', '⬇️', '⬅️', '➡️', '↗️', '↘️', '↙️', '↖️', '↕️', '↔️', '↩️', '↪️',
+  '☝️', '👆', '👇', '👈', '👉',
+  '👍', '👎', '✅', '❌', '⭕', '🚫', '✔️', '✖️',
+  '✌️', '🤞', '🤟', '🤘', '👌', '🤌', '🖐️', '✋', '🖖', '🫱', '🫲', '✊', '👊', '🤛', '🤜', '👏', '🙌', '👐', '🤲', '🙏'
+]);
+
+function validateCustomEmote(emote) {
+  if (!emote || typeof emote !== 'string') return { valid: false, error: 'Bitte ein Emoji eingeben.' };
+  const trimmed = emote.trim();
+  if (!trimmed) return { valid: false, error: 'Bitte ein Emoji eingeben.' };
+  if (trimmed.length > 10) return { valid: false, error: 'Nur ein einzelnes Emoji erlaubt.' };
+  try {
+    const segments = [...new Intl.Segmenter().segment(trimmed)];
+    if (segments.length !== 1) return { valid: false, error: 'Nur exakt ein einzelnes Emoji erlaubt.' };
+  } catch (e) {
+    if ([...trimmed].length > 2) return { valid: false, error: 'Nur exakt ein einzelnes Emoji erlaubt.' };
+  }
+  if (/[a-zA-Z0-9!?:;.,_+=-]/.test(trimmed)) {
+    return { valid: false, error: '🚫 Nur Emojis erlaubt, keine Buchstaben oder Zahlen!' };
+  }
+  for (const forbidden of FORBIDDEN_EMOTE_CHARS_CLIENT) {
+    if (trimmed.includes(forbidden)) {
+      return { valid: false, error: '🚫 Schummelschutz: Kartenfarben, Herzen, Zahlen und Signal-Symbole sind streng gesperrt!' };
+    }
+  }
+  if (/[\u2660-\u2667\u2190-\u21FF\u2B05-\u2B07\u27A1]/.test(trimmed)) {
+    return { valid: false, error: '🚫 Schummelschutz: Kartenfarben und Pfeile sind verboten!' };
+  }
+  return { valid: true, emote: trimmed };
+}
+
+function getCustomEmotes() {
+  try {
+    const raw = localStorage.getItem('kujong_custom_emotes');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed.filter(e => validateCustomEmote(e).valid).slice(0, 5);
+      }
+    }
+  } catch (e) {}
+  return [...DEFAULT_CUSTOM_EMOTES];
+}
+
+function saveCustomEmotes(list) {
+  try {
+    localStorage.setItem('kujong_custom_emotes', JSON.stringify(list.slice(0, 5)));
+  } catch (e) {}
+  renderCustomEmotesRow();
+  renderCustomEmotesModal();
+}
+
+function renderCustomEmotesRow() {
+  const container = document.getElementById('customEmotesRow');
+  if (!container) return;
+  const list = getCustomEmotes();
+  container.innerHTML = list.map(em => `
+    <button type="button" class="emote-btn custom-emote-btn" onclick="sendEmote('${escapeHtml(em)}')" title="Favorit: ${escapeHtml(em)}">
+      ${escapeHtml(em)}
+    </button>
+  `).join('');
+}
+
+function openCustomEmotesModal() {
+  renderCustomEmotesModal();
+  const modal = document.getElementById('customEmotesModal');
+  if (modal) modal.classList.remove('hidden');
+}
+window.openCustomEmotesModal = openCustomEmotesModal;
+
+function closeCustomEmotesModal() {
+  const modal = document.getElementById('customEmotesModal');
+  if (modal) modal.classList.add('hidden');
+  renderCustomEmotesRow();
+}
+window.closeCustomEmotesModal = closeCustomEmotesModal;
+
+function renderCustomEmotesModal() {
+  const list = getCustomEmotes();
+  const countEl = document.getElementById('customEmotesCount');
+  if (countEl) countEl.textContent = list.length;
+
+  const activeListEl = document.getElementById('activeCustomEmotesList');
+  if (activeListEl) {
+    activeListEl.innerHTML = list.map((em, idx) => `
+      <div class="custom-emote-chip">
+        <span class="chip-emoji">${escapeHtml(em)}</span>
+        <button type="button" class="btn-remove-chip" onclick="removeCustomEmoteAt(${idx})" title="Entfernen">✕</button>
+      </div>
+    `).join('');
+  }
+
+  const gridEl = document.getElementById('curatedEmojisGrid');
+  if (gridEl) {
+    gridEl.innerHTML = CURATED_SAFE_EMOJIS.map(em => {
+      const isAlready = list.includes(em);
+      return `
+        <button type="button" class="curated-emoji-btn ${isAlready ? 'already-added' : ''}" 
+                onclick="addCustomEmote('${escapeHtml(em)}')" 
+                title="${isAlready ? 'Bereits in Favoriten' : 'Zu Favoriten hinzufügen'}">
+          ${escapeHtml(em)}
+        </button>
+      `;
+    }).join('');
+  }
+}
+
+function addCustomEmote(emoji) {
+  const check = validateCustomEmote(emoji);
+  if (!check.valid) {
+    showToast(check.error);
+    return;
+  }
+  const current = getCustomEmotes();
+  if (current.includes(check.emote)) {
+    showToast('Bereits in deinen Favoriten!');
+    return;
+  }
+  if (current.length >= 5) {
+    showToast('Maximal 5 Favoriten erlaubt! Entferne zuerst einen anderen.');
+    return;
+  }
+  current.push(check.emote);
+  saveCustomEmotes(current);
+  playSound('chip_click');
+}
+window.addCustomEmote = addCustomEmote;
+
+function removeCustomEmoteAt(idx) {
+  const current = getCustomEmotes();
+  if (idx >= 0 && idx < current.length) {
+    current.splice(idx, 1);
+    saveCustomEmotes(current);
+    playSound('chip_click');
+  }
+}
+window.removeCustomEmoteAt = removeCustomEmoteAt;
+
+function addCustomEmoteFromInput() {
+  const input = document.getElementById('customEmoteInput');
+  const errEl = document.getElementById('customEmoteInputError');
+  if (!input) return;
+  const raw = input.value;
+  const check = validateCustomEmote(raw);
+  if (!check.valid) {
+    if (errEl) {
+      errEl.textContent = check.error;
+      errEl.classList.remove('hidden');
+    } else {
+      showToast(check.error);
+    }
+    return;
+  }
+  if (errEl) errEl.classList.add('hidden');
+  addCustomEmote(check.emote);
+  input.value = '';
+}
+window.addCustomEmoteFromInput = addCustomEmoteFromInput;
+
+function resetCustomEmotesDefault() {
+  saveCustomEmotes([...DEFAULT_CUSTOM_EMOTES]);
+  playSound('chip_click');
+  showToast('Favoriten auf Standard zurückgesetzt.');
+}
+window.resetCustomEmotesDefault = resetCustomEmotesDefault;
+
 function toggleEmotePicker() {
   const popup = document.getElementById('emotePickerPopup');
+  const wasHidden = popup.classList.contains('hidden');
   popup.classList.toggle('hidden');
+  if (wasHidden) {
+    renderCustomEmotesRow();
+  }
 }
 
 function sendEmote(emoji) {
+  const check = validateCustomEmote(emoji);
+  if (!check.valid) {
+    showToast(check.error);
+    return;
+  }
+
   const now = Date.now();
   if (now < emoteCooldownUntil) {
     const remainingSec = Math.ceil((emoteCooldownUntil - now) / 1000);
@@ -1189,7 +1394,6 @@ function throwCards() {
 function claimTricks() {
   if (isSpectator || !gameState || !gameState.you || !gameState.you.canClaimTricks) return;
   if (gameState.trickCount >= 4) return;
-  if (gameState.you.hand && gameState.you.hand.length <= 1) return;
   socket.emit('claim_tricks');
   if (typeof incrementPlayerStat === 'function') incrementPlayerStat('claimsMade');
   playSound('trump_fanfare');
@@ -1250,6 +1454,7 @@ function animateCardFly(startEl, targetEl, card, onComplete) {
     }
     if (onComplete) onComplete();
   }, 330);
+  setTimeout(() => currentlyFlyingCardIds.delete(cardId), 500);
 }
 
 function playCardWithAnimation(cardId, cardEl) {
@@ -1305,6 +1510,7 @@ function playCardWithAnimation(cardId, cardEl) {
         slotCard.style.opacity = '1';
       }
     }, 330);
+    setTimeout(() => currentlyFlyingCardIds.delete(cardId), 500);
   } else {
     SoundManager.playCard();
   }
@@ -2326,6 +2532,13 @@ socket.on('player_emote', ({ seatIndex, emote }) => {
   showEmoteBubble(seatIndex, emote);
 });
 
+socket.on('player_afk_paused', ({ seatIndex, playerName }) => {
+  showToast(`💤 ${playerName} war 20s inaktiv – Pause-Modus aktiviert (Bot übernimmt).`);
+  if (seatIndex === mySeatIndex) {
+    playSound('card_drop');
+  }
+});
+
 // --------------------------------------------------------------------------
 // UI-RENDERING (WIR vs SIE & BELGISCHE SVG KARTEN)
 // --------------------------------------------------------------------------
@@ -2423,6 +2636,24 @@ function renderLobby() {
       botBtn.textContent = seat.isBot ? '✕ Bot' : '';
       botBtn.classList.toggle('hidden', !seat.isBot);
 
+      const persBtn = document.getElementById(`botPersBtn${i}`);
+      if (persBtn) {
+        if (seat.isBot && gameState.you && gameState.you.isHost) {
+          persBtn.classList.remove('hidden');
+          const p = seat.botPersonality || 'standard';
+          const pIcons = {
+            standard: '🎯 Standard',
+            aggressive: '🔥 Aggro',
+            passive: '🛡️ Passiv',
+            wildcard: '🤪 Zocker'
+          };
+          persBtn.textContent = pIcons[p] || '🎯 Standard';
+          persBtn.title = `Bot-Charakter: ${p} (Klicken zum Umschalten)`;
+        } else {
+          persBtn.classList.add('hidden');
+        }
+      }
+
       if (kickBtn) {
         // Spielleiter kann andere menschliche Spieler in der Lobby kicken
         const canKick = Boolean(gameState.you && gameState.you.isHost && !seat.isBot && !isMe);
@@ -2443,6 +2674,8 @@ function renderLobby() {
       joinBtn.title = 'Auf diesen freien Platz wechseln';
       botBtn.textContent = '+ Bot';
       botBtn.classList.remove('hidden');
+      const persBtn = document.getElementById(`botPersBtn${i}`);
+      if (persBtn) persBtn.classList.add('hidden');
       if (kickBtn) kickBtn.classList.add('hidden');
     }
   }
@@ -2466,6 +2699,13 @@ function renderLobby() {
   syncSettingsUI();
 }
 
+function cycleBotPersonality(seatIndex) {
+  if (!gameState || !gameState.you || !gameState.you.isHost) return;
+  socket.emit('cycle_bot_personality', { seatIndex });
+  playSound('chip_click');
+}
+window.cycleBotPersonality = cycleBotPersonality;
+
 let prevScoreRoom = null;
 let prevScoreWeVal = null;
 let prevScoreTheyVal = null;
@@ -2485,6 +2725,7 @@ function triggerScoreDeltaBadge(elId, delta) {
 function renderGameScreen() {
   if (gameState.phase !== 'PLAY_TRICK') {
     activeClaimReveal = null;
+    currentlyFlyingCardIds.clear();
   }
   const myTeam = gameState.you ? gameState.you.team : 0;
   // Team 0 = Team A, Team 1 = Team B
@@ -3211,12 +3452,12 @@ function handleModals() {
     if (mitBanner) mitBanner.classList.add('hidden');
   }
 
-  // Restliche Stiche aufdecken Banner (Sichere Meisterkarten/Trümpfe - nicht in letzter Runde)
+  // Restliche Stiche aufdecken Banner (Sichere Meisterkarten/Trümpfe/Asse - nicht in letzter Runde)
   const claimTricksBanner = document.getElementById('claimTricksBanner');
   if (claimTricksBanner) {
     const isLastTrick = (typeof gameState.trickCount === 'number' && gameState.trickCount >= 4);
-    const hasMultipleCards = (gameState.you && Array.isArray(gameState.you.hand) && gameState.you.hand.length > 1);
-    if (!isSpectator && !isMyAutoBot && gameState.you && gameState.you.canClaimTricks && !isLastTrick && hasMultipleCards) {
+    const hasHandCards = (gameState.you && Array.isArray(gameState.you.hand) && gameState.you.hand.length >= 1);
+    if (!isSpectator && !isMyAutoBot && gameState.you && gameState.you.canClaimTricks && !isLastTrick && hasHandCards) {
       claimTricksBanner.classList.remove('hidden');
     } else {
       claimTricksBanner.classList.add('hidden');
@@ -3473,6 +3714,7 @@ let currentSettings = {
   allowContraRe: true,
   ansagerZeroTricksPenalty: 2,
   allowClaimTricks: true,
+  botPersonality: 'standard',
   startScoreA: 13,
   startScoreB: 13,
   drinkingGameMode: 'none',
@@ -3492,7 +3734,8 @@ function loadSavedRuleSettings() {
           ...parsed,
           playerCount: parsed.playerCount === 6 ? 6 : 4,
           contraPoints: parsed.contraPoints === 3 ? 3 : 4,
-          ansagerZeroTricksPenalty: parsed.ansagerZeroTricksPenalty === 1 ? 1 : 2
+          ansagerZeroTricksPenalty: parsed.ansagerZeroTricksPenalty === 1 ? 1 : 2,
+          botPersonality: parsed.botPersonality || 'standard'
         };
       }
     }
@@ -3623,6 +3866,13 @@ function syncSettingsUI() {
     segDrinkLight.disabled = !isHost;
     segDrinkMedium.disabled = !isHost;
     segDrinkHeavy.disabled = !isHost;
+  }
+
+  // Bot-Charakter Auswahl
+  const botPersInput = document.getElementById('settingBotPersonality');
+  if (botPersInput) {
+    botPersInput.value = currentSettings.botPersonality || 'standard';
+    botPersInput.disabled = !isHost;
   }
 
   // Speed / Delays Display
@@ -3773,6 +4023,7 @@ function saveRuleSettings() {
   const isPublicInput = document.getElementById('settingIsPublic');
   const allowContraReInput = document.getElementById('settingAllowContraRe');
   const allowClaimInput = document.getElementById('settingAllowClaimTricks');
+  const botPersInput = document.getElementById('settingBotPersonality');
 
   const settingsPayload = {
     playerCount: currentSettings.playerCount || 4,
@@ -3783,6 +4034,7 @@ function saveRuleSettings() {
     allowContraRe: allowContraReInput ? allowContraReInput.checked : true,
     ansagerZeroTricksPenalty: currentSettings.ansagerZeroTricksPenalty || 2,
     allowClaimTricks: allowClaimInput ? allowClaimInput.checked : (currentSettings.allowClaimTricks !== false),
+    botPersonality: botPersInput ? botPersInput.value : (currentSettings.botPersonality || 'standard'),
     startScoreA: scoreAInput ? (parseInt(scoreAInput.value) || 13) : (currentSettings.startScoreA || 13),
     startScoreB: scoreBInput ? (parseInt(scoreBInput.value) || 13) : (currentSettings.startScoreB || 13),
     drinkingGameMode: currentSettings.drinkingGameMode || 'none',

@@ -11,6 +11,41 @@ const { SUITS, isTrumpCard, getEffectiveSuit, getTrumpPower, getOffSuitPower, is
 const getCardPoints = (c) => (c && c.points !== undefined) ? c.points : (c ? (POINT_VALUES[c.rank] || 0) : 0);
 
 /**
+ * Verfügbare Bot-Persönlichkeiten für Kujong.
+ * 'standard' entspricht 100% der ursprünglichen, MCTS-optimierten KI.
+ */
+const BOT_PERSONALITIES = {
+  standard: {
+    id: 'standard',
+    name: 'Standard',
+    icon: '🎯',
+    description: 'Ausgewogen & Taktisch stark (MCTS-optimiert)',
+    names: ['Bot Max', 'Bot Leo', 'Bot Pit', 'Bot Sam', 'Bot Ben', 'Bot Tom', 'Bot Tim', 'Bot Jan']
+  },
+  aggressive: {
+    id: 'aggressive',
+    name: 'Aggressiv',
+    icon: '🔥',
+    description: 'Zocker, gibt gerne Kontra & zieht aggressiv Trümpfe',
+    names: ['🔥 Zocker-Zorro', '🔥 Kontra-Karl', '🔥 Haudrauf-Hennes', '🔥 Risiko-Ralf', '🔥 Sturm-Siggi', '🔥 Attacke-Alex']
+  },
+  passive: {
+    id: 'passive',
+    name: 'Passiv',
+    icon: '🛡️',
+    description: 'Defensiv & vorsichtig, spart Trümpfe für fette Stiche',
+    names: ['🛡️ Spar-Sepp', '🛡️ Vorsicht-Vroni', '🛡️ Mauer-Manni', '🛡️ Gedulds-Gerti', '🛡️ Sicherheits-Sven', '🛡️ Ruhe-Rudi']
+  },
+  wildcard: {
+    id: 'wildcard',
+    name: 'Kneipen-Zocker',
+    icon: '🍺',
+    description: 'Unberechenbar, dreht oft blind & liebt riskante Züge',
+    names: ['🍺 Theken-Theo', '🍺 Bierdeckel-Bruno', '🍺 Bluff-Berti', '🍺 Kneipen-Kalle', '🍺 Würfel-Willi', '🍺 Schock-Schorsch']
+  }
+};
+
+/**
  * Sammelt alle bisher in der Runde gespielten Karten aus trickHistory und aktuellem Stich.
  */
 function getPlayedCards(trickHistory = [], currentTrick = []) {
@@ -221,6 +256,7 @@ function chooseTrumpSuit(hand3, options = {}) {
  * Entscheidet deterministisch, ob der Ansager-Bot lieber blind den Trumpf drehen möchte (bei extrem schwachen 3 Karten).
  */
 function shouldBotTurnTrump(hand3, options = {}) {
+  const personality = options.botPersonality || 'standard';
   const hasAce = hand3.some(c => c.rank === 'A');
   const counts = {};
   for (const c of hand3) counts[c.suit] = (counts[c.suit] || 0) + 1;
@@ -228,6 +264,30 @@ function shouldBotTurnTrump(hand3, options = {}) {
   const hasClubQueen = hand3.some(c => c.suit === SUITS.CLUBS && c.rank === 'Q');
   const hasSpadeQueen = hand3.some(c => c.suit === SUITS.SPADES && c.rank === 'Q');
 
+  if (personality === 'wildcard') {
+    // Kneipen-Zocker: Liebt Risiko – dreht immer blind, sobald er kein Ass auf den ersten 3 Karten hat!
+    if (!hasAce) return true;
+    return false;
+  }
+
+  if (personality === 'aggressive') {
+    // Aggressiv: Dreht schon blind, wenn er kein Ass hat und max 2 Karten einer Farbe ohne ♣Q/♠Q hält
+    if (!hasAce && !hasClubQueen && !hasSpadeQueen && maxInSuit <= 2) {
+      return true;
+    }
+    return false;
+  }
+
+  if (personality === 'passive') {
+    // Passiv: Dreht fast nie blind, nur bei absoluter Nullhand (alles 9er/10er verschiedener Fehlfarben)
+    const allZeroRanks = hand3.every(c => c.rank === '9' || c.rank === '10' || c.rank === '7' || c.rank === '8');
+    if (allZeroRanks && maxInSuit < 2 && !hasClubQueen && !hasSpadeQueen) {
+      return true;
+    }
+    return false;
+  }
+
+  // Standard-Bot (100% wie bisher):
   // Wenn der Bot kein Ass, keine ♣Q, keine ♠Q hat und max 1 Karte pro Farbe:
   // Vollkommen wertlose Hand -> Blind drehen ist taktisch klar überlegen.
   if (!hasAce && !hasClubQueen && !hasSpadeQueen && maxInSuit < 2) {
@@ -241,11 +301,31 @@ function shouldBotTurnTrump(hand3, options = {}) {
  */
 function shouldAnnounceMit(hand, declarerIndex, botIndex, trumpSuit, options = {}) {
   if (options.allowMit === false) return false;
+  const personality = options.botPersonality || 'standard';
 
   const isPartnerDeclarer = (declarerIndex % 2 === botIndex % 2);
   const trumpCount = hand.filter(c => isTrumpCard(c, trumpSuit, true, options)).length;
   const acesCount = hand.filter(c => c.rank === 'A').length;
 
+  if (personality === 'aggressive') {
+    // Aggressiv: Sagt Mit' fast immer an (schon ab 1 Trumpf oder 1 Ass, auch wenn Gegner Ansager ist)
+    return (trumpCount >= 1 || acesCount >= 1);
+  }
+
+  if (personality === 'wildcard') {
+    // Kneipen-Zocker: Sagt Mit' immer an, sobald er mindestens 1 Trumpf hat
+    return trumpCount >= 1;
+  }
+
+  if (personality === 'passive') {
+    // Passiv: Sehr vorsichtig
+    if (isPartnerDeclarer) {
+      return (trumpCount >= 1 || acesCount >= 1);
+    }
+    return (trumpCount >= 3 || (trumpCount >= 2 && acesCount >= 1));
+  }
+
+  // Standard-Bot (100% wie bisher):
   // Fall A: Partner ist Ansager
   if (isPartnerDeclarer) {
     // Ansagen, außer bei völlig chancenloser Hand (0 Trümpfe, 0 Asse)
@@ -266,9 +346,28 @@ function shouldAnnounceContra(hand, mitHolderIndex, botIndex, trumpSuit, options
   const botTeam = botIndex % 2 === 0 ? 0 : 1;
   if (mitTeam === botTeam) return false; // Nicht gegen eigenes Team
 
+  const personality = options.botPersonality || 'standard';
   const hasTrumpAce = hand.some(c => c.suit === trumpSuit && c.rank === 'A');
   const trumps = hand.filter(c => isTrumpCard(c, trumpSuit, true, options)).length;
+  const hasClubQueen = hand.some(c => c.suit === SUITS.CLUBS && c.rank === 'Q');
+  const acesCount = hand.filter(c => c.rank === 'A').length;
 
+  if (personality === 'aggressive') {
+    // Aggressiv: Gibt schon Kontra ab 2 Trümpfen (inkl. Ass oder ♣Q) oder 3 beliebigen Trümpfen
+    return (trumps >= 2 && (hasTrumpAce || hasClubQueen)) || (trumps >= 3);
+  }
+
+  if (personality === 'passive') {
+    // Passiv: Nur bei absoluter Monster-Hand (Trumpf-Ass + Kreuz-Dame + mind. 3 Trümpfe)
+    return hasTrumpAce && hasClubQueen && trumps >= 3;
+  }
+
+  if (personality === 'wildcard') {
+    // Kneipen-Zocker: Gibt Kontra bei >= 3 Trümpfen (auch ohne Trumpf-Ass) oder bei Trumpf-Ass + mind. 1 weiteres Ass
+    return (trumps >= 3) || (hasTrumpAce && acesCount >= 2);
+  }
+
+  // Standard-Bot (100% wie bisher):
   return hasTrumpAce && trumps >= 3;
 }
 
@@ -303,13 +402,14 @@ function chooseCardToPlay(hand, currentTrick, trumpSuit, isMitAnnounced, botInde
     playerCount
   };
 
-  // 2. MCTS Rollout-Simulation (falls nicht explizit deaktiviert)
-  if (options.useMCTS !== false) {
+  // 2. MCTS Rollout-Simulation (standardmäßig für Standard-Bots, falls nicht explizit deaktiviert)
+  const botPersonality = options.botPersonality || 'standard';
+  if (options.useMCTS !== false && botPersonality === 'standard') {
     const rollouts = typeof options.rollouts === 'number' ? options.rollouts : 30;
     return chooseCardMCTS(playable, hand, currentTrick, trumpSuit, isMitAnnounced, botIndex, options, memory, rollouts);
   }
 
-  // Fallback: Reine Heuristik
+  // Fallback / Persönlichkeits-Heuristiken
   if (!currentTrick || currentTrick.length === 0) {
     return chooseLeadCard(playable, hand, trumpSuit, isMitAnnounced, botIndex, options, memory);
   }
@@ -322,8 +422,32 @@ function chooseCardToPlay(hand, currentTrick, trumpSuit, isMitAnnounced, botInde
  */
 function chooseLeadCard(playable, hand, trumpSuit, isMitAnnounced, botIndex, options, memory = {}) {
   const { unseenCards = [], knownVoids = [], oppsHaveTrumps = true, playerCount = 4 } = memory;
+  const personality = options.botPersonality || 'standard';
   const trumpsInHand = hand.filter(c => isTrumpCard(c, trumpSuit, isMitAnnounced, options));
   const trumpsPlayable = playable.filter(c => isTrumpCard(c, trumpSuit, isMitAnnounced, options));
+
+  // Persönlichkeits-Spezifische Ausspiel-Präferenzen
+  if (personality === 'aggressive') {
+    // Aggressiv: Zieht konsequent Trümpfe, wenn er mindestens 2 Trümpfe hat und Gegner noch Trümpfe haben könnten
+    if (oppsHaveTrumps && trumpsInHand.length >= 2 && trumpsPlayable.length > 0) {
+      const sortedTrumpsDesc = [...trumpsPlayable].sort((a, b) =>
+        getTrumpPower(b, trumpSuit, isMitAnnounced, options) - getTrumpPower(a, trumpSuit, isMitAnnounced, options)
+      );
+      return sortedTrumpsDesc[0];
+    }
+  } else if (personality === 'passive') {
+    // Passiv: Schont Trümpfe und spielt lieber sichere 0-Augen-Luschen in Fehlfarben an
+    const zeroPlayable = playable.filter(c => !isTrumpCard(c, trumpSuit, isMitAnnounced, options) && getCardPoints(c) === 0);
+    if (zeroPlayable.length > 0) {
+      return sortCardsByPowerAsc(zeroPlayable, trumpSuit, isMitAnnounced, options)[0];
+    }
+  } else if (personality === 'wildcard') {
+    // Kneipen-Zocker: Liebt überraschende Ausspiele (z. B. ungesicherte Könige oder Asse)
+    const wildCandidates = playable.filter(c => !isTrumpCard(c, trumpSuit, isMitAnnounced, options) && (c.rank === 'K' || c.rank === 'A'));
+    if (wildCandidates.length > 0) {
+      return wildCandidates[0];
+    }
+  }
 
   const hasTrumpAce = trumpsInHand.some(c => c.suit === trumpSuit && c.rank === 'A');
   const highTrumps = trumpsInHand.filter(c => {
@@ -581,6 +705,17 @@ function chooseFollowCard(playable, hand, currentTrick, trumpSuit, isMitAnnounce
   // --------------------------------------------------------------------------
   // FALL 2: GEGNER FÜHRT DEN STICH!
   // --------------------------------------------------------------------------
+  const personality = options.botPersonality || 'standard';
+  if (personality === 'aggressive' && winningCards.length > 0) {
+    // Aggressiv: Übernimmt gegnerische Stiche konsequent schon ab geringen Punkten
+    return sortCardsByPowerAsc(winningCards, trumpSuit, isMitAnnounced, options)[0];
+  }
+  if (personality === 'passive' && winningCards.length > 0 && trickPoints < 3 && !isLastPlayer) {
+    // Passiv: Verzichtet vorzeitig auf teures Stechen mit hohem Trumpf, wirft lieber billig ab
+    const zeroes = losingCards.filter(c => getCardPoints(c) === 0);
+    if (zeroes.length > 0) return zeroes[0];
+  }
+
   if (winningCards.length > 0) {
     const minWinningCard = sortCardsByPowerAsc(winningCards, trumpSuit, isMitAnnounced, options)[0];
     const totalPointsIfWon = trickPoints + getCardPoints(minWinningCard);
@@ -903,6 +1038,7 @@ function chooseCardMCTS(playable, hand, currentTrick, trumpSuit, isMitAnnounced,
 }
 
 module.exports = {
+  BOT_PERSONALITIES,
   chooseTrumpSuit,
   shouldBotTurnTrump,
   shouldAnnounceMit,
