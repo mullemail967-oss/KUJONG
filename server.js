@@ -1232,8 +1232,10 @@ function handleTurnTrump(room) {
 
   // Falls der Ansager ein Bot ist und ♠Q hält/gedreht hat: Mit'-Ansage direkt prüfen
   if (room.seats[d] && room.seats[d].isBot && room.mitHolderIndex === d && room.settings.allowMit !== false) {
-    if (shouldAnnounceMit(room.hands[d], d, d, room.trumpSuit, { ...room.settings, scores: room.scores, declarerIndex: d, declarerTeam: d % 2 })) {
+    const dPersonality = room.seats[d].botPersonality || room.settings.botPersonality || 'standard';
+    if (shouldAnnounceMit(room.hands[d], d, d, room.trumpSuit, { ...room.settings, scores: room.scores, declarerIndex: d, declarerTeam: d % 2, botPersonality: dPersonality })) {
       handleMitAnnouncement(room, d, true);
+      return;
     }
   }
 
@@ -1316,7 +1318,7 @@ function sortHand(hand, trumpSuit, isMitAnnounced = false) {
 /**
  * Verarbeitet die Mit'-Ansage des ♠Q-Besitzers im 1. Stich.
  */
-function handleMitAnnouncement(room, playerIndex, announce) {
+function handleMitAnnouncement(room, playerIndex, announce, skipBroadcastAndBotCheck = false) {
   if (room.phase !== 'PLAY_TRICK') return;
   if (room.trickCount !== 0) return; // Nur im 1. Stich
   if (room.mitHolderIndex !== playerIndex) return;
@@ -1347,8 +1349,10 @@ function handleMitAnnouncement(room, playerIndex, announce) {
     });
   }
 
-  broadcastGameState(room);
-  checkBotAction(room);
+  if (!skipBroadcastAndBotCheck) {
+    broadcastGameState(room);
+    checkBotAction(room);
+  }
 }
 
 /**
@@ -2120,7 +2124,7 @@ function checkBotAction(room) {
             declarerTeam: room.declarerTeam,
             botPersonality
           })) {
-            handleMitAnnouncement(room, room.currentTurn, true);
+            handleMitAnnouncement(room, room.currentTurn, true, true);
           }
         }
 

@@ -2404,9 +2404,11 @@ function enqueueGameState(state) {
 
 function processNextQueuedState() {
   if (socketEventQueue.length > 0) {
-    const nextState = socketEventQueue.pop();
-    socketEventQueue = [];
+    const nextState = socketEventQueue.shift();
     handleGameState(nextState);
+    if (!isAnimatingTrick && socketEventQueue.length > 0) {
+      processNextQueuedState();
+    }
   }
 }
 
@@ -2467,8 +2469,8 @@ function handleGameState(state) {
     if (typeof triggerVibration === 'function') triggerVibration([40, 60, 40]);
   }
 
-  // Wurfanimation für neue gegnerische/Bot Karten im Stich
-  if (state.phase === 'PLAY_TRICK' && Array.isArray(state.currentTrick)) {
+  // Wurfanimation für neue gegnerische/Bot Karten im Stich (auch bei der 4. Karte in EVALUATING_TRICK!)
+  if ((state.phase === 'PLAY_TRICK' || state.phase === 'EVALUATING_TRICK') && Array.isArray(state.currentTrick)) {
     state.currentTrick.forEach(trickItem => {
       if (trickItem.card && !displayedTrickCardIds.has(trickItem.card.id)) {
         displayedTrickCardIds.add(trickItem.card.id);
@@ -2494,7 +2496,7 @@ function handleGameState(state) {
     checkAndRecordRoundStats(state);
   }
 
-  // Stich-Auflösung & Gewinner-Highlight mit konfigurierbarer Pause
+  // Stich-Auflösung & Gewinner-Highlight synchronisiert mit Server-Stichanzeige
   if (state.phase === 'EVALUATING_TRICK' && currentEvaluatingTrickNumber !== state.trickCount) {
     currentEvaluatingTrickNumber = state.trickCount;
     const info = state.trickWinnerInfo || state.lastTrick;
@@ -2502,7 +2504,12 @@ function handleGameState(state) {
       const winnerPos = getRelativePosition(info.winnerIndex, mySeatIndex);
       SoundManager.play('trick_won');
 
-      const pauseMs = (typeof clientTrickPauseDuration === 'number') ? clientTrickPauseDuration : 1000;
+      const serverTrickMs = (state.settings && typeof state.settings.trickDisplaySeconds === 'number')
+        ? state.settings.trickDisplaySeconds * 1000
+        : 1500;
+      const collectAnimMs = 360;
+      // Starte das Einsammeln rechtzeitig vor Ablauf des Server-Timers, damit kein Stau zum nächsten Stich entsteht
+      const pauseMs = Math.max(380, serverTrickMs - collectAnimMs - 60);
       isAnimatingTrick = true;
 
       setTimeout(() => {
@@ -2525,7 +2532,7 @@ function handleGameState(state) {
           isAnimatingTrick = false;
           displayedTrickCardIds.clear();
           processNextQueuedState();
-        }, 460);
+        }, collectAnimMs);
       }, pauseMs);
     }
   }
@@ -2742,7 +2749,7 @@ function triggerScoreDeltaBadge(elId, delta) {
 }
 
 function renderGameScreen() {
-  if (gameState.phase !== 'PLAY_TRICK') {
+  if (gameState.phase !== 'PLAY_TRICK' && gameState.phase !== 'EVALUATING_TRICK') {
     activeClaimReveal = null;
     currentlyFlyingCardIds.clear();
   }
