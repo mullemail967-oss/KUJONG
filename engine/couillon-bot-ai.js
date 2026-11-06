@@ -27,21 +27,21 @@ const BOT_PERSONALITIES = {
     name: 'Aggressiv',
     icon: '🔥',
     description: 'Zocker, gibt gerne Kontra & zieht aggressiv Trümpfe',
-    names: ['🔥 Zocker-Zorro', '🔥 Kontra-Karl', '🔥 Haudrauf-Hennes', '🔥 Risiko-Ralf', '🔥 Sturm-Siggi', '🔥 Attacke-Alex']
+    names: ['🔥 Zorro', '🔥 Karl', '🔥 Hennes', '🔥 Ralf', '🔥 Siggi', '🔥 Alex']
   },
   passive: {
     id: 'passive',
     name: 'Passiv',
     icon: '🛡️',
     description: 'Defensiv & vorsichtig, spart Trümpfe für fette Stiche',
-    names: ['🛡️ Spar-Sepp', '🛡️ Vorsicht-Vroni', '🛡️ Mauer-Manni', '🛡️ Gedulds-Gerti', '🛡️ Sicherheits-Sven', '🛡️ Ruhe-Rudi']
+    names: ['🛡️ Sepp', '🛡️ Vroni', '🛡️ Manni', '🛡️ Gerti', '🛡️ Sven', '🛡️ Rudi']
   },
   wildcard: {
     id: 'wildcard',
     name: 'Kneipen-Zocker',
     icon: '🍺',
     description: 'Unberechenbar, dreht oft blind & liebt riskante Züge',
-    names: ['🍺 Theken-Theo', '🍺 Bierdeckel-Bruno', '🍺 Bluff-Berti', '🍺 Kneipen-Kalle', '🍺 Würfel-Willi', '🍺 Schock-Schorsch']
+    names: ['🍺 Theo', '🍺 Bruno', '🍺 Berti', '🍺 Kalle', '🍺 Willi', '🍺 Schorsch']
   }
 };
 

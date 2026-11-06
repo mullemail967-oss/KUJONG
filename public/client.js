@@ -1203,7 +1203,7 @@ function renderCustomEmotesModal() {
     activeListEl.innerHTML = list.map((em, idx) => `
       <div class="custom-emote-chip">
         <span class="chip-emoji">${escapeHtml(em)}</span>
-        <button type="button" class="btn-remove-chip" onclick="removeCustomEmoteAt(${idx})" title="Entfernen">✕</button>
+        <button type="button" class="custom-emote-delete-btn" onclick="removeCustomEmoteAt(${idx})" title="Entfernen">✕</button>
       </div>
     `).join('');
   }
@@ -1648,8 +1648,24 @@ function openHostMenu() {
 }
 
 function closeHostMenu() {
-  document.getElementById('hostControlModal').classList.add('hidden');
+  const modal = document.getElementById('hostControlModal');
+  if (modal) modal.classList.add('hidden');
 }
+
+function openInGameSettingsModal() {
+  syncSettingsUI();
+  syncVibrationUI();
+  renderRoundHistoryUI();
+  const modal = document.getElementById('inGameSettingsModal');
+  if (modal) modal.classList.remove('hidden');
+}
+window.openInGameSettingsModal = openInGameSettingsModal;
+
+function closeInGameSettingsModal() {
+  const modal = document.getElementById('inGameSettingsModal');
+  if (modal) modal.classList.add('hidden');
+}
+window.closeInGameSettingsModal = closeInGameSettingsModal;
 
 function renderHostPlayerList() {
   const container = document.getElementById('hostPlayerList');
@@ -2291,16 +2307,9 @@ socket.on('tricks_claimed', ({ seatIndex, playerName, cards, allRevealedHands, r
   if (banner && textEl) {
     const isMe = (seatIndex === mySeatIndex);
     const displayName = isMe ? `${playerName} (Du)` : playerName;
-    const suitSymbols = { clubs: '♣', spades: '♠', hearts: '♥', diamonds: '♦' };
-    const cardStr = Array.isArray(cards) ? cards.map(c => `${suitSymbols[c.suit] || ''}${c.rank}`).join(' ') : '';
     textEl.textContent = `👑 ${displayName} holt alle Rest-Stiche!`;
     if (subtextEl) {
-      if (cardStr) {
-        subtextEl.textContent = `Sichere Trümpfe: ${cardStr}`;
-        subtextEl.classList.remove('hidden');
-      } else {
-        subtextEl.classList.add('hidden');
-      }
+      subtextEl.classList.add('hidden');
     }
     banner.classList.remove('hidden');
     banner.classList.remove('fade-out');
@@ -2626,19 +2635,22 @@ function renderLobby() {
         };
       }
 
-      if (!isMe && !isSpectator && mySeatIndex >= 0) {
-        joinBtn.classList.remove('hidden');
-        joinBtn.textContent = '⇄ Tauschen';
-        joinBtn.title = 'Platz & Team direkt mit diesem Sitz tauschen';
+      // Tauschen komplett entfernt - joinBtn bleibt bei belegten Plätzen ausgeblendet
+      joinBtn.classList.add('hidden');
+
+      if (seat.isBot) {
+        botBtn.textContent = '✕';
+        botBtn.title = 'Bot entfernen';
+        botBtn.classList.add('btn-seat-remove-bot');
+        botBtn.classList.remove('hidden');
       } else {
-        joinBtn.classList.add('hidden');
+        botBtn.classList.add('hidden');
+        botBtn.classList.remove('btn-seat-remove-bot');
       }
-      botBtn.textContent = seat.isBot ? '✕ Bot' : '';
-      botBtn.classList.toggle('hidden', !seat.isBot);
 
       const persBtn = document.getElementById(`botPersBtn${i}`);
       if (persBtn) {
-        if (seat.isBot && gameState.you && gameState.you.isHost) {
+        if (seat.isBot) {
           persBtn.classList.remove('hidden');
           const p = seat.botPersonality || 'standard';
           const pIcons = {
@@ -2648,7 +2660,12 @@ function renderLobby() {
             wildcard: '🤪 Zocker'
           };
           persBtn.textContent = pIcons[p] || '🎯 Standard';
-          persBtn.title = `Bot-Charakter: ${p} (Klicken zum Umschalten)`;
+          const isHost = Boolean(gameState.you && gameState.you.isHost);
+          persBtn.disabled = !isHost;
+          persBtn.title = isHost
+            ? `Bot-Charakter: ${p} (Klicken zum Umschalten)`
+            : `Bot-Charakter: ${p}`;
+          persBtn.style.cursor = isHost ? 'pointer' : 'default';
         } else {
           persBtn.classList.add('hidden');
         }
@@ -2673,6 +2690,8 @@ function renderLobby() {
       joinBtn.textContent = 'Hier sitzen';
       joinBtn.title = 'Auf diesen freien Platz wechseln';
       botBtn.textContent = '+ Bot';
+      botBtn.title = 'Bot hinzufügen';
+      botBtn.classList.remove('btn-seat-remove-bot');
       botBtn.classList.remove('hidden');
       const persBtn = document.getElementById(`botPersBtn${i}`);
       if (persBtn) persBtn.classList.add('hidden');
@@ -3003,7 +3022,7 @@ function renderTablePlayers() {
         nameEl.removeAttribute('title');
         nameEl.onclick = null;
       } else if (player.isBot) {
-        nameEl.textContent = player.name.startsWith('Bot ') ? player.name : `Bot ${player.name}`;
+        nameEl.textContent = player.name;
         nameEl.classList.remove('clickable-friend-name');
         nameEl.removeAttribute('title');
         nameEl.onclick = null;
@@ -3875,17 +3894,29 @@ function syncSettingsUI() {
     botPersInput.disabled = !isHost;
   }
 
-  // Speed / Delays Display
+  // Speed / Delays Display (Lobby & In-Game Settings)
+  const trickVal = (typeof currentSettings.trickDisplaySeconds === 'number') ? currentSettings.trickDisplaySeconds : 1.5;
+  const dealVal = (typeof currentSettings.dealAndTurnDelaySeconds === 'number') ? currentSettings.dealAndTurnDelaySeconds : 1.0;
+
   const dispTrick = document.getElementById('displayTrickDelay');
   const dispDeal = document.getElementById('displayDealDelay');
-  if (dispTrick) {
-    const trickVal = (typeof currentSettings.trickDisplaySeconds === 'number') ? currentSettings.trickDisplaySeconds : 1.5;
-    dispTrick.textContent = `${trickVal.toFixed(1)}s`;
+  if (dispTrick) dispTrick.textContent = `${trickVal.toFixed(1)}s`;
+  if (dispDeal) dispDeal.textContent = `${dealVal.toFixed(1)}s`;
+
+  const inGameTrick = document.getElementById('inGameTrickDelay');
+  const inGameDeal = document.getElementById('inGameDealDelay');
+  if (inGameTrick) inGameTrick.textContent = `${trickVal.toFixed(1)}s`;
+  if (inGameDeal) inGameDeal.textContent = `${dealVal.toFixed(1)}s`;
+
+  const inGameSpeedHint = document.getElementById('inGameSpeedHint');
+  if (inGameSpeedHint) {
+    inGameSpeedHint.textContent = isHost
+      ? 'Als Spielleiter kannst du das Tempo jederzeit live anpassen'
+      : 'Nur der Spielleiter kann das Tempo anpassen';
   }
-  if (dispDeal) {
-    const dealVal = (typeof currentSettings.dealAndTurnDelaySeconds === 'number') ? currentSettings.dealAndTurnDelaySeconds : 1.0;
-    dispDeal.textContent = `${dealVal.toFixed(1)}s`;
-  }
+  document.querySelectorAll('.ingame-speed-btn').forEach(btn => {
+    btn.disabled = !isHost;
+  });
 }
 
 function setPlayerCountSetting(val) {
@@ -4040,7 +4071,7 @@ function saveRuleSettings() {
     drinkingGameMode: currentSettings.drinkingGameMode || 'none',
     trickDisplaySeconds: (typeof currentSettings.trickDisplaySeconds === 'number') ? currentSettings.trickDisplaySeconds : 1.5,
     dealAndTurnDelaySeconds: (typeof currentSettings.dealAndTurnDelaySeconds === 'number') ? currentSettings.dealAndTurnDelaySeconds : 1.0,
-    isPublic: isPublicInput ? isPublicInput.checked : (currentSettings.isPublic !== undefined ? currentSettings.isPublic : true)
+    isPublic: true
   };
 
   currentSettings = { ...settingsPayload };

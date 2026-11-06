@@ -2896,17 +2896,29 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Spieleinstellungen aktualisieren (Host in der Lobby)
+  // Spieleinstellungen aktualisieren (Host in der Lobby, Geschwindigkeit auch live im Spiel!)
   socket.on('update_settings', ({ settings }) => {
     if (!currentRoomCode) return;
     const room = rooms.get(currentRoomCode);
-    if (!room || room.phase !== 'LOBBY') {
-      return socket.emit('error_message', 'Regeln können nur in der Lobby vor Spielstart angepasst werden.');
-    }
+    if (!room) return;
     syncCurrentSeatIndex(room);
 
     if (!isPlayerHost(room, socket)) {
       return socket.emit('error_message', 'Nur der Spielleiter kann die Spieleinstellungen ändern.');
+    }
+
+    // Während einer laufenden Partie darf der Spielleiter jederzeit das Spiel-/Bot-Tempo anpassen!
+    if (room.phase !== 'LOBBY') {
+      if (settings) {
+        if (typeof settings.trickDisplaySeconds === 'number' && settings.trickDisplaySeconds >= 0.8 && settings.trickDisplaySeconds <= 8) {
+          room.settings.trickDisplaySeconds = Math.round(settings.trickDisplaySeconds * 10) / 10;
+        }
+        if (typeof settings.dealAndTurnDelaySeconds === 'number' && settings.dealAndTurnDelaySeconds >= 0.3 && settings.dealAndTurnDelaySeconds <= 6) {
+          room.settings.dealAndTurnDelaySeconds = Math.round(settings.dealAndTurnDelaySeconds * 10) / 10;
+        }
+        broadcastGameState(room);
+      }
+      return;
     }
 
     if (settings) {
