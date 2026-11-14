@@ -625,6 +625,12 @@ function renderAvatarElement(containerEl, avatarVal, isBot) {
   containerEl.classList.toggle('avatar-is-bot', Boolean(isBot));
   containerEl.classList.toggle('avatar-is-human', !isBot);
 
+  const avatarKey = isBot ? '__BOT__' : String(avatarVal || '👤');
+  if (containerEl.dataset.avatarKey === avatarKey) {
+    return;
+  }
+  containerEl.dataset.avatarKey = avatarKey;
+
   if (isBot) {
     containerEl.innerHTML = '<span class="avatar-icon">🤖</span>';
     return;
@@ -632,9 +638,9 @@ function renderAvatarElement(containerEl, avatarVal, isBot) {
 
   const cleanAvatar = avatarVal || '👤';
   if (cleanAvatar.startsWith('data:image/') || cleanAvatar.startsWith('http')) {
-    containerEl.innerHTML = `<img src="${cleanAvatar}" class="avatar-custom-img" alt="Avatar">`;
+    containerEl.innerHTML = `<img src="${escapeHtml(cleanAvatar)}" class="avatar-custom-img" alt="Avatar">`;
   } else {
-    containerEl.innerHTML = `<span class="avatar-icon">${cleanAvatar}</span>`;
+    containerEl.innerHTML = `<span class="avatar-icon">${escapeHtml(cleanAvatar)}</span>`;
   }
 }
 
@@ -1152,12 +1158,12 @@ function getCustomEmotes() {
     const raw = localStorage.getItem('kujong_custom_emotes');
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
+      if (Array.isArray(parsed)) {
         return parsed.filter(e => validateCustomEmote(e).valid).slice(0, 5);
       }
     }
   } catch (e) {}
-  return [...DEFAULT_CUSTOM_EMOTES];
+  return [];
 }
 
 function saveCustomEmotes(list) {
@@ -1172,17 +1178,40 @@ function renderCustomEmotesRow() {
   const container = document.getElementById('customEmotesRow');
   if (!container) return;
   const list = getCustomEmotes();
-  container.innerHTML = list.map(em => `
-    <button type="button" class="emote-btn custom-emote-btn" onclick="sendEmote('${escapeHtml(em)}')" title="Favorit: ${escapeHtml(em)}">
-      ${escapeHtml(em)}
-    </button>
-  `).join('');
+  const slots = [];
+  for (let i = 0; i < 5; i++) {
+    if (i < list.length) {
+      const em = list[i];
+      slots.push(`
+        <button type="button" class="emote-btn custom-emote-btn" data-emote="${escapeHtml(em)}" onclick="sendEmote(this.dataset.emote)" title="Favorit: ${escapeHtml(em)}">
+          ${escapeHtml(em)}
+        </button>
+      `);
+    } else {
+      slots.push(`
+        <button type="button" class="emote-btn custom-emote-slot-empty" onclick="openCustomEmotesModal(true)" title="Eigenes Emoji hinzufügen">
+          +
+        </button>
+      `);
+    }
+  }
+  container.innerHTML = slots.join('');
 }
 
-function openCustomEmotesModal() {
+function openCustomEmotesModal(focusInput = false) {
+  const picker = document.getElementById('emotePickerPopup');
+  if (picker) picker.classList.add('hidden');
+  const errEl = document.getElementById('customEmoteInputError');
+  if (errEl) errEl.classList.add('hidden');
   renderCustomEmotesModal();
   const modal = document.getElementById('customEmotesModal');
   if (modal) modal.classList.remove('hidden');
+  if (focusInput) {
+    setTimeout(() => {
+      const input = document.getElementById('customEmoteInput');
+      if (input) input.focus();
+    }, 50);
+  }
 }
 window.openCustomEmotesModal = openCustomEmotesModal;
 
@@ -1200,26 +1229,16 @@ function renderCustomEmotesModal() {
 
   const activeListEl = document.getElementById('activeCustomEmotesList');
   if (activeListEl) {
-    activeListEl.innerHTML = list.map((em, idx) => `
-      <div class="custom-emote-chip">
-        <span class="chip-emoji">${escapeHtml(em)}</span>
-        <button type="button" class="custom-emote-delete-btn" onclick="removeCustomEmoteAt(${idx})" title="Entfernen">✕</button>
-      </div>
-    `).join('');
-  }
-
-  const gridEl = document.getElementById('curatedEmojisGrid');
-  if (gridEl) {
-    gridEl.innerHTML = CURATED_SAFE_EMOJIS.map(em => {
-      const isAlready = list.includes(em);
-      return `
-        <button type="button" class="curated-emoji-btn ${isAlready ? 'already-added' : ''}" 
-                onclick="addCustomEmote('${escapeHtml(em)}')" 
-                title="${isAlready ? 'Bereits in Favoriten' : 'Zu Favoriten hinzufügen'}">
-          ${escapeHtml(em)}
-        </button>
-      `;
-    }).join('');
+    if (list.length === 0) {
+      activeListEl.innerHTML = `<span class="custom-emotes-empty-hint">Noch keine Favoriten – füge bis zu 5 eigene Emojis hinzu.</span>`;
+    } else {
+      activeListEl.innerHTML = list.map((em, idx) => `
+        <div class="custom-emote-chip">
+          <span class="chip-emoji">${escapeHtml(em)}</span>
+          <button type="button" class="custom-emote-delete-btn" onclick="removeCustomEmoteAt(${idx})" title="Entfernen">✕</button>
+        </div>
+      `).join('');
+    }
   }
 }
 
@@ -1359,8 +1378,16 @@ function announceMit(announce) {
   }
 }
 
+let mitDeclinedRoundKey = null;
+
+function getCurrentMitRoundKey() {
+  if (!gameState) return null;
+  return `${gameState.roomCode}_${gameState.roundNumber || 0}`;
+}
+
 function dismissMitBanner() {
   if (isSpectator) return;
+  mitDeclinedRoundKey = getCurrentMitRoundKey();
   announceMit(false);
   const banner = document.getElementById('mitActionBanner');
   if (banner) banner.classList.add('hidden');
@@ -1615,6 +1642,9 @@ function returnToLobby() {
 // --------------------------------------------------------------------------
 function openHostMenu() {
   if (!gameState || !gameState.you) return;
+  if (gameState.settings) {
+    currentSettings = { ...currentSettings, ...gameState.settings };
+  }
   const isHost = Boolean(gameState.you.isHost);
   const codeEl = document.getElementById('hostModalRoomCode');
   if (codeEl) {
@@ -1653,6 +1683,9 @@ function closeHostMenu() {
 }
 
 function openInGameSettingsModal() {
+  if (gameState && gameState.settings) {
+    currentSettings = { ...currentSettings, ...gameState.settings };
+  }
   syncSettingsUI();
   syncVibrationUI();
   renderRoundHistoryUI();
@@ -1702,7 +1735,7 @@ function renderHostPlayerList() {
     } else {
       tagHTML = '<span class="host-player-tag tag-player">👤 Spieler</span>';
       if (isHost) {
-        actionHTML = `<button class="btn-kick" onclick="kickPlayer(${i}, '${player.name}')">👢 Kicken (Bot)</button>`;
+        actionHTML = `<button class="btn-kick" data-seat="${i}" data-name="${escapeHtml(player.name)}" onclick="kickPlayer(Number(this.dataset.seat), this.dataset.name)">👢 Kicken (Bot)</button>`;
       }
     }
 
@@ -1712,7 +1745,7 @@ function renderHostPlayerList() {
       <div class="host-player-info">
         <div class="host-player-avatar" id="hostPlayerAvatar${i}"></div>
         <span class="host-player-seat">P${i + 1} (${teamLabel})</span>
-        <span class="host-player-name">${pName}</span>
+        <span class="host-player-name">${escapeHtml(pName)}</span>
         ${tagHTML}
       </div>
       <div>
@@ -1768,7 +1801,7 @@ function openLastTrickModal() {
     
     grid.innerHTML += `
       <div class="last-trick-card-entry ${isWinnerCard ? 'winner' : ''}">
-        <span class="last-trick-player-label">${entry.playerName}${isWinnerCard ? ' 🏆' : ''}</span>
+        <span class="last-trick-player-label">${escapeHtml(entry.playerName)}${isWinnerCard ? ' 🏆' : ''}</span>
         ${cardHTML}
       </div>
     `;
@@ -1881,8 +1914,7 @@ socket.on('join_request_accepted', ({ roomCode, seatIndex }) => {
   mySeatIndex = seatIndex;
   const specBanner = document.getElementById('spectatorBanner');
   if (specBanner) specBanner.classList.add('hidden');
-  const nameInput = document.getElementById('playerNameInput');
-  const playerName = nameInput ? nameInput.value.trim() : 'Spieler';
+  const playerName = getPlayerName() || 'Spieler';
   sessionStorage.setItem('kujong_session', JSON.stringify({ roomCode, seatIndex, playerName }));
   socket.emit('confirm_midgame_join', { roomCode, seatIndex });
   document.getElementById('lobbyScreen').classList.remove('active');
@@ -3459,8 +3491,13 @@ function handleModals() {
     trumpModal.classList.add('hidden');
   }
 
-  // Mit'-Ansage Banner (sofort ausgeblendet, sobald vorgemerkt oder Bot übernimmt)
-  if (!isSpectator && !isMyAutoBot && gameState.canAnnounceMit && (!gameState.you || !gameState.you.isMitPreAnnounced)) {
+  if (gameState.phase !== 'PLAY_TRICK' || gameState.trickCount > 0) {
+    mitDeclinedRoundKey = null;
+  }
+
+  // Mit'-Ansage Banner (sofort ausgeblendet, sobald vorgemerkt, abgelehnt oder Bot übernimmt)
+  const isMitDeclinedLocally = Boolean(mitDeclinedRoundKey && mitDeclinedRoundKey === getCurrentMitRoundKey());
+  if (!isSpectator && !isMyAutoBot && !isMitDeclinedLocally && gameState.canAnnounceMit && (!gameState.you || !gameState.you.isMitPreAnnounced)) {
     if (mitBanner) {
       mitBanner.classList.remove('hidden');
       mitBanner.innerHTML = `

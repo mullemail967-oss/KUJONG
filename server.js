@@ -987,6 +987,7 @@ function sanitizeStateForPlayer(room, seatIndex) {
     room.phase === 'PLAY_TRICK' &&
     room.trickCount === 0 &&
     !room.isMitAnnounced &&
+    !room.mitDeclined &&
     room.mitHolderIndex === seatIndex
   ) {
     if (isTurnedTrumpDeclarer) {
@@ -1096,6 +1097,7 @@ function startNewRound(room) {
   room.turnedCard = null;
   room.isTurnedTrump = false;
   room.mitPreAnnounced = false;
+  room.mitDeclined = false;
   room.isMitAnnounced = false;
   room.mitAnnouncedByLastPlayerOfTrick1 = false;
   room.isContraAnnounced = false;
@@ -2114,7 +2116,7 @@ function checkBotAction(room) {
         const botPersonality = seat.botPersonality || room.settings.botPersonality || 'standard';
 
         // 2. Taktische Mit'-Prüfung (in Stich 1, wenn Bot ♠Q hält)
-        if (room.settings.allowMit !== false && room.trickCount === 0 && room.mitHolderIndex === room.currentTurn && !room.isMitAnnounced) {
+        if (room.settings.allowMit !== false && room.trickCount === 0 && room.mitHolderIndex === room.currentTurn && !room.isMitAnnounced && !room.mitDeclined) {
           const botHand = room.hands[room.currentTurn];
           if (shouldAnnounceMit(botHand, room.declarerIndex, room.currentTurn, room.trumpSuit, {
             ...room.settings,
@@ -2627,6 +2629,8 @@ io.on('connection', (socket) => {
     }
 
     const oldBotName = targetSeatObj.name;
+    const reqFriendCode = getFriendCodeForSocket(requesterSocket.id) || null;
+    const cleanReqAvatar = getAvatarForPlayer(requesterSocket.id, reqFriendCode) || null;
     room.seats[targetSeat] = {
       index: targetSeat,
       name: req.playerName,
@@ -2634,6 +2638,8 @@ io.on('connection', (socket) => {
       isBot: false,
       connected: true,
       team: targetSeat % 2 === 0 ? 0 : 1,
+      friendCode: reqFriendCode,
+      avatar: cleanReqAvatar,
       isHost: false
     };
 
@@ -2746,32 +2752,59 @@ io.on('connection', (socket) => {
     if (!room) return;
 
     const maxPlayers = room.settings.playerCount || 4;
+    const cleanName = playerName ? playerName.trim().toLowerCase() : '';
+    let targetSeatIdx = -1;
+
     if (typeof seatIndex === 'number' && seatIndex >= 0 && seatIndex < maxPlayers) {
-      const seat = room.seats[seatIndex];
-      const cleanName = playerName ? playerName.trim().toLowerCase() : '';
-      if (seat && (!seat.isBot || (seat.replacedPlayerName && seat.replacedPlayerName.toLowerCase() === cleanName))) {
-        if (seat.disconnectTimer) {
-          clearTimeout(seat.disconnectTimer);
-          seat.disconnectTimer = null;
-        }
-        seat.socketId = socket.id;
-        seat.connected = true;
-        seat.isAway = false;
-        seat.isBot = false;
-        if (playerName) seat.name = playerName.trim();
-        const cleanAvatar = sanitizeAvatar(avatar);
-        if (cleanAvatar) seat.avatar = cleanAvatar;
-        delete seat.replacedPlayerName;
-        delete seat.replacedAt;
-        currentRoomCode = code;
-        currentSeatIndex = seatIndex;
-        socket.join(code);
-        logAction(room, `🔄 ${seat.name} wieder im Spiel.`);
-        broadcastGameState(room);
-        broadcastPublicRooms();
-        checkBotAction(room);
-        return;
+      const candidate = room.seats[seatIndex];
+      const matchesHuman = candidate && !candidate.isBot && (
+        (cleanName && candidate.name.trim().toLowerCase() === cleanName) ||
+        candidate.connected === false
+      );
+      const matchesReplaced = candidate && candidate.isBot && candidate.replacedPlayerName && candidate.replacedPlayerName.toLowerCase() === cleanName;
+      if (matchesHuman || matchesReplaced) {
+        targetSeatIdx = seatIndex;
       }
+    }
+
+    // Fallback: Suche über den Namen (z. B. nach Platzwechsel oder Team-Neu-Mischen)
+    if (targetSeatIdx === -1 && cleanName) {
+      targetSeatIdx = room.seats.slice(0, maxPlayers).findIndex(s =>
+        s && !s.isBot && s.name.trim().toLowerCase() === cleanName
+      );
+      if (targetSeatIdx === -1) {
+        targetSeatIdx = room.seats.slice(0, maxPlayers).findIndex(s =>
+          s && s.isBot && s.replacedPlayerName && s.replacedPlayerName.toLowerCase() === cleanName && (Date.now() - s.replacedAt < 120000)
+        );
+      }
+    }
+
+    if (targetSeatIdx !== -1) {
+      const seat = room.seats[targetSeatIdx];
+      if (seat.disconnectTimer) {
+        clearTimeout(seat.disconnectTimer);
+        seat.disconnectTimer = null;
+      }
+      seat.socketId = socket.id;
+      seat.connected = true;
+      seat.isAway = false;
+      seat.isBot = false;
+      if (playerName) seat.name = playerName.trim();
+      const cleanAvatar = sanitizeAvatar(avatar);
+      if (cleanAvatar) seat.avatar = cleanAvatar;
+      delete seat.replacedPlayerName;
+      delete seat.replacedAt;
+      if (!room.seats.some(s => s && !s.isBot && s.connected !== false && s.socketId === room.hostSocketId)) {
+        room.hostSocketId = socket.id;
+      }
+      currentRoomCode = code;
+      currentSeatIndex = targetSeatIdx;
+      socket.join(code);
+      logAction(room, `🔄 ${seat.name} wieder im Spiel.`);
+      broadcastGameState(room);
+      broadcastPublicRooms();
+      checkBotAction(room);
+      return;
     }
   });
 
@@ -3057,7 +3090,7 @@ io.on('connection', (socket) => {
     if (typeof currentSeatIndex !== 'number' || currentSeatIndex < 0) return;
     if (room.phase !== 'PLAY_TRICK' || room.trickCount !== 0) return;
     if (room.settings.allowMit === false) return;
-    if (room.isMitAnnounced) return;
+    if (room.isMitAnnounced || room.mitDeclined) return;
     if (room.mitHolderIndex !== currentSeatIndex) return;
 
     const hasPlayedInTrick1 = room.currentTrick.some(e => e.playerIndex === currentSeatIndex);
@@ -3073,6 +3106,7 @@ io.on('connection', (socket) => {
     if (announce && room.mitPreAnnounced) return; // Bereits vorgemerkt, Duplikate ignorieren!
 
     if (!announce) {
+      room.mitDeclined = true;
       room.mitPreAnnounced = false;
       return broadcastGameState(room);
     }
@@ -3348,6 +3382,7 @@ io.on('connection', (socket) => {
     if (!isPlayerHost(room, socket)) {
       return socket.emit('error_message', 'Nur der Spielleiter kann die Partie beenden und zur Lobby zurückkehren.');
     }
+    syncCurrentSeatIndex(room);
 
     if (room.botTimer) {
       clearTimeout(room.botTimer);
@@ -3370,14 +3405,24 @@ io.on('connection', (socket) => {
     room.stock = [];
     room.turnedCard = null;
     room.trumpSuit = null;
+    room.isTurnedTrump = false;
+    room.mitPreAnnounced = false;
+    room.mitDeclined = false;
     room.isMitAnnounced = false;
     room.mitAnnouncedByLastPlayerOfTrick1 = false;
     room.isContraAnnounced = false;
+    room.isContraReAnnounced = false;
     room.mitHolderIndex = -1;
+    room.mitAnnouncerIndex = -1;
+    room.contraAnnouncerIndex = -1;
+    room.contraTeam = -1;
+    room.contraReAnnouncerIndex = -1;
+    room.contraReTeam = -1;
     room.lastTrick = null;
     room.trickHistory = [];
     room.trickWinnerInfo = null;
     room.roundSummary = null;
+    room.roundHistory = [];
     room.roundNumber = 0;
     room.dealerIndex = ((typeof room.dealerIndex === 'number' ? room.dealerIndex : 0) + 1) % maxPlayers;
     room.matchWinRecorded = false;
@@ -3881,5 +3926,7 @@ module.exports = {
   getBotNameForPersonality,
   isPlayerKnownVoidInTrump,
   isPlayerKnownVoidInSuit,
-  createRoom
+  createRoom,
+  sanitizeStateForPlayer,
+  startNewRound
 };

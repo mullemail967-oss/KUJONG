@@ -2492,7 +2492,7 @@ input:checked + .slider:before {
   border-radius: 16px;
   padding: 10px 12px;
   box-shadow: 0 16px 36px rgba(0, 0, 0, 0.75), 0 0 16px rgba(245, 158, 11, 0.2);
-  z-index: 5000;
+  z-index: 150;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -6415,11 +6415,32 @@ input:checked + .slider:before {
 }
 
 .custom-emotes-row {
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
   gap: 6px;
+  width: 100%;
   margin-bottom: 6px;
+}
+
+.custom-emote-slot-empty {
+  border: 1px dashed rgba(245, 158, 11, 0.45);
+  background: rgba(245, 158, 11, 0.06);
+  color: rgba(251, 191, 36, 0.9);
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.custom-emote-slot-empty:hover {
+  border-color: var(--team-we-gold);
+  background: rgba(245, 158, 11, 0.18);
+  color: #fde68a;
+}
+
+.custom-emotes-empty-hint {
+  font-size: 0.72rem;
+  color: #94a3b8;
+  text-align: center;
+  padding: 6px 4px;
 }
 
 .emote-divider {
