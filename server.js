@@ -799,6 +799,13 @@ function canPlayerClaimTricks(room, playerIndex) {
         return false;
       }
 
+      // Wenn der Partner noch Trumpf haben könnte und danach noch weitere Stiche folgen:
+      // Sticht der Partner eine Fehlfarbe (bei >= 2 Fehlfarben oder wenn man selbst keinen Trumpf mehr hat),
+      // übernimmt der Partner das Anspiel und kann in einen gegnerischen Stich anspielen.
+      if (partnerCanHaveTrump && remainingCards.length > 1 && (myOffSuits.length > 1 || myTrumps.length === 0)) {
+        return false;
+      }
+
       // Niemand sonst kann mehr stechen.
       // Jede Fehlfarben-Karte muss die höchste noch im Spiel befindliche ihrer Farbe sein!
       const suitsMap = {};
@@ -812,7 +819,7 @@ function canPlayerClaimTricks(room, playerIndex) {
         const unseenInSuit = unseenCards.filter(c => !isTrumpCard(c, room.trumpSuit, room.isMitAnnounced, room.settings) && c.suit === suit);
         if (unseenInSuit.length > 0) {
           const maxUnseenPower = Math.max(...unseenInSuit.map(c => getOffSuitPower(c)));
-          if (minMyPower < maxUnseenPower) {
+          if (minMyPower <= maxUnseenPower) {
             return false;
           }
         }
@@ -873,8 +880,11 @@ function canPlayerClaimTricks(room, playerIndex) {
   } else {
     // playerIndex hat in diesem Stich NOCH NICHT gelegt (z.B. anderer Spieler ist dran oder spielt aus)
     const playableCards = hand.filter(c => isCardPlayable(c, hand, room.currentTrick, room.trumpSuit, room.isMitAnnounced, room.settings));
+    if (playableCards.length === 0) return false;
     const alreadyPlayedIndices = new Set(room.currentTrick.map(e => e.playerIndex));
 
+    // Universelle Sicherheit: JEDE legal spielbare Karte und jede sich daraus ergebende Reihenfolge
+    // muss den aktuellen Stich UND alle Folgestiche garantiert gewinnen (egal was der Spieler wählt).
     for (const cand of playableCards) {
       const isCandTrump = isTrumpCard(cand, room.trumpSuit, room.isMitAnnounced, room.settings);
       const candPower = isCandTrump
@@ -884,7 +894,7 @@ function canPlayerClaimTricks(room, playerIndex) {
       // Simuliere diesen Zug
       const simTrick = [...room.currentTrick, { playerIndex, card: cand }];
       const evalRes = evaluateTrick(simTrick, room.trumpSuit, room.isMitAnnounced, room.settings);
-      if (evalRes.winnerIndex !== playerIndex) continue;
+      if (evalRes.winnerIndex !== playerIndex) return false;
 
       // Kann ein noch ausstehender Spieler cand schlagen?
       let canBeBeaten = false;
@@ -907,16 +917,18 @@ function canPlayerClaimTricks(room, playerIndex) {
           }
         }
       }
-      if (canBeBeaten) continue;
+      if (canBeBeaten) return false;
 
       // Rest-Hand prüfen
-      const remainingHand = hand.filter(c => c.id !== cand.id);
-      if (areRemainingCardsGuaranteedWinners(remainingHand)) {
-        return true;
+      const remainingHand = hand.filter(c =>
+        (c.id && cand.id) ? c.id !== cand.id : !(c.suit === cand.suit && c.rank === cand.rank)
+      );
+      if (!areRemainingCardsGuaranteedWinners(remainingHand)) {
+        return false;
       }
     }
 
-    return false;
+    return true;
   }
 }
 
