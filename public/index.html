@@ -304,7 +304,7 @@
               <div id="scoreBarWe" class="score-progress-fill fill-we" style="width: 100%;"></div>
             </div>
             <div class="round-stats">
-              <span class="tricks-stat-wrap">St:<strong id="tricksWe">0</strong><span id="trickPilesWe" class="trick-piles-visual"></span></span>
+              <span class="tricks-stat-wrap" onclick="openLastTrickModal()" title="Tippen, um den letzten Stich anzusehen">St:<strong id="tricksWe">0</strong><span id="trickPilesWe" class="trick-piles-visual"></span></span>
               <span>Aug:<strong id="eyesWe">0</strong></span>
             </div>
           </div>
@@ -345,7 +345,7 @@
               <div id="scoreBarThey" class="score-progress-fill fill-they" style="width: 100%;"></div>
             </div>
             <div class="round-stats">
-              <span class="tricks-stat-wrap">St:<strong id="tricksThey">0</strong><span id="trickPilesThey" class="trick-piles-visual"></span></span>
+              <span class="tricks-stat-wrap" onclick="openLastTrickModal()" title="Tippen, um den letzten Stich anzusehen">St:<strong id="tricksThey">0</strong><span id="trickPilesThey" class="trick-piles-visual"></span></span>
               <span>Aug:<strong id="eyesThey">0</strong></span>
             </div>
           </div>
@@ -682,6 +682,13 @@
               </button>
             </div>
 
+            <!-- KOMPAKTER PAUSE-RESUME-BUTTON DIREKT ÜBER DEN EIGENEN HANDKARTEN -->
+            <div id="handAutoBotResumeBanner" class="hand-auto-bot-resume-banner hidden">
+              <button type="button" class="btn-hand-auto-bot-resume" onclick="toggleAutoBot()">
+                ⏸️ Pausiert (Bot spielt) – Tippen zum Weiterspielen ▶️
+              </button>
+            </div>
+
             <!-- EIGENER KARTENFÄCHER -->
             <div class="my-hand-container">
               <div class="my-hand-fan" id="myHandFan">
@@ -744,7 +751,7 @@
       <div class="modal-header">
         <span class="modal-tag">Trumpfwahl (Du bist Ansager)</span>
         <h2>Wähle die Trumpffarbe</h2>
-        <p>Hier sind deine ersten 3 Handkarten:</p>
+        <p id="trumpModalHint">Hier sind deine ersten 3 Handkarten:</p>
       </div>
 
       <!-- DEINE 3 KARTEN PROMINENT SICHTBAR -->

@@ -1,7 +1,7 @@
 // ==========================================================================
 // KUJONG - SERVICE WORKER (PWA Offline Shell & Fast Assets)
 // ==========================================================================
-const CACHE_NAME = 'kujong-cache-v29';
+const CACHE_NAME = 'kujong-cache-v30';
 const STATIC_ASSETS = [
   '/',
   'index.html',
@@ -15,6 +15,32 @@ const STATIC_ASSETS = [
   'icon-512.png',
   'icon.svg'
 ];
+
+function isAppShellRequest(url) {
+  const path = url.pathname;
+  return (
+    path === '/' ||
+    path.endsWith('/index.html') ||
+    path.endsWith('/client.js') ||
+    path.endsWith('/style.css') ||
+    path.endsWith('/manifest.json')
+  );
+}
+
+async function fetchWithTimeout(request, timeoutMs = 3500, forceNoCache = false) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const fetchOpts = { signal: controller.signal };
+    if (forceNoCache && request.mode !== 'navigate') {
+      fetchOpts.cache = 'no-cache';
+    }
+    const response = await fetch(forceNoCache ? new Request(request, fetchOpts) : request, fetchOpts);
+    return response;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
@@ -35,17 +61,30 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+self.addEventListener('message', (event) => {
+  if (event.data === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+});
+
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
   // Niemals Socket.io oder API-Calls cachen
-  if (url.pathname.startsWith('/socket.io/') || event.request.method !== 'GET') {
+  if (url.pathname.startsWith('/socket.io/') || url.pathname.startsWith('/api/') || event.request.method !== 'GET') {
     return;
   }
 
-  // Network-First mit Cache-Fallback für HTML, JS und CSS damit Updates sofort ankommen
+  // Fremde Origins (Google Fonts etc.) nicht im PWA-Fetch blockieren
+  if (url.origin !== self.location.origin) {
+    return;
+  }
+
+  const appShell = isAppShellRequest(url);
+
+  // Network-First mit 3.5s Timeout-Schutz & Cache-Fallback, damit aufgeweckte PWAs im Funkloch nicht einfrieren
   event.respondWith(
-    fetch(event.request)
+    fetchWithTimeout(event.request, 3500, appShell)
       .then((networkResponse) => {
         if (networkResponse && networkResponse.status === 200) {
           const clone = networkResponse.clone();

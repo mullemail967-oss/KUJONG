@@ -406,15 +406,20 @@ function chooseCardToPlay(hand, currentTrick, trumpSuit, isMitAnnounced, botInde
   const botPersonality = options.botPersonality || 'standard';
   if (options.useMCTS !== false && botPersonality === 'standard') {
     const rollouts = typeof options.rollouts === 'number' ? options.rollouts : 30;
-    return chooseCardMCTS(playable, hand, currentTrick, trumpSuit, isMitAnnounced, botIndex, options, memory, rollouts);
+    try {
+      const mctsChoice = chooseCardMCTS(playable, hand, currentTrick, trumpSuit, isMitAnnounced, botIndex, options, memory, rollouts);
+      if (mctsChoice) return mctsChoice;
+    } catch (err) {
+      console.warn('MCTS fallback triggered:', err && err.message ? err.message : err);
+    }
   }
 
   // Fallback / Persönlichkeits-Heuristiken
   if (!currentTrick || currentTrick.length === 0) {
-    return chooseLeadCard(playable, hand, trumpSuit, isMitAnnounced, botIndex, options, memory);
+    return chooseLeadCard(playable, hand, trumpSuit, isMitAnnounced, botIndex, options, memory) || playable[0];
   }
 
-  return chooseFollowCard(playable, hand, currentTrick, trumpSuit, isMitAnnounced, botIndex, options, memory);
+  return chooseFollowCard(playable, hand, currentTrick, trumpSuit, isMitAnnounced, botIndex, options, memory) || playable[0];
 }
 
 /**
@@ -836,7 +841,13 @@ function generateDeterminization(botIndex, hand, unseenCards, knownVoids, player
   const playedInTrick = new Set(currentTrick.map(t => t.playerIndex));
   for (let p = 0; p < playerCount; p++) {
     if (p === botIndex) continue;
-    needed[p] = playedInTrick.has(p) ? hand.length - 1 : hand.length;
+    if (options && Array.isArray(options.handCounts) && typeof options.handCounts[p] === 'number') {
+      needed[p] = Math.max(0, options.handCounts[p]);
+    } else if (options && options.hasThrownCards && options.hasThrownCards[p]) {
+      needed[p] = 0;
+    } else {
+      needed[p] = playedInTrick.has(p) ? Math.max(0, hand.length - 1) : hand.length;
+    }
   }
 
   const stockSize = playerCount === 6 ? 2 : 4;
@@ -907,8 +918,9 @@ function generateDeterminization(botIndex, hand, unseenCards, knownVoids, player
 }
 
 function pickRolloutCard(playerIndex, playerHand, trick, trumpSuit, isMit, options) {
+  if (!playerHand || playerHand.length === 0) return null;
   const playable = playerHand.filter(c => isCardPlayable(c, playerHand, trick, trumpSuit, isMit, options));
-  if (playable.length === 0) return playerHand[0];
+  if (playable.length === 0) return playerHand[0] || null;
   if (playable.length === 1) return playable[0];
 
   if (!trick || trick.length === 0) {
@@ -955,9 +967,11 @@ function pickRolloutCard(playerIndex, playerHand, trick, trumpSuit, isMit, optio
 
 function simulateRollout(candidateCard, botIndex, initialHands, currentTrick, trumpSuit, isMit, options, playerCount) {
   const hands = {};
-  for (let p = 0; p < playerCount; p++) hands[p] = [...initialHands[p]];
+  for (let p = 0; p < playerCount; p++) hands[p] = Array.isArray(initialHands[p]) ? [...initialHands[p]] : [];
 
-  const cIdx = hands[botIndex].findIndex(c => c.id === candidateCard.id);
+  const isSameCard = (a, b) => (a && b) && ((a.id && b.id) ? a.id === b.id : (a.suit === b.suit && a.rank === b.rank));
+
+  const cIdx = hands[botIndex].findIndex(c => isSameCard(c, candidateCard));
   if (cIdx !== -1) hands[botIndex].splice(cIdx, 1);
 
   let trick = [...currentTrick, { playerIndex: botIndex, card: candidateCard }];
@@ -969,8 +983,10 @@ function simulateRollout(candidateCard, botIndex, initialHands, currentTrick, tr
   for (let step = 0; step < playerCount; step++) {
     const p = (leader + step) % playerCount;
     if (!playedPlayers.has(p)) {
+      if (!hands[p] || hands[p].length === 0) continue;
       const card = pickRolloutCard(p, hands[p], trick, trumpSuit, isMit, options);
-      const idx = hands[p].findIndex(c => c.id === card.id);
+      if (!card) continue;
+      const idx = hands[p].findIndex(c => isSameCard(c, card));
       if (idx !== -1) hands[p].splice(idx, 1);
       trick.push({ playerIndex: p, card });
       playedPlayers.add(p);
@@ -988,11 +1004,14 @@ function simulateRollout(candidateCard, botIndex, initialHands, currentTrick, tr
     trick = [];
     for (let step = 0; step < playerCount; step++) {
       const player = (leader + step) % playerCount;
+      if (!hands[player] || hands[player].length === 0) continue;
       const card = pickRolloutCard(player, hands[player], trick, trumpSuit, isMit, options);
-      const idx = hands[player].findIndex(c => c.id === card.id);
+      if (!card) continue;
+      const idx = hands[player].findIndex(c => isSameCard(c, card));
       if (idx !== -1) hands[player].splice(idx, 1);
       trick.push({ playerIndex: player, card });
     }
+    if (!trick || trick.length === 0) break;
     evalRes = evaluateTrick(trick, trumpSuit, isMit, options);
     if (evalRes.winnerIndex % 2 === botTeam) {
       myTeamEyes += evalRes.points;
@@ -1009,8 +1028,9 @@ function chooseCardMCTS(playable, hand, currentTrick, trumpSuit, isMitAnnounced,
   const seed = hashState(botIndex, hand, currentTrick, trickHistory);
   const rng = mulberry32(seed);
 
+  const getKey = (c) => c.id || `${c.suit}_${c.rank}`;
   const scores = {};
-  for (const c of playable) scores[c.id] = 0;
+  for (const c of playable) scores[getKey(c)] = 0;
 
   for (let r = 0; r < numRollouts; r++) {
     const world = generateDeterminization(botIndex, hand, unseenCards, knownVoids, playerCount, currentTrick, trumpSuit, isMitAnnounced, options, rng);
@@ -1018,16 +1038,16 @@ function chooseCardMCTS(playable, hand, currentTrick, trumpSuit, isMitAnnounced,
 
     for (const c of playable) {
       const eyes = simulateRollout(c, botIndex, world, currentTrick, trumpSuit, isMitAnnounced, options, playerCount);
-      scores[c.id] += eyes;
+      scores[getKey(c)] += eyes;
     }
   }
 
   let maxScore = -1;
   for (const c of playable) {
-    if (scores[c.id] > maxScore) maxScore = scores[c.id];
+    if (scores[getKey(c)] > maxScore) maxScore = scores[getKey(c)];
   }
 
-  const bestCards = playable.filter(c => scores[c.id] === maxScore);
+  const bestCards = playable.filter(c => scores[getKey(c)] === maxScore);
   if (bestCards.length === 1) return bestCards[0];
 
   // Tie-breaker: heursitische Bewertung der Gleichstand-Kandidaten

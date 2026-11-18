@@ -993,7 +993,7 @@ input[type="text"]:focus {
   display: flex;
   align-items: center;
   position: relative;
-  z-index: 5;
+  z-index: 35;
 }
 
 .player-top {
@@ -1041,7 +1041,7 @@ input[type="text"]:focus {
   padding-left: 4px;
   max-width: 100%;
   box-sizing: border-box;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .player-right {
@@ -1053,7 +1053,7 @@ input[type="text"]:focus {
   padding-right: 4px;
   max-width: 100%;
   box-sizing: border-box;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .player-bottom {
@@ -1319,6 +1319,7 @@ input[type="text"]:focus {
   display: flex;
   align-items: center;
   justify-content: center;
+  z-index: 10;
 }
 
 .trick-slot {
@@ -2555,6 +2556,7 @@ input:checked + .slider:before {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  z-index: 60;
 }
 
 /* Emote Bubbles Floating Subtly over Player Names */
@@ -2564,7 +2566,7 @@ input:checked + .slider:before {
   left: 50%;
   transform: translateX(-50%);
   pointer-events: none;
-  z-index: 1000;
+  z-index: 1200;
   display: flex;
   justify-content: center;
   align-items: center;
@@ -5276,13 +5278,39 @@ input:checked + .slider:before {
   cursor: pointer;
 }
 
-/* Eigene Handkarten im Pause-Modus ausgegraut, aber gut erkennbar */
+/* Eigene Handkarten im Pause-Modus ausgegraut, per Tap direkt übernehmbar */
 .my-hand-fan .playing-card.auto-bot-disabled {
   opacity: 0.52 !important;
   filter: grayscale(68%) contrast(0.92) !important;
-  pointer-events: none !important;
-  cursor: default !important;
+  pointer-events: auto !important;
+  cursor: pointer !important;
   transform: translateY(4px) scale(0.97) !important;
+}
+
+.hand-auto-bot-resume-banner {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  margin: 0 0 6px 0;
+  z-index: 35;
+}
+
+.btn-hand-auto-bot-resume {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.94), rgba(5, 150, 105, 0.96));
+  border: 1.5px solid #fde047;
+  color: #ffffff;
+  font-weight: 800;
+  font-size: 0.78rem;
+  padding: 7px 14px;
+  border-radius: 999px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5), 0 0 12px rgba(253, 224, 71, 0.35);
+  cursor: pointer;
+  white-space: nowrap;
+  animation: pulseResumeBtn 1.8s infinite ease-in-out;
+}
+
+.btn-hand-auto-bot-resume:active {
+  transform: scale(0.96);
 }
 
 /* 4. Statistik Modal */
@@ -6022,6 +6050,19 @@ input:checked + .slider:before {
   gap: 3px;
 }
 
+.tricks-stat-wrap.has-last-trick {
+  cursor: pointer;
+  text-decoration: underline dotted rgba(255, 255, 255, 0.45);
+  text-underline-offset: 3px;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.tricks-stat-wrap.has-last-trick:hover,
+.tricks-stat-wrap.has-last-trick:active {
+  opacity: 0.85;
+  transform: scale(1.04);
+}
+
 .trick-piles-visual {
   display: inline-flex;
   align-items: center;
@@ -6083,6 +6124,16 @@ input:checked + .slider:before {
   background: linear-gradient(135deg, #f97316 0%, #ef4444 100%) !important;
   color: #fff !important;
   box-shadow: 0 0 16px rgba(239, 68, 68, 0.85) !important;
+}
+
+.turn-indicator.turn-afk-countdown {
+  animation: pulseResumeBtn 0.7s infinite ease-in-out;
+  border: 1.5px solid #fef08a;
+}
+
+.turn-afk-trump-warn {
+  color: #fca5a5 !important;
+  font-weight: 800;
 }
 
 /* Runden-Verlauf ("Bierdeckel-Historie") im Rundenende- & Menü-Fenster */

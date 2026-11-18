@@ -52,12 +52,16 @@ try {
 
 app.use(express.json());
 
-// Statische Dateien aus dem public-Ordner bereitstellen (ohne Caching für sofortige Updates)
+// Statische Dateien aus dem public-Ordner bereitstellen (Bilder/Audio gecacht, App-Code sofort frisch per ETag)
 app.use(express.static(path.join(__dirname, 'public'), {
-  etag: false,
-  maxAge: 0,
-  setHeaders: (res) => {
-    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  etag: true,
+  lastModified: true,
+  setHeaders: (res, filePath) => {
+    if (/\.(png|svg|jpg|jpeg|webp|gif|ico|woff2?|ttf|mp3|wav)$/i.test(filePath)) {
+      res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
+    } else {
+      res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+    }
   }
 }));
 
@@ -204,6 +208,180 @@ function saveFriendRegistryDebounced() {
       console.warn('Could not save friend registry:', err.message);
     }
   }, 1000);
+}
+
+// Laufende Räume / Tische zwischenspeichern, damit Partien Neustarts/Updates überleben
+const ROOMS_SNAPSHOT_FILE = path.join(getRegistryDir(), 'rooms_snapshot.json');
+
+function serializeRoomForSnapshot(room) {
+  if (!room || !room.code) return null;
+  const clone = (val) => {
+    try {
+      return val === undefined ? undefined : JSON.parse(JSON.stringify(val));
+    } catch (e) {
+      return null;
+    }
+  };
+
+  return {
+    code: room.code,
+    createdAt: room.createdAt || Date.now(),
+    hostSocketId: room.hostSocketId || null,
+    phase: room.phase || 'LOBBY',
+    settings: clone(room.settings) || {},
+    scores: clone(room.scores) || { teamA: 13, teamB: 13 },
+    matchWins: clone(room.matchWins) || { teamA: 0, teamB: 0 },
+    matchWinRecorded: Boolean(room.matchWinRecorded),
+    roundNumber: room.roundNumber || 0,
+    dealerIndex: typeof room.dealerIndex === 'number' ? room.dealerIndex : 0,
+    declarerIndex: typeof room.declarerIndex === 'number' ? room.declarerIndex : 0,
+    declarerTeam: room.declarerTeam !== undefined ? room.declarerTeam : null,
+    trumpSuit: room.trumpSuit || null,
+    turnedCard: clone(room.turnedCard) || null,
+    isTurnedTrump: Boolean(room.isTurnedTrump),
+    currentTurn: typeof room.currentTurn === 'number' ? room.currentTurn : 0,
+    currentTrick: clone(room.currentTrick) || [],
+    trickCount: room.trickCount || 0,
+    tricksWon: clone(room.tricksWon) || [],
+    eyesWon: clone(room.eyesWon) || [],
+    tricksTeamA: room.tricksTeamA || 0,
+    tricksTeamB: room.tricksTeamB || 0,
+    eyesTeamA: room.eyesTeamA || 0,
+    eyesTeamB: room.eyesTeamB || 0,
+    hands: clone(room.hands) || [],
+    deck: clone(room.deck) || [],
+    stock: clone(room.stock) || [],
+    mitHolderIndex: typeof room.mitHolderIndex === 'number' ? room.mitHolderIndex : -1,
+    mitPreAnnounced: Boolean(room.mitPreAnnounced),
+    mitDeclined: Boolean(room.mitDeclined),
+    isMitAnnounced: Boolean(room.isMitAnnounced),
+    mitAnnouncerIndex: typeof room.mitAnnouncerIndex === 'number' ? room.mitAnnouncerIndex : -1,
+    mitAnnouncedByLastPlayerOfTrick1: Boolean(room.mitAnnouncedByLastPlayerOfTrick1),
+    isContraAnnounced: Boolean(room.isContraAnnounced),
+    contraAnnouncerIndex: typeof room.contraAnnouncerIndex === 'number' ? room.contraAnnouncerIndex : -1,
+    contraTeam: typeof room.contraTeam === 'number' ? room.contraTeam : -1,
+    isContraReAnnounced: Boolean(room.isContraReAnnounced),
+    contraReAnnouncerIndex: typeof room.contraReAnnouncerIndex === 'number' ? room.contraReAnnouncerIndex : -1,
+    contraReTeam: typeof room.contraReTeam === 'number' ? room.contraReTeam : -1,
+    lastTrick: clone(room.lastTrick) || null,
+    trickHistory: clone(room.trickHistory) || [],
+    trickWinnerInfo: clone(room.trickWinnerInfo) || null,
+    roundSummary: clone(room.roundSummary) || null,
+    roundHistory: clone(room.roundHistory) || [],
+    roundEndedAt: room.roundEndedAt || null,
+    hasThrownCards: clone(room.hasThrownCards) || {},
+    actionLog: Array.isArray(room.actionLog) ? [...room.actionLog].slice(-50) : [],
+    seats: Array.isArray(room.seats)
+      ? room.seats.map(s => {
+          if (!s) return null;
+          const copy = { ...s };
+          delete copy.disconnectTimer;
+          return copy;
+        })
+      : []
+  };
+}
+
+function saveRoomsSnapshotNow(filePath = ROOMS_SNAPSHOT_FILE) {
+  try {
+    const dir = path.dirname(filePath);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const serialized = [];
+    for (const room of rooms.values()) {
+      const snap = serializeRoomForSnapshot(room);
+      if (snap) serialized.push(snap);
+    }
+    const payload = { savedAt: Date.now(), rooms: serialized };
+    fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), 'utf8');
+    return true;
+  } catch (err) {
+    console.warn('Could not save rooms snapshot:', err.message);
+    return false;
+  }
+}
+
+let saveRoomsSnapshotTimer = null;
+function saveRoomsSnapshotDebounced() {
+  if (saveRoomsSnapshotTimer) clearTimeout(saveRoomsSnapshotTimer);
+  saveRoomsSnapshotTimer = setTimeout(() => {
+    saveRoomsSnapshotTimer = null;
+    saveRoomsSnapshotNow();
+  }, 500);
+  if (saveRoomsSnapshotTimer.unref) saveRoomsSnapshotTimer.unref();
+}
+
+function loadRoomsSnapshot(maxAgeMs = 2 * 60 * 60 * 1000, filePath = ROOMS_SNAPSHOT_FILE) {
+  try {
+    if (!fs.existsSync(filePath)) return 0;
+    const raw = fs.readFileSync(filePath, 'utf8');
+    const data = JSON.parse(raw);
+    if (!data || !Array.isArray(data.rooms)) return 0;
+    if (typeof data.savedAt === 'number' && (Date.now() - data.savedAt) > maxAgeMs) {
+      return 0;
+    }
+
+    let restoredCount = 0;
+    for (const saved of data.rooms) {
+      if (!saved || !saved.code) continue;
+      const roomCode = saved.code;
+      const restored = {
+        ...saved,
+        pendingJoinRequests: new Map(),
+        spectators: [],
+        chatMessages: [],
+        botTimer: null,
+        trickEvalTimer: null,
+        afkTimer: null,
+        claimTimer: null,
+        lastStateProgressAt: Date.now(),
+        _lastWatchdogKey: null,
+        seats: Array.isArray(saved.seats)
+          ? saved.seats.map((seat, idx) => {
+              if (!seat) return null;
+              const restoredSeat = { ...seat, disconnectTimer: null };
+              if (!restoredSeat.isBot) {
+                restoredSeat.connected = false;
+                restoredSeat.isAway = true;
+                restoredSeat.disconnectTimer = setTimeout(() => {
+                  restoredSeat.disconnectTimer = null;
+                  const targetRoom = rooms.get(roomCode);
+                  if (!targetRoom) return;
+                  const curSeat = targetRoom.seats[idx];
+                  if (!curSeat || curSeat.isBot || curSeat.connected) return;
+                  finalizeDisconnectedSeat(targetRoom, idx);
+                }, 60000);
+                if (restoredSeat.disconnectTimer.unref) restoredSeat.disconnectTimer.unref();
+              }
+              return restoredSeat;
+            })
+          : []
+      };
+
+      rooms.set(roomCode, restored);
+      restoredCount++;
+
+      if (restored.phase === 'EVALUATING_TRICK') {
+        restored.phase = 'PLAY_TRICK';
+        if (restored.currentTrick && restored.currentTrick.length > 0 && restored.trickWinnerInfo) {
+          const t = setTimeout(() => {
+            const r = rooms.get(roomCode);
+            if (r && r.phase === 'PLAY_TRICK') {
+              const activeCount = getActiveTrickPlayerCount(r);
+              const distinctPlayed = new Set(r.currentTrick.map(e => e.playerIndex)).size;
+              if (distinctPlayed >= activeCount && activeCount > 0) {
+                triggerTrickEvaluation(r);
+              }
+            }
+          }, 800);
+          if (t.unref) t.unref();
+        }
+      }
+    }
+    return restoredCount;
+  } catch (err) {
+    console.warn('Could not load rooms snapshot:', err.message);
+    return 0;
+  }
 }
 
 function getPublicRoomsData() {
@@ -406,6 +584,8 @@ function createRoom(roomCode, hostName, hostSocketId, hostFriendCode = null, hos
     trickEvalTimer: null,
     afkTimer: null,
     claimTimer: null,
+    lastStateProgressAt: Date.now(),
+    _lastWatchdogKey: null,
     matchWins: { teamA: 0, teamB: 0 },
     matchWinRecorded: false
   };
@@ -426,6 +606,14 @@ function logAction(room, message) {
  * Sendet den Zustand an alle Teilnehmer (mit Cheating-Schutz: nur eigene Handkarten sichtbar).
  */
 function broadcastGameState(room) {
+  if (!room) return;
+  const trickLen = Array.isArray(room.currentTrick) ? room.currentTrick.length : 0;
+  const watchdogKey = `${room.phase}_${room.currentTurn}_${room.declarerIndex}_${room.trickCount}_${trickLen}`;
+  if (room._lastWatchdogKey !== watchdogKey) {
+    room._lastWatchdogKey = watchdogKey;
+    room.lastStateProgressAt = Date.now();
+  }
+
   const maxPlayers = room.settings.playerCount || 4;
   for (let i = 0; i < maxPlayers; i++) {
     const seat = room.seats[i];
@@ -447,6 +635,7 @@ function broadcastGameState(room) {
 
   // 20s Inaktivitäts-Timer aktualisieren
   resetOrStartAfkTimer(room);
+  saveRoomsSnapshotDebounced();
 }
 
 /**
@@ -1244,8 +1433,8 @@ function handleTurnTrump(room) {
     card: turnedCard
   });
 
-  // Falls der Ansager ein Bot ist und ♠Q hält/gedreht hat: Mit'-Ansage direkt prüfen
-  if (room.seats[d] && room.seats[d].isBot && room.mitHolderIndex === d && room.settings.allowMit !== false) {
+  // Falls der Ansager ein Bot (oder im Pause-Modus) ist und ♠Q hält/gedreht hat: Mit'-Ansage direkt prüfen
+  if (isSeatBotControlled(room.seats[d]) && room.mitHolderIndex === d && room.settings.allowMit !== false) {
     const dPersonality = room.seats[d].botPersonality || room.settings.botPersonality || 'standard';
     if (shouldAnnounceMit(room.hands[d], d, d, room.trumpSuit, { ...room.settings, scores: room.scores, declarerIndex: d, declarerTeam: d % 2, botPersonality: dPersonality })) {
       handleMitAnnouncement(room, d, true);
@@ -1473,7 +1662,12 @@ function getNextTurnIndex(room, fromIndex) {
  * Leitet die Auswertung eines vollständigen Stichs ein.
  */
 function triggerTrickEvaluation(room) {
+  if (room.botTimer) {
+    clearTimeout(room.botTimer);
+    room.botTimer = null;
+  }
   room.phase = 'EVALUATING_TRICK';
+  room.phaseEnteredAt = Date.now();
 
   // Stich SOFORT auswerten, damit die Anzeige exakt den Sieger DIESES Stichs zeigt!
   const result = evaluateTrick(room.currentTrick, room.trumpSuit, room.isMitAnnounced, room.settings);
@@ -1691,7 +1885,9 @@ function handleCardPlay(room, playerIndex, cardId) {
   if (room.currentTurn !== playerIndex) return;
 
   const playerHand = room.hands[playerIndex];
-  const cardIndex = playerHand.findIndex(c => c.id === cardId);
+  const cardIndex = playerHand.findIndex(c =>
+    c.id === cardId || `${c.suit}_${c.rank}` === cardId || `${c.suit}-${c.rank}` === cardId
+  );
   if (cardIndex === -1) return;
 
   const card = playerHand[cardIndex];
@@ -2031,6 +2227,7 @@ function isSeatBotControlled(seat) {
  * Führt automatische Züge für Bots und pausierte Spieler aus (mit taktischer KI).
  */
 function checkBotAction(room) {
+  if (!room) return;
   if (room.botTimer) {
     clearTimeout(room.botTimer);
     room.botTimer = null;
@@ -2039,8 +2236,8 @@ function checkBotAction(room) {
   const maxPlayers = room.settings.playerCount || 4;
 
   // Wenn alle menschlichen Spieler gegangen sind und nur noch Bots UND keine Zuschauer im Raum sind,
-  // brauchen die Bots nicht endlos im Hintergrund weiterzuspielen
-  const hasHumans = room.seats.slice(0, maxPlayers).some(s => s && !s.isBot && s.connected);
+  // brauchen die Bots nicht endlos im Hintergrund weiterzuspielen (kurze Reconnect-Puffer bleiben aktiv)
+  const hasHumans = room.seats.slice(0, maxPlayers).some(s => s && !s.isBot && (s.connected || s.disconnectTimer));
   const hasSpectators = room.spectators && room.spectators.length > 0;
   if (!hasHumans && !hasSpectators) return;
 
@@ -2051,9 +2248,11 @@ function checkBotAction(room) {
     const shouldAutoAdvanceRound = !hostSeat || Boolean(hostSeat.isAutoBot);
     if (shouldAutoAdvanceRound) {
       room.botTimer = setTimeout(() => {
+        room.botTimer = null;
         if (room.phase !== 'ROUND_END') return;
         startNewRound(room);
       }, 3500);
+      if (room.botTimer.unref) room.botTimer.unref();
     }
     return;
   }
@@ -2066,26 +2265,35 @@ function checkBotAction(room) {
     const declarer = room.seats[room.declarerIndex];
     if (isSeatBotControlled(declarer)) {
       room.botTimer = setTimeout(() => {
+        room.botTimer = null;
         if (room.phase !== 'CHOOSE_TRUMP') return;
         const currentDeclarer = room.seats[room.declarerIndex];
         if (!isSeatBotControlled(currentDeclarer)) return;
-        const hand = room.hands[room.declarerIndex];
-        const declarerPersonality = currentDeclarer.botPersonality || room.settings.botPersonality || 'standard';
-        const botOpts = {
-          ...room.settings,
-          playerCount: maxPlayers,
-          scores: room.scores,
-          declarerIndex: room.declarerIndex,
-          declarerTeam: room.declarerTeam,
-          botPersonality: declarerPersonality
-        };
-        if (shouldBotTurnTrump(hand, botOpts)) {
-          handleTurnTrump(room);
-        } else {
-          const bestSuit = chooseTrumpSuit(hand, botOpts);
-          handleTrumpSelection(room, bestSuit);
+        try {
+          const hand = room.hands[room.declarerIndex];
+          const declarerPersonality = currentDeclarer.botPersonality || room.settings.botPersonality || 'standard';
+          const botOpts = {
+            ...room.settings,
+            playerCount: maxPlayers,
+            scores: room.scores,
+            declarerIndex: room.declarerIndex,
+            declarerTeam: room.declarerTeam,
+            botPersonality: declarerPersonality
+          };
+          if (shouldBotTurnTrump(hand, botOpts)) {
+            handleTurnTrump(room);
+          } else {
+            const bestSuit = chooseTrumpSuit(hand, botOpts);
+            handleTrumpSelection(room, bestSuit);
+          }
+        } catch (err) {
+          console.error('Bot CHOOSE_TRUMP error, using fallback:', err);
+        }
+        if (room.phase === 'CHOOSE_TRUMP') {
+          handleTrumpSelection(room, SUITS.HEARTS || 'hearts');
         }
       }, turnDelay);
+      if (room.botTimer.unref) room.botTimer.unref();
     }
   } else if (room.phase === 'PLAY_TRICK') {
     // 1. Taktische Kontra-Prüfung für gegnerische Bots / pausierte Spieler (in Stich 1 ODER in Stich 2 vor der 1. Karte)
@@ -2122,67 +2330,151 @@ function checkBotAction(room) {
       }
 
       room.botTimer = setTimeout(() => {
+        room.botTimer = null;
         if (room.phase !== 'PLAY_TRICK') return;
-        const seat = room.seats[room.currentTurn];
+        const actingTurn = room.currentTurn;
+        const seat = room.seats[actingTurn];
         if (!isSeatBotControlled(seat)) return;
         const botPersonality = seat.botPersonality || room.settings.botPersonality || 'standard';
 
-        // 2. Taktische Mit'-Prüfung (in Stich 1, wenn Bot ♠Q hält)
-        if (room.settings.allowMit !== false && room.trickCount === 0 && room.mitHolderIndex === room.currentTurn && !room.isMitAnnounced && !room.mitDeclined) {
-          const botHand = room.hands[room.currentTurn];
-          if (shouldAnnounceMit(botHand, room.declarerIndex, room.currentTurn, room.trumpSuit, {
-            ...room.settings,
-            playerCount: maxPlayers,
-            scores: room.scores,
-            declarerIndex: room.declarerIndex,
-            declarerTeam: room.declarerTeam,
-            botPersonality
-          })) {
-            handleMitAnnouncement(room, room.currentTurn, true, true);
+        try {
+          // 2. Taktische Mit'-Prüfung (in Stich 1, wenn Bot ♠Q hält)
+          if (room.settings.allowMit !== false && room.trickCount === 0 && room.mitHolderIndex === actingTurn && !room.isMitAnnounced && !room.mitDeclined) {
+            const botHand = room.hands[actingTurn];
+            if (shouldAnnounceMit(botHand, room.declarerIndex, actingTurn, room.trumpSuit, {
+              ...room.settings,
+              playerCount: maxPlayers,
+              scores: room.scores,
+              declarerIndex: room.declarerIndex,
+              declarerTeam: room.declarerTeam,
+              botPersonality
+            })) {
+              handleMitAnnouncement(room, actingTurn, true, true);
+            }
           }
-        }
 
-        // 2b. Restliche Stiche abkürzen / aufdecken (wenn Bot unschlagbare Meisterkarten/Trümpfe hält)
-        if (room.trickCount < 4 && room.hands[room.currentTurn] && room.hands[room.currentTurn].length > 1 && canPlayerClaimTricks(room, room.currentTurn)) {
-          handleClaimTricks(room, room.currentTurn);
-          return;
-        }
-
-        // 3. Karten wegschmeißen (Dead Hand Fold: 0 Augen, 0 Trümpfe, 0 Siegchancen)
-        if (canPlayerThrowCards(room, room.currentTurn)) {
-          handleThrowCards(room, room.currentTurn);
-          return;
-        }
-
-        // 4. Taktische Kartenauswahl (Schmieren, gezielt Stechen, 0-Punkte Abwurf)
-        const hand = room.hands[room.currentTurn];
-        if (!hand || hand.length === 0) return;
-
-        const chosenCard = chooseCardToPlay(
-          hand,
-          room.currentTrick,
-          room.trumpSuit,
-          room.isMitAnnounced,
-          room.currentTurn,
-          {
-            ...room.settings,
-            playerCount: maxPlayers,
-            trickHistory: room.trickHistory || [],
-            declarerIndex: room.declarerIndex,
-            declarerTeam: room.declarerTeam,
-            trickCount: room.trickCount,
-            scores: room.scores,
-            botPersonality
+          // 2b. Restliche Stiche abkürzen / aufdecken (wenn Bot unschlagbare Meisterkarten/Trümpfe hält)
+          if (room.trickCount < 4 && room.hands[actingTurn] && room.hands[actingTurn].length > 1 && canPlayerClaimTricks(room, actingTurn)) {
+            handleClaimTricks(room, actingTurn);
+            return;
           }
-        );
 
-        if (chosenCard) {
-          handleCardPlay(room, room.currentTurn, chosenCard.id);
+          // 3. Karten wegschmeißen (Dead Hand Fold: 0 Augen, 0 Trümpfe, 0 Siegchancen)
+          if (canPlayerThrowCards(room, actingTurn)) {
+            handleThrowCards(room, actingTurn);
+            return;
+          }
+
+          // 4. Taktische Kartenauswahl (Schmieren, gezielt Stechen, 0-Punkte Abwurf)
+          const hand = room.hands[actingTurn];
+          if (!hand || hand.length === 0) return;
+
+          const chosenCard = chooseCardToPlay(
+            hand,
+            room.currentTrick,
+            room.trumpSuit,
+            room.isMitAnnounced,
+            actingTurn,
+            {
+              ...room.settings,
+              playerCount: maxPlayers,
+              trickHistory: room.trickHistory || [],
+              declarerIndex: room.declarerIndex,
+              declarerTeam: room.declarerTeam,
+              trickCount: room.trickCount,
+              scores: room.scores,
+              botPersonality,
+              hasThrownCards: room.hasThrownCards || {},
+              handCounts: room.hands.slice(0, maxPlayers).map(h => (h ? h.length : 0))
+            }
+          );
+
+          if (chosenCard) {
+            handleCardPlay(room, actingTurn, chosenCard.id || `${chosenCard.suit}_${chosenCard.rank}`);
+          }
+        } catch (err) {
+          console.error('Bot PLAY_TRICK error, using fallback card:', err);
+        }
+
+        // Garantierter Zug-Fallback, falls aus irgendeinem Grund noch keine Karte ausgespielt wurde
+        if (room.phase === 'PLAY_TRICK' && room.currentTurn === actingTurn && room.hands[actingTurn] && room.hands[actingTurn].length > 0) {
+          const hand = room.hands[actingTurn];
+          const fallbackCard = hand.find(c =>
+            isCardPlayable(c, hand, room.currentTrick, room.trumpSuit, room.isMitAnnounced, room.settings)
+          ) || hand[0];
+          if (fallbackCard) {
+            handleCardPlay(room, actingTurn, fallbackCard.id || `${fallbackCard.suit}_${fallbackCard.rank}`);
+          }
         }
       }, effectiveTurnDelay);
+      if (room.botTimer.unref) room.botTimer.unref();
     }
   }
 }
+
+/**
+ * Selbstheilungs-Watchdog: Erkennt steckengebliebene Runden (z. B. verwaiste Timer nach Fehlern)
+ * und stößt Stichauswertung oder Bot-Züge automatisch erneut an.
+ */
+function runRoomWatchdog(room, now = Date.now()) {
+  if (!room || !room.phase || room.phase === 'LOBBY' || room.phase === 'GAME_OVER') return false;
+  const maxPlayers = (room.settings && room.settings.playerCount) || 4;
+  const hasHumans = Array.isArray(room.seats) && room.seats.slice(0, maxPlayers).some(s => s && !s.isBot && (s.connected || s.disconnectTimer));
+  const hasSpectators = Array.isArray(room.spectators) && room.spectators.length > 0;
+  if (!hasHumans && !hasSpectators) return false;
+
+  const progressAge = now - (room.lastStateProgressAt || 0);
+  const turnDelayMs = (room.settings && typeof room.settings.dealAndTurnDelaySeconds === 'number')
+    ? room.settings.dealAndTurnDelaySeconds * 1000
+    : 1000;
+  const stuckThresholdMs = Math.max(7000, turnDelayMs + 4000);
+
+  if (room.phase === 'EVALUATING_TRICK') {
+    if (!room.trickEvalTimer && progressAge > 4000 && Array.isArray(room.currentTrick) && room.currentTrick.length > 0) {
+      const result = evaluateTrick(room.currentTrick, room.trumpSuit, room.isMitAnnounced, room.settings);
+      resolveTrick(room, result);
+      return true;
+    }
+    return false;
+  }
+
+  if (room.phase === 'PLAY_TRICK') {
+    const distinctPlayed = new Set((room.currentTrick || []).map(e => e.playerIndex)).size;
+    const activeCount = getActiveTrickPlayerCount(room);
+    if (distinctPlayed >= activeCount && activeCount > 0 && !room.trickEvalTimer) {
+      triggerTrickEvaluation(room);
+      return true;
+    }
+    const activeSeat = room.seats && room.seats[room.currentTurn];
+    if (isSeatBotControlled(activeSeat) && (!room.botTimer || progressAge > stuckThresholdMs)) {
+      checkBotAction(room);
+      return true;
+    }
+    return false;
+  }
+
+  if (room.phase === 'CHOOSE_TRUMP') {
+    const declarerSeat = room.seats && room.seats[room.declarerIndex];
+    if (isSeatBotControlled(declarerSeat) && (!room.botTimer || progressAge > stuckThresholdMs)) {
+      checkBotAction(room);
+      return true;
+    }
+  }
+
+  return false;
+}
+
+const watchdogInterval = setInterval(() => {
+  const now = Date.now();
+  for (const room of rooms.values()) {
+    try {
+      runRoomWatchdog(room, now);
+    } catch (err) {
+      console.warn('Watchdog error for room:', room && room.code, err && err.message ? err.message : err);
+    }
+  }
+}, 2500);
+if (watchdogInterval.unref) watchdogInterval.unref();
 
 /**
  * Sendet ein Emote für einen Bot zeitverzögert an alle Clients im Raum.
@@ -2289,6 +2581,7 @@ function finalizeDisconnectedSeat(room, leavingSeat) {
         io.to(room.code).emit('room_disbanded', { message: 'Der Spielleiter hat die Lobby verlassen.' });
         rooms.delete(room.code);
         broadcastPublicRooms();
+        saveRoomsSnapshotDebounced();
       }
     } else {
       room.seats[leavingSeat] = null;
@@ -2319,6 +2612,7 @@ function finalizeDisconnectedSeat(room, leavingSeat) {
       logAction(room, `🚪 Letzter menschlicher Spieler hat das Spiel verlassen. Partie wurde beendet.`);
       rooms.delete(room.code);
       broadcastPublicRooms();
+      saveRoomsSnapshotDebounced();
       return;
     }
 
@@ -2705,7 +2999,9 @@ io.on('connection', (socket) => {
       if (myFriendCode) room.seats[existingIndex].friendCode = myFriendCode;
       if (cleanAvatar) room.seats[existingIndex].avatar = cleanAvatar;
       socket.join(code);
-      return broadcastGameState(room);
+      broadcastGameState(room);
+      checkBotAction(room);
+      return;
     }
 
     // 2. Reconnect: Prüfen, ob ein getrennter Spieler mit gleichem Namen existiert oder kürzlich durch Bot ersetzt wurde
@@ -3527,6 +3823,18 @@ io.on('connection', (socket) => {
     broadcastPublicRooms();
   });
 
+  // Zustands-Sync anfordern (z. B. nach kurzem Netzwerkwackler oder Bot-Wartezeit)
+  socket.on('request_state_sync', () => {
+    if (!currentRoomCode) return;
+    const room = rooms.get(currentRoomCode);
+    if (!room) return;
+    syncCurrentSeatIndex(room);
+    const seatIdx = currentSeatIndex;
+    socket.emit('game_state', sanitizeStateForPlayer(room, seatIdx));
+    runRoomWatchdog(room, Date.now());
+    checkBotAction(room);
+  });
+
   // Emotes senden (mit striktem Schummelschutz / Anti-Cheat)
   socket.on('send_emote', ({ emote }) => {
     if (!currentRoomCode) return;
@@ -3643,12 +3951,14 @@ io.on('connection', (socket) => {
   socket.on('save_push_subscription', ({ friendCode, pushSub, playerName, notifyAllRooms }) => {
     if (!friendCode || !pushSub || !pushSub.endpoint) return;
     const code = friendCode.trim().toUpperCase().slice(0, 16);
+    if (!myFriendCode) myFriendCode = code;
     const cleanName = (playerName || 'Spieler').trim().slice(0, 20);
 
     const existing = friendRegistry.get(code) || {};
     friendRegistry.set(code, {
       friendCode: code,
       playerName: cleanName || existing.playerName || 'Spieler',
+      avatar: existing.avatar || null,
       pushSub: pushSub,
       notifyAllRooms: typeof notifyAllRooms === 'boolean' ? notifyAllRooms : Boolean(existing.notifyAllRooms),
       lastSeen: Date.now()
@@ -3771,12 +4081,13 @@ io.on('connection', (socket) => {
     let sentOnline = false;
     let sentPush = false;
 
-    // Profil aus Server-Registry holen (enthält das dauerhaft gespeicherte pushSub)
+    // Profil aus Server-Registry holen (enthält das aktuellste dauerhaft gespeicherte pushSub)
     const targetProfile = friendRegistry.get(code);
     const targetSession = activePlayerCodes.get(code);
-    const pushSub = (targetProfile && targetProfile.pushSub && targetProfile.pushSub.endpoint)
+    const serverPushSub = (targetProfile && targetProfile.pushSub && targetProfile.pushSub.endpoint)
       ? targetProfile.pushSub
-      : targetPushSub;
+      : null;
+    const pushSub = serverPushSub || (targetPushSub && targetPushSub.endpoint ? targetPushSub : null);
 
     // 1. Live WebSocket Einladung falls Freund aktuell online ist
     if (targetSession && targetSession.socketId && targetSession.socketId !== socket.id) {
@@ -3802,6 +4113,7 @@ io.on('connection', (socket) => {
           sentOnline,
           friendName: targetProfile?.playerName || null,
           hasPush: true,
+          pushSub: serverPushSub || pushSub,
           message: 'Vor Kurzem bereits angepingt. Bitte 30 Sekunden warten.'
         });
       }
@@ -3829,6 +4141,19 @@ io.on('connection', (socket) => {
       try {
         await webpush.sendNotification(pushSub, payload, pushOptions);
         sentPush = true;
+        // Falls der Server bisher kein Push-Abo hatte, gültiges Client-Abo im Register sichern
+        if (!serverPushSub && code) {
+          const existingProfile = targetProfile || {};
+          friendRegistry.set(code, {
+            friendCode: code,
+            playerName: existingProfile.playerName || 'Spieler',
+            avatar: existingProfile.avatar || null,
+            pushSub: pushSub,
+            notifyAllRooms: Boolean(existingProfile.notifyAllRooms),
+            lastSeen: Date.now()
+          });
+          saveFriendRegistryDebounced();
+        }
       } catch (pushErr) {
         console.warn('Web-Push Zustellungsfehler:', pushErr.statusCode || pushErr.message);
         if (pushErr.statusCode === 404 || pushErr.statusCode === 410) {
@@ -3836,16 +4161,21 @@ io.on('connection', (socket) => {
             targetProfile.pushSub = null;
             saveFriendRegistryDebounced();
           }
-          return cb({ success: sentOnline, expired: true, sentOnline, friendName: targetProfile?.playerName || null });
+          return cb({ success: sentOnline, expired: true, sentOnline, hasPush: false, pushSub: null, friendName: targetProfile?.playerName || null });
         }
       }
     }
+
+    const activePushSub = (targetProfile && targetProfile.pushSub && targetProfile.pushSub.endpoint)
+      ? targetProfile.pushSub
+      : (sentPush ? pushSub : null);
 
     cb({
       success: sentOnline || sentPush,
       sentOnline,
       sentPush,
-      hasPush: !!(pushSub && pushSub.endpoint),
+      hasPush: Boolean(activePushSub),
+      pushSub: activePushSub,
       friendName: targetProfile?.playerName || null
     });
   });
@@ -3918,6 +4248,10 @@ async function broadcastNewPublicRoomAlert(room, creatorName, creatorSocketId, c
 
 // Server starten
 if (require.main === module) {
+  const restoredRooms = loadRoomsSnapshot();
+  if (restoredRooms > 0) {
+    console.log(`🔄 ${restoredRooms} Raum/Räume aus letztem Snapshot wiederhergestellt.`);
+  }
   server.listen(PORT, () => {
     console.log(`=========================================`);
     console.log(` Kujong Server läuft auf Port ${PORT}`);
@@ -3940,5 +4274,10 @@ module.exports = {
   isPlayerKnownVoidInSuit,
   createRoom,
   sanitizeStateForPlayer,
-  startNewRound
+  startNewRound,
+  runRoomWatchdog,
+  checkBotAction,
+  saveRoomsSnapshotNow,
+  loadRoomsSnapshot,
+  serializeRoomForSnapshot
 };

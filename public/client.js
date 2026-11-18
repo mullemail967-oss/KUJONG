@@ -389,6 +389,101 @@ async function updateScreenWakeLock() {
   }
 }
 
+let swRegistration = null;
+
+function saveActiveSession(roomCode, playerName, seatIndex) {
+  if (!roomCode) return;
+  const payload = JSON.stringify({
+    roomCode,
+    playerName: playerName || getPlayerName() || 'Spieler',
+    seatIndex,
+    savedAt: Date.now()
+  });
+  try {
+    sessionStorage.setItem('kujong_session', payload);
+  } catch (e) {}
+  try {
+    localStorage.setItem('kujong_pwa_session', payload);
+  } catch (e) {}
+}
+
+function clearActiveSession() {
+  try {
+    sessionStorage.removeItem('kujong_session');
+  } catch (e) {}
+  try {
+    localStorage.removeItem('kujong_pwa_session');
+  } catch (e) {}
+}
+
+function getSavedActiveSession(maxAgeMs = 20 * 60 * 1000) {
+  try {
+    const rawSession = sessionStorage.getItem('kujong_session');
+    if (rawSession) {
+      const parsed = JSON.parse(rawSession);
+      if (parsed && parsed.roomCode) return parsed;
+    }
+  } catch (e) {}
+
+  try {
+    const rawPwa = localStorage.getItem('kujong_pwa_session');
+    if (rawPwa) {
+      const parsed = JSON.parse(rawPwa);
+      if (parsed && parsed.roomCode && (!parsed.savedAt || (Date.now() - parsed.savedAt) <= maxAgeMs)) {
+        return parsed;
+      }
+    }
+  } catch (e) {}
+  return null;
+}
+
+function handleAppForegroundResume() {
+  if (document.visibilityState && document.visibilityState !== 'visible') return;
+
+  // Eingefrorene Stich-Animation nach Hintergrund-Pause sofort freigeben
+  if (isAnimatingTrick && ((Date.now() - trickAnimStartedAt) > 1200 || socketEventQueue.length > 0)) {
+    isAnimatingTrick = false;
+    trickAnimStartedAt = 0;
+    displayedTrickCardIds.clear();
+    if (socketEventQueue.length > 0) {
+      const latestState = socketEventQueue[socketEventQueue.length - 1];
+      socketEventQueue = [];
+      handleGameState(latestState);
+    }
+  }
+
+  if (swRegistration && typeof swRegistration.update === 'function') {
+    swRegistration.update().catch(() => {});
+  }
+
+  if (typeof socket !== 'undefined') {
+    if (!socket.connected) {
+      socket.connect();
+    } else {
+      if (typeof registerFriendSocket === 'function') registerFriendSocket();
+      if (typeof checkExistingPushSubscription === 'function') checkExistingPushSubscription();
+      if (typeof syncSavedFriendsStatusInBackground === 'function') syncSavedFriendsStatusInBackground();
+
+      if (currentRoomCode) {
+        socket.emit('set_player_away', { isAway: false });
+        socket.emit('request_state_sync');
+      } else {
+        const saved = getSavedActiveSession();
+        if (saved && saved.roomCode) {
+          socket.emit('reconnect_player', {
+            roomCode: saved.roomCode,
+            playerName: saved.playerName || getPlayerName(),
+            seatIndex: saved.seatIndex,
+            avatar: getMyPlayerAvatar()
+          });
+        }
+      }
+    }
+  }
+
+  updateScreenWakeLock();
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   initSvgSprite();
   loadSavedRuleSettings();
@@ -401,16 +496,35 @@ document.addEventListener('DOMContentLoaded', () => {
 
   document.addEventListener('visibilitychange', () => {
     const isHidden = document.visibilityState === 'hidden';
-    if (socket && socket.connected && currentRoomCode) {
-      socket.emit('set_player_away', { isAway: isHidden });
+    if (isHidden) {
+      if (socket && socket.connected && currentRoomCode) {
+        socket.emit('set_player_away', { isAway: true });
+      }
+      updateScreenWakeLock();
+    } else {
+      handleAppForegroundResume();
     }
-    updateScreenWakeLock();
   });
 
-  // PWA Service Worker für schnelles Laden & Homescreen-Installation
+  window.addEventListener('pageshow', () => {
+    handleAppForegroundResume();
+  });
+
+  window.addEventListener('online', () => {
+    handleAppForegroundResume();
+  });
+
+  // PWA Service Worker für schnelles Laden & Homescreen-Installation (immer frisch prüfen)
   if ('serviceWorker' in navigator && (window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
-    navigator.serviceWorker.register('sw.js').then((reg) => {
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then((reg) => {
+      swRegistration = reg;
       console.log('Kujong Service Worker registriert:', reg.scope);
+      if (reg.waiting) {
+        try { reg.waiting.postMessage('SKIP_WAITING'); } catch (e) {}
+      }
+      if (typeof reg.update === 'function') {
+        reg.update().catch(() => {});
+      }
       initFriendSystem();
     }).catch((err) => {
       console.warn('Service Worker Registrierung fehlgeschlagen:', err);
@@ -1583,7 +1697,7 @@ function restartGame(shuffleTeams = false) {
 
 function leaveLobby() {
   socket.emit('leave_room');
-  sessionStorage.removeItem('kujong_session');
+  clearActiveSession();
   currentRoomCode = null;
   mySeatIndex = -1;
   gameState = null;
@@ -1614,7 +1728,7 @@ function confirmLeaveGame() {
   const confirmLeave = confirm('Möchtest du das Spiel wirklich verlassen? Dein Platz wird sofort von einem Bot übernommen, damit die Partie weitergehen kann.');
   if (confirmLeave) {
     socket.emit('leave_game');
-    sessionStorage.removeItem('kujong_session');
+    clearActiveSession();
     currentRoomCode = null;
     mySeatIndex = -1;
     gameState = null;
@@ -1820,19 +1934,19 @@ function closeLastTrickModal() {
 socket.on('connect', () => {
   console.log('Connected to Kujong Server.');
   socket.emit('get_public_rooms');
-  const savedSession = sessionStorage.getItem('kujong_session');
-  if (savedSession) {
-    try {
-      const { roomCode, playerName, seatIndex } = JSON.parse(savedSession);
-      if (roomCode) {
-        socket.emit('reconnect_player', { roomCode, playerName, seatIndex, avatar: getMyPlayerAvatar() });
-      }
-    } catch (e) {}
+  const savedSession = getSavedActiveSession();
+  if (savedSession && savedSession.roomCode) {
+    socket.emit('reconnect_player', {
+      roomCode: savedSession.roomCode,
+      playerName: savedSession.playerName || getPlayerName(),
+      seatIndex: savedSession.seatIndex,
+      avatar: getMyPlayerAvatar()
+    });
   }
 });
 
 socket.on('room_disbanded', ({ message }) => {
-  sessionStorage.removeItem('kujong_session');
+  clearActiveSession();
   currentRoomCode = null;
   mySeatIndex = -1;
   gameState = null;
@@ -1848,7 +1962,7 @@ socket.on('room_disbanded', ({ message }) => {
 socket.on('left_room', () => {
   isCreatingRoom = false;
   isJoiningRoom = false;
-  sessionStorage.removeItem('kujong_session');
+  clearActiveSession();
   currentRoomCode = null;
   mySeatIndex = -1;
   gameState = null;
@@ -1861,7 +1975,7 @@ socket.on('left_room', () => {
 });
 
 socket.on('kicked_from_room', ({ message }) => {
-  sessionStorage.removeItem('kujong_session');
+  clearActiveSession();
   currentRoomCode = null;
   mySeatIndex = -1;
   gameState = null;
@@ -1915,7 +2029,7 @@ socket.on('join_request_accepted', ({ roomCode, seatIndex }) => {
   const specBanner = document.getElementById('spectatorBanner');
   if (specBanner) specBanner.classList.add('hidden');
   const playerName = getPlayerName() || 'Spieler';
-  sessionStorage.setItem('kujong_session', JSON.stringify({ roomCode, seatIndex, playerName }));
+  saveActiveSession(roomCode, playerName, seatIndex);
   socket.emit('confirm_midgame_join', { roomCode, seatIndex });
   document.getElementById('lobbyScreen').classList.remove('active');
   document.getElementById('gameScreen').classList.add('active');
@@ -2411,11 +2525,7 @@ socket.on('room_created', ({ roomCode, seatIndex }) => {
   document.getElementById('displayRoomCode').textContent = roomCode;
 
   const pName = getPlayerName();
-  sessionStorage.setItem('kujong_session', JSON.stringify({
-    roomCode: roomCode,
-    playerName: pName,
-    seatIndex: seatIndex
-  }));
+  saveActiveSession(roomCode, pName, seatIndex);
 });
 
 // --------------------------------------------------------------------------
@@ -2423,11 +2533,21 @@ socket.on('room_created', ({ roomCode, seatIndex }) => {
 // --------------------------------------------------------------------------
 let socketEventQueue = [];
 let isAnimatingTrick = false;
+let trickAnimStartedAt = 0;
 let displayedTrickCardIds = new Set();
 let currentEvaluatingTrickNumber = -1;
 
 function enqueueGameState(state) {
   if (isAnimatingTrick) {
+    const elapsed = Date.now() - trickAnimStartedAt;
+    if (elapsed > 2400 || document.visibilityState === 'hidden') {
+      isAnimatingTrick = false;
+      trickAnimStartedAt = 0;
+      displayedTrickCardIds.clear();
+      socketEventQueue = [];
+      handleGameState(state);
+      return;
+    }
     socketEventQueue.push(state);
   } else {
     handleGameState(state);
@@ -2485,11 +2605,7 @@ function handleGameState(state) {
   // Sitzung für Reconnection bei Verbindungsabbrüchen speichern (nur echte Spieler)
   if (!isSpectator && state.you && state.players[state.you.seatIndex]) {
     const myPlayer = state.players[state.you.seatIndex];
-    sessionStorage.setItem('kujong_session', JSON.stringify({
-      roomCode: state.roomCode,
-      playerName: myPlayer.name,
-      seatIndex: state.you.seatIndex
-    }));
+    saveActiveSession(state.roomCode, myPlayer.name, state.you.seatIndex);
   }
 
   // Sound-Effekte bei Phasen-/Zugwechsel
@@ -2543,6 +2659,7 @@ function handleGameState(state) {
       // Starte das Einsammeln rechtzeitig vor Ablauf des Server-Timers, damit kein Stau zum nächsten Stich entsteht
       const pauseMs = Math.max(380, serverTrickMs - collectAnimMs - 60);
       isAnimatingTrick = true;
+      trickAnimStartedAt = Date.now();
 
       setTimeout(() => {
         // Karten zum Gewinner fliegen lassen
@@ -2562,6 +2679,7 @@ function handleGameState(state) {
 
         setTimeout(() => {
           isAnimatingTrick = false;
+          trickAnimStartedAt = 0;
           displayedTrickCardIds.clear();
           processNextQueuedState();
         }, collectAnimMs);
@@ -2836,13 +2954,16 @@ function renderGameScreen() {
   document.getElementById('eyesThey').textContent = countEyesLive ? eyesThey : '-';
 
 
-  // Letzter Stich Button Sichtbarkeit
+  // Letzter Stich Button Sichtbarkeit & Direkt-Klick auf Stich-Anzeige
   const viewLastTrickBtn = document.getElementById('viewLastTrickBtn');
   if (gameState.lastTrick) {
     viewLastTrickBtn.classList.remove('hidden');
   } else {
     viewLastTrickBtn.classList.add('hidden');
   }
+  document.querySelectorAll('.tricks-stat-wrap').forEach(el => {
+    el.classList.toggle('has-last-trick', Boolean(gameState.lastTrick));
+  });
 
   // Runde & Trumpf-Badge
   document.getElementById('roundNumberDisplay').textContent = gameState.roundNumber;
@@ -2924,6 +3045,10 @@ function renderGameScreen() {
   const autoBotBanner = document.getElementById('autoBotBanner');
   if (autoBotBanner) {
     autoBotBanner.classList.toggle('hidden', !isMyAutoBot);
+  }
+  const handAutoBotBanner = document.getElementById('handAutoBotResumeBanner');
+  if (handAutoBotBanner) {
+    handAutoBotBanner.classList.toggle('hidden', isSpectator || !isMyAutoBot);
   }
 
   // Zuschauer-Banner & Kontrollen
@@ -3177,22 +3302,79 @@ function renderTablePlayers() {
   if (turnInd) {
     turnInd.classList.toggle('hidden', !isMyTurn);
     turnInd.classList.toggle('turn-slow-badge', Boolean(isMyTurn && isCurrentTurnSlow));
+    turnInd.classList.toggle('turn-afk-countdown', Boolean(isMyTurn && afkRemainingSeconds !== null));
     if (isMyTurn) {
-      turnInd.textContent = isMyAutoBot ? '🤖 Bot legt für dich...' : (isCurrentTurnSlow ? '⏳ Du bist am Zug!' : '⚡ Du bist am Zug!');
+      if (isMyAutoBot) {
+        turnInd.textContent = '🤖 Bot legt für dich...';
+      } else if (afkRemainingSeconds !== null) {
+        turnInd.textContent = `⏳ Du bist am Zug! (Pause in ${afkRemainingSeconds}s)`;
+      } else {
+        turnInd.textContent = isCurrentTurnSlow ? '⏳ Du bist am Zug!' : '⚡ Du bist am Zug!';
+      }
     }
   }
 }
 
 let currentTurnWatchKey = null;
 let slowTurnTimer = null;
+let afkWarningTimer = null;
+let afkCountdownInterval = null;
+let afkRemainingSeconds = null;
+let botStuckSyncTimer = null;
 let isCurrentTurnSlow = false;
+
+function clearAfkCountdownTimers() {
+  if (slowTurnTimer) {
+    clearTimeout(slowTurnTimer);
+    slowTurnTimer = null;
+  }
+  if (afkWarningTimer) {
+    clearTimeout(afkWarningTimer);
+    afkWarningTimer = null;
+  }
+  if (afkCountdownInterval) {
+    clearInterval(afkCountdownInterval);
+    afkCountdownInterval = null;
+  }
+  if (botStuckSyncTimer) {
+    clearTimeout(botStuckSyncTimer);
+    botStuckSyncTimer = null;
+  }
+  afkRemainingSeconds = null;
+  const turnInd = document.getElementById('turnIndicator');
+  if (turnInd) turnInd.classList.remove('turn-afk-countdown');
+  const trumpHint = document.getElementById('trumpModalHint');
+  if (trumpHint) {
+    trumpHint.textContent = 'Hier sind deine ersten 3 Handkarten:';
+    trumpHint.classList.remove('turn-afk-trump-warn');
+  }
+}
+
+function updateAfkCountdownUI(activeSeat, expectedTurnKey) {
+  if (!gameState || currentTurnWatchKey !== expectedTurnKey) return;
+  if (afkRemainingSeconds === null || isSpectator || activeSeat !== mySeatIndex) return;
+
+  if (gameState.phase === 'CHOOSE_TRUMP') {
+    const msg = `⏳ Bitte wählen – Pause in ${afkRemainingSeconds}s`;
+    const trumpHint = document.getElementById('trumpModalHint');
+    if (trumpHint) {
+      trumpHint.textContent = msg;
+      trumpHint.classList.add('turn-afk-trump-warn');
+    }
+    const ticker = document.getElementById('statusMessage');
+    if (ticker) ticker.textContent = msg;
+  } else {
+    const turnInd = document.getElementById('turnIndicator');
+    if (turnInd && !turnInd.classList.contains('hidden')) {
+      turnInd.classList.add('turn-slow-badge', 'turn-afk-countdown');
+      turnInd.textContent = `⏳ Du bist am Zug! (Pause in ${afkRemainingSeconds}s)`;
+    }
+  }
+}
 
 function updateSlowTurnReminder() {
   if (!gameState || (gameState.phase !== 'CHOOSE_TRUMP' && gameState.phase !== 'PLAY_TRICK')) {
-    if (slowTurnTimer) {
-      clearTimeout(slowTurnTimer);
-      slowTurnTimer = null;
-    }
+    clearAfkCountdownTimers();
     currentTurnWatchKey = null;
     isCurrentTurnSlow = false;
     return;
@@ -3201,7 +3383,8 @@ function updateSlowTurnReminder() {
   const activeSeat = gameState.phase === 'CHOOSE_TRUMP' ? gameState.declarerIndex : gameState.currentTurn;
   const activePlayer = (gameState.players && typeof activeSeat === 'number') ? gameState.players[activeSeat] : null;
   const trickLen = Array.isArray(gameState.currentTrick) ? gameState.currentTrick.length : 0;
-  const turnKey = `${gameState.roomCode}_${gameState.roundNumber}_${gameState.phase}_${activeSeat}_${gameState.trickCount}_${trickLen}`;
+  const botFlag = (activePlayer && (activePlayer.isBot || activePlayer.isAutoBot)) ? 'B' : 'H';
+  const turnKey = `${gameState.roomCode}_${gameState.roundNumber}_${gameState.phase}_${activeSeat}_${gameState.trickCount}_${trickLen}_${botFlag}`;
 
   if (turnKey === currentTurnWatchKey) {
     return;
@@ -3209,15 +3392,22 @@ function updateSlowTurnReminder() {
 
   currentTurnWatchKey = turnKey;
   isCurrentTurnSlow = false;
-  if (slowTurnTimer) {
-    clearTimeout(slowTurnTimer);
-    slowTurnTimer = null;
-  }
+  clearAfkCountdownTimers();
 
   document.querySelectorAll('.player-avatar-box.turn-slow-pulse').forEach(el => el.classList.remove('turn-slow-pulse'));
 
-  // Nur bei echten menschlichen Spielern (nicht Bot, nicht im Pause-Modus)
-  if (!activePlayer || activePlayer.isBot || activePlayer.isAutoBot) {
+  // Falls ein Bot (oder pausierter Spieler) am Zug ist: Sync-Absicherung nach 6.5s gegen Hänger
+  if (activePlayer && (activePlayer.isBot || activePlayer.isAutoBot)) {
+    botStuckSyncTimer = setTimeout(() => {
+      if (!gameState || currentTurnWatchKey !== turnKey) return;
+      if (currentRoomCode && typeof socket !== 'undefined' && socket.connected) {
+        socket.emit('request_state_sync');
+      }
+    }, 6500);
+    return;
+  }
+
+  if (!activePlayer) {
     return;
   }
 
@@ -3241,11 +3431,36 @@ function updateSlowTurnReminder() {
       const turnInd = document.getElementById('turnIndicator');
       if (turnInd && !turnInd.classList.contains('hidden')) {
         turnInd.classList.add('turn-slow-badge');
-        turnInd.textContent = '⏳ Du bist am Zug!';
+        if (afkRemainingSeconds === null) {
+          turnInd.textContent = '⏳ Du bist am Zug!';
+        }
       }
       showToast('⏳ Du bist dran!');
     }
   }, 12000);
+
+  // Ab Sekunde 15 (5 Sekunden vor 20s-AFK-Pause): Sichtbarer Countdown
+  afkWarningTimer = setTimeout(() => {
+    if (!gameState || currentTurnWatchKey !== turnKey) return;
+    afkRemainingSeconds = 5;
+    updateAfkCountdownUI(activeSeat, turnKey);
+
+    afkCountdownInterval = setInterval(() => {
+      if (!gameState || currentTurnWatchKey !== turnKey) {
+        clearAfkCountdownTimers();
+        return;
+      }
+      if (afkRemainingSeconds > 1) {
+        afkRemainingSeconds -= 1;
+        updateAfkCountdownUI(activeSeat, turnKey);
+      } else {
+        if (afkCountdownInterval) {
+          clearInterval(afkCountdownInterval);
+          afkCountdownInterval = null;
+        }
+      }
+    }, 1000);
+  }, 15000);
 }
 
 function renderTrickCenter() {
@@ -3411,6 +3626,8 @@ function renderMyHand() {
 
     if (isMyAutoBot) {
       cardChild.classList.add('auto-bot-disabled');
+      cardChild.title = 'Tippen, um Pause zu beenden und selbst weiterzuspielen';
+      cardChild.addEventListener('click', () => toggleAutoBot());
     } else if (isPlayable && isMyTurn) {
       cardChild.addEventListener('click', () => playCardWithAnimation(card.id, cardChild));
     }
@@ -3535,6 +3752,12 @@ function handleModals() {
     } else {
       throwCardsBanner.classList.add('hidden');
     }
+  }
+
+  // Pause-Resume-Button direkt über den Handkarten im Auto-Bot-Modus
+  const handAutoBotBanner = document.getElementById('handAutoBotResumeBanner');
+  if (handAutoBotBanner) {
+    handAutoBotBanner.classList.toggle('hidden', isSpectator || !isMyAutoBot);
   }
 
   // Rundenabrechnungs-Modal
@@ -4187,6 +4410,7 @@ function initFriendSystem() {
   // Socket Registrierung absenden
   if (socket && socket.connected) {
     registerFriendSocket();
+    syncSavedFriendsStatusInBackground();
   }
 
   // URL-Parameter prüfen (?add_friend=... oder ?room=...)
@@ -4271,7 +4495,28 @@ async function checkExistingPushSubscription() {
 
   try {
     const reg = await navigator.serviceWorker.ready;
-    const sub = await reg.pushManager.getSubscription();
+    let sub = await reg.pushManager.getSubscription();
+
+    // Falls Berechtigung bereits erteilt ist, Push-Abo aber (z. B. nach SW-Update / PWA-Wechsel) fehlt:
+    // direkt automatisch im Hintergrund neu abonnieren!
+    if (!sub && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+      try {
+        if (!vapidPublicKey) {
+          const resp = await fetch('/api/vapid-public-key');
+          const data = await resp.json();
+          vapidPublicKey = data.publicKey;
+        }
+        if (vapidPublicKey) {
+          sub = await reg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)
+          });
+        }
+      } catch (autoSubErr) {
+        console.warn('Automatisches Re-Subscribe fehlgeschlagen:', autoSubErr);
+      }
+    }
+
     if (sub) {
       try {
         localStorage.setItem('kujong_push_sub', JSON.stringify(sub));
@@ -4281,8 +4526,10 @@ async function checkExistingPushSubscription() {
         socket.emit('save_push_subscription', {
           friendCode: myFriendCode,
           pushSub: sub,
-          playerName: getPlayerName() || 'Spieler'
+          playerName: getPlayerName() || 'Spieler',
+          notifyAllRooms: (typeof isGlobalRoomAlertEnabled === 'function') ? isGlobalRoomAlertEnabled() : false
         });
+        registerFriendSocket();
       }
 
       if (statusBadge) {
@@ -4421,6 +4668,50 @@ function changeMyPlayerNamePrompt() {
   }
 }
 
+// Hilfsfunktion: Freundesliste im Hintergrund mit dem Server abgleichen (auch wenn Freunde-Modal geschlossen ist)
+function syncSavedFriendsStatusInBackground(onDone = null) {
+  if (!socket || !socket.connected || !Array.isArray(savedFriends) || savedFriends.length === 0) {
+    if (typeof onDone === 'function') onDone(null);
+    return;
+  }
+
+  const friendCodes = savedFriends.map(f => f.code);
+  const friendsData = savedFriends.map(f => ({
+    code: f.code,
+    name: f.name,
+    avatar: f.avatar || null,
+    pushSub: f.pushSub || null
+  }));
+
+  socket.emit('check_friends_status', { friendCodes, friendsData }, (response) => {
+    let hasChanges = false;
+    savedFriends.forEach(friend => {
+      const details = response?.statusMap?.[friend.code];
+      if (!details) return;
+
+      if (details.pushSub && details.pushSub.endpoint && (!friend.pushSub || friend.pushSub.endpoint !== details.pushSub.endpoint)) {
+        friend.pushSub = details.pushSub;
+        hasChanges = true;
+      }
+
+      if (details.name && details.name !== friend.name && !details.name.startsWith('Spieler ')) {
+        friend.name = details.name;
+        hasChanges = true;
+      }
+
+      if (details.avatar && details.avatar !== friend.avatar) {
+        friend.avatar = details.avatar;
+        hasChanges = true;
+      }
+    });
+
+    if (hasChanges) {
+      saveFriendsToStorage();
+    }
+    if (typeof onDone === 'function') onDone(response);
+  });
+}
+
 // Freundesliste rendern
 function renderFriendsList(isFromWaitingRoom = false) {
   const container = document.getElementById('friendsListContainer');
@@ -4460,8 +4751,8 @@ function renderFriendsList(isFromWaitingRoom = false) {
       const details = response?.statusMap?.[friend.code];
       const isOnline = !!(response && (response[friend.code] === true || details?.online));
 
-      // Falls der Server ein Push-Abo für den Freund hat, das wir lokal noch nicht hatten: speichern!
-      if (details && details.pushSub && (!friend.pushSub || !friend.pushSub.endpoint)) {
+      // Push-Abo auch bei neuer Endpoint-URL immer auf dem neuesten Stand halten!
+      if (details && details.pushSub && details.pushSub.endpoint && (!friend.pushSub || friend.pushSub.endpoint !== details.pushSub.endpoint)) {
         friend.pushSub = details.pushSub;
         hasChanges = true;
       }
@@ -4599,7 +4890,25 @@ function addFriendDirectly(friendCode, friendName) {
   updateFriendsCountBadge();
   showToast(`🎉 ${cleanName} (${cleanCode}) zu Freunden hinzugefügt!`);
 
-  socket.emit('check_friends_status', { friendCodes: [cleanCode] }, () => {
+  socket.emit('check_friends_status', { friendCodes: [cleanCode] }, (response) => {
+    const details = response?.statusMap?.[cleanCode];
+    const target = savedFriends.find(f => f.code === cleanCode);
+    if (target && details) {
+      let changed = false;
+      if (details.pushSub && details.pushSub.endpoint) {
+        target.pushSub = details.pushSub;
+        changed = true;
+      }
+      if (details.name && !details.name.startsWith('Spieler ')) {
+        target.name = details.name;
+        changed = true;
+      }
+      if (details.avatar) {
+        target.avatar = details.avatar;
+        changed = true;
+      }
+      if (changed) saveFriendsToStorage();
+    }
     renderFriendsList();
   });
 
@@ -4683,6 +4992,14 @@ function inviteFriend(friendCode) {
     roomCode: currentRoomCode,
     inviterName: myName
   }, (ack) => {
+    if (ack && ack.pushSub && ack.pushSub.endpoint && (!friend.pushSub || friend.pushSub.endpoint !== ack.pushSub.endpoint)) {
+      friend.pushSub = ack.pushSub;
+      saveFriendsToStorage();
+    } else if (ack && ack.expired) {
+      friend.pushSub = null;
+      saveFriendsToStorage();
+    }
+
     if (ack && ack.rateLimited) {
       showToast(`⏳ ${ack.message || 'Bitte kurz warten vor dem nächsten Ping an diesen Freund.'}`);
     } else if (ack && ack.sentOnline && ack.sentPush) {
@@ -4840,9 +5157,11 @@ socket.on('incoming_game_invite', (data) => {
   showIncomingInviteBanner(data);
 });
 
-// Bei Wiederverbindung Freundes-Code erneut registrieren
+// Bei Wiederverbindung Freundes-Code erneut registrieren, Push-Abo prüfen & Freunde synchronisieren
 socket.on('connect', () => {
   registerFriendSocket();
+  if (typeof checkExistingPushSubscription === 'function') checkExistingPushSubscription();
+  if (typeof syncSavedFriendsStatusInBackground === 'function') syncSavedFriendsStatusInBackground();
 });
 
 // Globale Fenster-Verknüpfungen für HTML onclick-Handler
